@@ -1,0 +1,621 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+  <title>Online Calculator | Instant Results</title>
+
+
+  <script src="../javascripts/general-utils.js" type="text/javascript"></script>
+  <script src="http://jshell.com/javascripts/global.js" type="text/javascript"></script>
+  <script src="../javascripts/prototype.js" type="text/javascript"></script>
+  <script src="../javascripts/scriptaculous.js" type="text/javascript"></script>
+  <script src="../javascripts/drag.js" type="text/javascript"></script>
+  <style type="text/css" media="screen">@import url("../general.css");
+INPUT {
+color: black;
+font-family: arial, verdana, ms sans serif;
+font-size: 18pt;
+} body { margin: 50px 0px;
+padding: 0px;
+text-align: center;
+}
+boxed { border: 1px dashed rgb(51, 51, 51);
+margin: 0px auto;
+padding: 15px;
+width: 500px;
+text-align: left;
+background-color: rgb(238, 238, 238);
+}
+#Content { border: 1px dashed rgb(51, 51, 51);
+margin: 0px auto;
+padding: 15px;
+width: 80%;
+text-align: left;
+background-color: rgb(238, 238, 238);
+}
+.inputArea { font-size: 24px;
+font-family: verdana,arial,helvetica,sans-serif;
+margin: auto;
+}
+.settings {
+border: 1px solid rgb(0, 0, 0);
+padding: 2px;
+background: rgb(204, 204, 255) none repeat scroll 0% 50%;
+text-align: left;
+-moz-background-clip: initial;
+-moz-background-origin: initial;
+-moz-background-inline-policy: initial;
+display: block;
+visibility: visible;
+}
+#main { border: 1px dashed rgb(51, 51, 51);
+margin: 0px auto;
+padding: 15px;
+width: 80%;
+text-align: left;
+background-color: rgb(238, 238, 238);
+}
+.button { border: 2px solid black;
+margin: 3px;
+background: rgb(221, 170, 221) none repeat scroll 0% 50%;
+-moz-background-clip: initial;
+-moz-background-origin: initial;
+-moz-background-inline-policy: initial;
+font-size: 18px;
+width: 100px;
+float: left;
+text-align: center;
+}
+.selected { background: rgb(221, 238, 255) none repeat scroll 0% 50%;
+-moz-background-clip: initial;
+-moz-background-origin: initial;
+-moz-background-inline-policy: initial;
+}
+.outputArea {
+font-family: verdana,arial,helvetica,sans-serif;
+font-size: 24px;
+color: red;
+}
+.drag{
+position:relative;
+cursor:hand;
+z-index: 100;
+}
+.title { border: 4px solid black;
+padding: 10px;
+font-size: 36px;
+background-color: rgb(221, 170, 187);
+}
+#core, #extended{
+padding: 15px;
+}
+.titlenew{
+text-align: left;
+font-size: 28px;
+padding: 10px;
+}
+.titlebar{
+font-size: 12px;
+text-align: center;
+padding: 5px;
+}
+.instructions { font-size: 12px;
+}
+.center { }
+  </style>
+  <script type="text/javascript">
+/***********************************************
+* Drag and Drop Script: � Dynamic Drive (http://www.dynamicdrive.com)
+* This notice MUST stay intact for legal use
+* Visit http://www.dynamicdrive.com/ for this script and 100s more.
+***********************************************/
+var dragobject={
+z: 0, x: 0, y: 0, offsetx : null, offsety : null, targetobj : null, dragapproved : 0,
+initialize:function(){
+document.onmousedown=this.drag
+document.onmouseup=function(){this.dragapproved=0}
+},
+drag:function(e){
+var evtobj=window.event? window.event : e
+this.targetobj=window.event? event.srcElement : e.target
+if (this.targetobj.className=="drag"){
+this.dragapproved=1
+if (isNaN(parseInt(this.targetobj.style.left))){this.targetobj.style.left=0}
+if (isNaN(parseInt(this.targetobj.style.top))){this.targetobj.style.top=0}
+this.offsetx=parseInt(this.targetobj.style.left)
+this.offsety=parseInt(this.targetobj.style.top)
+this.x=evtobj.clientX
+this.y=evtobj.clientY
+if (evtobj.preventDefault)
+evtobj.preventDefault()
+document.onmousemove=dragobject.moveit
+}
+},
+moveit:function(e){
+var evtobj=window.event? window.event : e
+if (this.dragapproved==1){
+this.targetobj.style.left=this.offsetx+evtobj.clientX-this.x+"px"
+this.targetobj.style.top=this.offsety+evtobj.clientY-this.y+"px"
+return false
+}
+}
+}
+dragobject.initialize()
+function write(string){
+statusarea.innerHTML += string
+statusarea.innerHTML += "<br/>";
+}
+function log(string){
+if (logging > 0 && (statusarea != null)){
+statusarea.innerHTML += string
+statusarea.innerHTML += "<br/>";
+}
+}
+function getTime(){
+var now = new Date();
+var ampm = "am"
+hours = now.getHours();
+minutes = now.getMinutes();
+seconds = now.getSeconds();
+// assume am -- switch to pm otherwise.
+if (hours >= 12){
+hours -= 12;
+ampm = "pm";
+}
+// turn :2 into :02
+if (minutes < 10){
+minutes = "0" + minutes;
+}
+return hours + ":" + minutes + ":" + seconds + " " + ampm;
+}
+///////////////////////////////////////////////////////////////
+/// END UTILITY FUNCTIONS
+///////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////
+/// Clean up text from box - remove illegal characters
+///////////////////////////////////////////////////////////////
+function cleanup(str){
+	if (str == null || str == undefined)
+		return str;
+	
+	// remove forbidden characters: anything not A-Z,a-z,0-9,+/*-.
+	str = str.replace(/,/g, ""); // remove commas
+	str = str.replace(/['"]+/g, ""); // remove quotes
+	
+	// TODO: add recognition for special characters
+	// match reserverd words (Math equations)
+	str = str.replace(/R/g, "Math.random()");
+	//str = str.replace(/sin/g, "Math.sin");
+	//str = str.replace(/ceil/g, "Math.ceil()");
+	/* original
+	if (str.match(/^(\w+)\s*(=)/ ) ){
+	str = str.replace(/^(\w+)\s*(=)/g, "localvars[\"$1\"] = ")
+	log("assignment:" + str)
+	}*/
+	// look for variable assignment
+	return str;
+
+	//incomplete assignment
+	if (str.match(/^(\w+)\s*(=)\s*$/ ) ){
+		log("incomplete assignment:" + str)
+		return "";
+	}
+	else if (str.match(/^(\w+)\s*(=)/ ) ){
+		str = str.replace(/^(\w+)\s*(=)/g, "localvars[\"$1\"] = ")
+		log("assignment:" + str)
+	}
+	else{
+		// replace variables in localvars
+		for (var key in localvars){
+			log("looking for " + key);
+			tmp = "(^|\W)" + key + "(\W|$)"
+			log(tmp);
+			// tmp = key;
+			
+			if (str.match(tmp) ) {
+				var rep = "localvars[\"" + key + "\"]";
+				str = str.replace(key, rep)
+				log("key found:" + str);
+			}
+		}
+	}
+	
+	log("logging localvars...")
+	for (var key in localvars){
+		log("localvars["+ key + '] = ' + localvars[key] );
+	}
+	
+	log("str to eval [" + str + "]")
+	return str;
+}
+
+///////////////////////////////////////////////////////////////
+/// Load, Save current input in cells
+///////////////////////////////////////////////////////////////
+function saveInput(inputObj){
+	log("saveInput");
+	/*
+	if (inputObj == undefined){
+	return inputObj;
+	}*/
+	var i;
+	var count = inputObj.length;
+	var InputText = new Array(count);
+	//log("length: " + inputObj.length);
+
+	for (i = 0; i < count; i++){
+		if (undefined != inputObj[i]){
+			InputText[i] = inputObj[i].value;
+			log(InputText[i]);
+		}
+	}
+	return InputText;
+}
+
+function loadInput(textArray, inputArray){
+	log("loadInput");
+	var i;
+	var count = textArray.length;
+	
+	for (i = 0; i < count; i++){
+		if (undefined != textArray[i] && undefined != inputArray[i]){
+			inputArray[i].value = textArray[i];
+			log("inputArray = " + textArray[i]);
+		}
+	}
+}
+
+
+///////////////////////////////////////////////////////////////
+/// Add input & output box to div element
+///////////////////////////////////////////////////////////////
+function addCell(maindiv, i, value){
+if (maindiv != undefined){
+maindiv.innerHTML += "<div class=\"drag\">::<input id=\"input_" + i +"\" name=\"inputArea\"/><span id=\"output_"+ i +"\" class=\"outputArea\"></span></div>"
+new Effect.Highlight("input_" + i);
+}
+}
+/////////
+/// Set all cells to something -- let's see if this works
+////////////
+function setCells(){
+log("SetCells")
+for (i = 0; i < CELLS; i++){
+// input and output cellts
+Inputs[i] = document.getElementById("input_" + i);
+Outputs[i] = document.getElementById("output_" + i);
+// make sure we 
+
+if ( isNull(Inputs[i].value) ){
+continue;
+}
+
+log("Inputs[" + i + "].value:" + Inputs[i].value );
+if (undefined == Outputs[i] || undefined == Inputs[i] || undefined == saved[i]){
+continue;
+log("undefined:" + i)
+}
+Inputs[i].value = saved[i];
+}
+log("End SetCells");
+}
+///////////////////////////////////////////////////////////////
+/// Recalculate all values
+///////////////////////////////////////////////////////////////
+function keyListener(e){
+	//loadCells();
+	var i;
+	for (i = 0; i < CELLS; i++){
+		// input and output cellts
+		Inputs[i] = document.getElementById("input_" + i);
+		Outputs[i] = document.getElementById("output_" + i);
+		// make sure we 
+		if (undefined == Outputs[i] || undefined == Inputs[i]){
+			continue;
+		}
+		
+		Outputs[i].innerHTML = " "; //always clear
+		if (Inputs[i].value == null || Inputs[i].value == undefined || Inputs[i].value == ""){
+			tmp = ""
+		}
+		else {
+			inputstr = cleanup(Inputs[i].value);
+			tmp = eval(inputstr);
+		}
+		if (tmp == "NaN" || tmp == "undefined"){
+			tmp = " " // variable not recognized
+		}
+		
+		//log("Tmp:" + tmp + " |Output[" + i + "] = " + Outputs[i]); // make sure the output object exists -- may have been cleared recently
+		Outputs[i].innerHTML = tmp;
+	}
+
+	createURL();
+}
+// Set initialization variables
+function init(){
+	log("init");
+	loadURLParams()
+}
+function isNull(obj){
+	if (obj == null || obj == undefined || obj === null || obj == "")
+		return true;
+	else
+		return false;
+}
+function createURL(){
+	saveCells();
+	str = ""
+	for (i = 0; i < saved.length; i++){
+		str += saved[i] +"|";
+	}
+	var url = getURLNoParams(); //base url
+	var items = escape(str);
+	urlbox.value = url + "?items=" + items;
+}
+function loadURLParams(){
+	str = getURLParam("items");
+	if (isNull(str)){
+		return;
+	}
+	str = unescape(str);
+	log("URL decode:" + str);
+	
+	var cellArray = str.split("|");
+	for (i = 0; i < cellArray.length && i < CELLS; i++){
+		saved[i] = cellArray[i];
+		log("cellArray: " + cellArray[i]);
+	}
+	setCells();
+	keyListener();
+}
+// initialization variables
+var CELLS = 10;
+var Inputs = new Array(CELLS);
+var Outputs = new Array(CELLS);
+var saved;
+var i;
+var logging = 0; // 1 = on, 0 = off
+  </script>
+</head>
+
+
+<body onload="init()">
+
+<div id="Content">
+<div class="titlenew">Math. Fast.</div>
+
+<div>Instant results. Variables and formulas. Draggable cells.
+Save and share.</div>
+
+<hr />
+<span id="statusarea"></span>
+<div id="core" class="inputArea"></div>
+
+<div id="extracells" class="inputArea">
+<div id="extended"></div>
+
+<!--<span onclick="saveCells(); addCell(extended, CELLS, CELLS); CELLS = CELLS + 1; setCells();">Add Cell</span>--></div>
+
+<div>
+<a href="index.html#" onclick="toggleItem('extracells')">More
+cells...</a> </div>
+
+<hr />
+<!-- <div align="center"><strong>Saved Variables</strong> (reload page to clear)<br /> <span id="variablearea"></span> </div> -->
+<div class="titlebar"> <a href="index.html#" onclick="toggleItem('instructions')">Instructions</a><!-- | <a href="#" onclick="toggleItem('log')">View History</a> | <a href="#" onclick="writeWords()">Show Words</a> --><!-- <a href="#" onclick="clearItem('statusarea')">clear</a></div> -->
+<div class="settings" id="instructions">The goal is
+a simple, clean and fast web calculator: <br />
+
+<ul>
+
+  <li><span style="font-weight: bold;">Instant answers.</span> Just start typing ("3 + 4"). No need to wait. </li>
+
+  <li><span style="font-weight: bold;">Use equations.</span>
+Use variables like x,y, or even "profit = revenue - expense"</li>
+
+  <li><span style="font-weight: bold;">Save and
+share.</span> Save and come back to any session. Send to a friend
+for help or advice.</li>
+
+  <li><span style="font-weight: bold;">Draggable.</span>
+Drag the "::" and move cells around.<br />
+
+  </li>
+
+</ul>
+
+<br />
+
+There are many ways to use the program, some examples are below: <br />
+
+<span style="font-weight: bold;"></span><br />
+
+<table align="center" border="1" cellpadding="0" cellspacing="0" width="75%">
+
+  <tbody>
+
+    <tr>
+
+      <td><strong>Example</strong></td>
+
+      <td><strong>Result</strong></td>
+
+    </tr>
+
+    <tr>
+
+      <td>2 * 20</td>
+
+      <td>40 (appears instantly)</td>
+
+    </tr>
+
+    <tr>
+
+      <td>2 * 200</td>
+
+      <td>400 (appears as you type '0')<br />
+
+      </td>
+
+    </tr>
+
+    <tr>
+
+      <td>x = 3</td>
+
+      <td>3 (set "x" to 3, can be used later)</td>
+
+    </tr>
+
+    <tr>
+
+      <td>3 * x</td>
+
+      <td>9 (use x in equation)</td>
+
+    </tr>
+
+    <tr>
+
+      <td>y = 2</td>
+
+      <td>2 (set "y")</td>
+
+    </tr>
+
+    <tr>
+
+      <td>x * y</td>
+
+      <td>6 (use x and y together)</td>
+
+    </tr>
+
+    <tr>
+
+      <td>R</td>
+
+      <td>.412312 (R is special -- random number from 0 - 1)</td>
+
+    </tr>
+
+    <tr>
+
+      <td>(press enter)</td>
+
+      <td>.8123 (Creates new random number)</td>
+
+    </tr>
+
+    <tr>
+
+      <td>R * 10</td>
+
+      <td>5.123 (Random number from 0 to 10)</td>
+
+    </tr>
+
+    <tr>
+
+      <td>ceil(R * 10)</td>
+
+      <td>7 (Math.ceil rounds number up)</td>
+
+    </tr>
+
+    <tr>
+
+      <td>0x1234</td>
+
+      <td>4660 (hex to decimal conversion)</td>
+
+    </tr>
+
+    <tr>
+
+      <td>043</td>
+
+      <td>35 (octal to decimal conversion)</td>
+
+    </tr>
+
+  </tbody>
+</table>
+
+<br />
+
+This is a work in progress - comments are welcome.
+</div>
+
+<!-- <div class="settings" id="log"><strong>History </strong>(<a href="#" onclick="clearItem('statusarea')">clear</a>). This is not stored anywhere, and may be lost if you reload the page.</div> -->
+<div id="url">URL to share: <br/>
+<textarea type="text" readonly="true" cols="50" rows="1" name="urlbox" id="urlbox"></textarea>
+</div>
+
+</div>
+
+</div>
+
+<script type="text/javascript">
+var core = document.getElementById("core")
+var extended = document.getElementById("extended")
+var statusarea=document.getElementById("statusarea")
+var urlbox = document.getElementById("urlbox")
+function saveCells(){
+//core = document.getElementById("core")
+saved = saveInput(Inputs);
+}
+function loadCells(){
+return;
+loadInput(saved, Inputs);
+for (i = 0; i < CELLS; i++){
+log("orig: " + Inputs[i].value);
+Inputs[i].value = "i set by load";
+} }
+// write input and output areas
+for (i = 0; i < CELLS; i++){
+if (i <= 4){ // first cells go to basic div
+addCell(core, i, "");
+}
+else{
+addCell(extended, i, "");
+}
+//core.innerHTML += "<div> <input id=\"input_" + i +"\" class=\"inputarea\" value=\"" + i + "\"/><span id=\"output_"+ i +"\" class=\"outputArea\">Result2< /span>< /div>
+}
+var variablearea=document.getElementById("variablearea")
+var status="stopped"
+var localvars = new Object(); // local variables the user has assigned
+log("Begin log");
+/* // load input values; wait until content has been written
+for (i = 0; i < CELLS; i++){
+Inputs[i] = document.getElementById("input_" + i);
+Outputs[i] = document.getElementById("output_" + i);
+}
+*/
+document.onkeyup = keyListener;
+hideItem("extracells");
+hideItem("instructions")
+//hideItem("log")
+hideAll()
+keyListener();
+</script>
+
+<!-- Start of StatCounter Code -->
+<script type="text/javascript" language="javascript">
+var sc_project=2157207; 
+var sc_invisible=1; 
+var sc_partition=19; 
+var sc_security="4f8105ea"; 
+</script>
+
+<script type="text/javascript" language="javascript" 
+src="http://www.statcounter.com/counter/counter.js"></script><noscript><a 
+href="http://www.statcounter.com/" target="_blank"><img  
+src="http://c20.statcounter.com/counter.php?sc_project=2157207&java=0&security=4f8105ea&invisible=1" 
+alt="invisible hit counter" border="0"></a> </noscript>
+<!-- End of StatCounter Code -->
+</body>
+</html>
