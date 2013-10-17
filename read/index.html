@@ -1,0 +1,609 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+  <title>Online Speed Reader</title>
+
+
+  <style type="text/css" media="screen">@import url("../general.css");
+body { margin: 50px 0px;
+padding: 0px;
+text-align: center;
+}
+boxed { border: 1px dashed rgb(51, 51, 51);
+margin: 0px auto;
+padding: 15px;
+width: 500px;
+text-align: left;
+background-color: rgb(238, 238, 238);
+}
+#Content { border: 1px dashed rgb(51, 51, 51);
+margin: 0px auto;
+padding: 15px;
+width: 600px;
+text-align: left;
+background-color: rgb(238, 238, 238);
+}
+.inputArea { font-size: 12px;
+font-family: verdana,arial,helvetica,sans-serif;
+background-color: rgb(255, 204, 153);
+}
+
+INPUT {
+font-size: 16px;
+
+}
+
+.settings {
+	border: 1px solid rgb(0, 0, 0);
+	padding: 2px;
+	background: rgb(204, 204, 255) none repeat scroll 0% 50%;
+	text-align: left;
+-moz-background-clip: initial;
+-moz-background-origin: initial;
+-moz-background-inline-policy: initial;
+display: block;
+visibility: visible;
+}
+#main { border: 1px dashed rgb(51, 51, 51);
+margin: 0px auto;
+padding: 15px;
+width: 80%;
+text-align: left;
+background-color: rgb(238, 238, 238);
+}
+.button { border: 2px solid black;
+margin: 3px;
+background: rgb(221, 170, 221) none repeat scroll 0% 50%;
+-moz-background-clip: initial;
+-moz-background-origin: initial;
+-moz-background-inline-policy: initial;
+font-size: 18px;
+width: 100px;
+float: left;
+text-align: center;
+}
+.selected { background: rgb(221, 238, 255) none repeat scroll 0% 50%;
+-moz-background-clip: initial;
+-moz-background-origin: initial;
+-moz-background-inline-policy: initial;
+}
+.outputFontLarge { font-size: 54px;
+}
+.outputFontMedium { font-size: 36px;
+}
+.outputFontSmall { font-size: 24px;
+}
+.outputFontTiny { font-size: 16px;
+}
+.outputArea { border: 4px groove rgb(0, 0, 0);
+margin: auto;
+padding: 10px;
+font-family: verdana,arial,helvetica,sans-serif;
+height: 100px;
+text-align: center;
+opacity: 1;
+color: rgb(102, 102, 102);
+}
+.drag { position: relative;
+}
+.title { border: 4px solid black;
+padding: 10px;
+font-size: 36px;
+background-color: rgb(221, 170, 187);
+}
+
+.titlenew{
+text-align: center;
+font-size: 28px;
+padding: 5px;
+}
+
+.instructions { font-size: 12px;
+}
+.center { }
+  </style>
+    <script type="text/javascript">
+
+// *************************
+//  Show / Hide text
+// *************************
+
+	function hideItem(itemName)
+	{	
+		var i = document.getElementById(itemName);
+		i.style.display = "none";
+	}
+	
+	function showItem(itemName)
+	{	
+		var i = document.getElementById(itemName);
+		i.style.display = "";
+	}
+	
+	function toggleItem(itemName)
+	{
+		var i = document.getElementById(itemName);
+		if (i.style.display=="none"){
+			i.style.display = "";
+		}
+		else{
+			i.style.display ="none";
+		}
+	}
+	
+	function clearItem(itemName){
+		var i = document.getElementById(itemName);
+		i.innerHTML = "";
+	}
+	
+	function hideAll(){
+	  hideItem("instructions");
+  	  hideItem("settings");
+  	  hideItem("log");
+	  log("hideall");
+	}
+
+	
+  function changeCSS(id, newClass) {
+	var identity=document.getElementById(id);
+	identity.className=newClass;
+  }
+
+function setFont(element,size){
+   var i = document.getElementById(element)
+   i.style.display = ParseInt(size)
+}
+
+
+// *************************
+//    Speed Reading
+// **************************
+
+// only toggle integeres
+function toggle(i){
+  if (i == 1)
+    i = 0
+  else if (i == 0)
+     i = 1
+
+}
+
+function log(string){
+  if (logging > 0){
+    statusarea.innerHTML += string
+    statusarea.innerHTML += "<br/>";
+  }
+}
+
+function loadText(){
+  log("loadText()");
+  curpos = 0;
+  word = 0;
+  
+  words = inputarea.value.replace(/\s/g," ").split(" ")
+  //inputarea.value = inputarea.value.replace(/\s/g," ");
+  //words = inputarea.value.split(" ")
+}
+
+function showWordBeforeAndAfter(count){
+  log("showWordBeforeAndAfter():")
+  
+  return;
+  var i;
+  var pos;
+  var tmp = "";
+  
+  // before
+  for (i = 0, pos = word - count; pos >= 0 && i < count; i++){
+    tmp += words[pos + i] + " ";
+    log("setWordBeforeAndAfter() tmp:" + tmp)
+  }
+  
+  outputbefore.innerHTML = tmp;
+  
+  // after
+  tmp = "";
+  for (i = 0, pos = word + count; pos >= 0 && i < count && pos + i < words.length; i++){
+    tmp += words[pos + i] + " ";
+    log("setWordBeforeAndAfter() tmp:" + tmp)
+  }
+  
+  outputafter.innerHTML = tmp;
+}
+
+function showWord(count){
+  log("showWord()");
+  log("count:" + count);
+  log("word:" + word);
+
+  showWordBeforeAndAfter(count);
+
+  var i;
+  var tmp = "";
+  
+  for (i = 0; i < count && word + i < words.length; i++){
+    tmp += words[word + i] + " ";
+	//setStatus();
+    //log("printing:" + words[word + i])
+  }
+  
+  outputtext.innerHTML = tmp;
+  word += count;
+  //curposarea.innerHTML=word;
+  setStatus();
+}
+
+function setStatus(){
+  log("setStatus(): wpm:" + wpm);
+  curposarea.innerHTML= (word > words.length ? words.length : word) + " / " + words.length;
+  wpmtext.innerHTML = wpm;
+}
+
+function blinkWords() {
+  log("blinkWords()");  
+  log("word:" + word);
+  log("words.length:" + words.length);
+  
+  if (word + 1 > words.length ){ //check if we've reached the end
+	log("clearInterval()");
+	clearInterval(tid);
+	pause();
+	clickReset();
+  }
+  else { // only go to next word if running
+     if (isrunning == 1)
+	showWord(chunkSize);
+  }
+}
+ 
+function loadSettings(){
+  log("getDelay()");
+  
+  wpmnew = parseInt(wpmarea.value)
+  setWPM(wpmnew); // function does validation checking
+
+  chunknew = parseInt(chunkSizeArea.value)
+  setChunk(chunknew)
+  
+  setDelay()
+  
+  log("wpm:" + wpm);
+  log("chunkSize:" + chunkSize);
+  log("delay:" + delay);
+  
+  return delay;
+}
+
+// reloads text and settings
+function reload(){
+  log("reload");
+  loadText();
+  loadSettings();
+}
+
+function startTimer(){
+  log("startTimer()");
+  reload();
+  isrunning = 1;
+  resume(); //if previously paused
+}
+
+function unpause(){
+  log("unpause()")
+  
+  ispaused = 0;
+  clearInterval(tid); // remove existing timer and restart
+  tid = setInterval('blinkWords()', delay);
+}
+
+function pause(){
+  log("p1ause()");
+  ispaused = 1;
+  clearInterval(tid); // remove any existing intervals
+}
+
+function resume(){
+  log("resume()");
+  isrunning = 1;
+  ispaused = 0;
+  clearInterval(tid); // remove any existing intervals
+  tid = setInterval('blinkWords()', delay);
+}
+
+function togglePause(){
+  if (isrunning == 1){
+    pause();
+  }
+  else{
+    resume();
+  }
+}
+
+function clickStart(){
+  log("clickStart");
+  
+  if (isrunning == 1){ // already running
+    ispaused == 1 ? unpause() : pause(); 
+  }
+  else { // not running, so start
+    startTimer();
+  }
+}
+
+function clickReset(){
+   log("clickReset");
+   isrunning = 0;
+   reload();
+   setStatus();
+}
+
+// ************
+// Utility functions
+// ************
+
+function clearFontSelected(){
+  changeCSS("outputFontLarge","")
+  changeCSS("outputFontMedium","")
+  changeCSS("outputFontSmall","")
+  changeCSS("outputFontTiny","")
+}
+
+// set words per minute
+function setWPM(wpmnew){
+  log("SetWPM: " + wpmnew);
+  if (isNaN(wpmnew) ){
+    wpm = 250;
+  }
+  else if (wpmnew < 10){
+    wpm = 10
+  }
+  else if (wpmnew > 2000){
+    wpm = 2000
+  }
+  else{
+    wpm = wpmnew;
+    }
+
+  wpmarea.value = wpm;
+}
+
+// set chunk size (# of words appearing at once)
+function setChunk(chunknew){
+  if ( isNaN(chunknew) || chunknew < 1 || chunknew > 40){
+     chunkSize = 3;
+  }
+  else{
+     chunkSize = chunknew;
+  }
+  
+  chunkSizeArea.value = chunkSize;
+}
+
+// set delay between chunks in milliseconds
+function setDelay(){
+  // wpm = 60 * chunk size /delay
+  // delay = chunk size * 60 / wpm
+  delay = chunkSize * 60 * 1000 / wpm;
+}
+
+function moveWord(val){
+  log("moveWord: "+ val)
+  var newword = word + val;
+  if (newword > words.length)
+     word = words.length
+  else if (newword < 0)
+     word = 0
+  else
+     word = newword
+	 
+   setStatus();
+
+}
+
+function addWPM(val){
+  log("AddWPM: " + val)
+  var wpmnew = wpm + val;
+  log("AddWPM wpmnew: " + wpmnew)
+  setWPM(wpmnew)
+  
+  if (isrunning == 1){
+  // replace timer
+  setDelay();
+  pause();
+  resume();
+  }
+  
+  setStatus();
+}
+
+function init(){
+   //get instance vars
+   loadSettings(); //setDelay();
+}
+
+function onKeyPress(e)
+{
+	var key = window.event ? e.keyCode : e.which;
+	var keychar = String.fromCharCode(key);
+	log("CharCode:" + key)
+	log("keychar: " + keychar)
+	log("e.keyCode: " + e.keyCode)
+	log("e.which: " + e.which)
+	//reg = /\d/;
+	//return !reg.test(keychar);
+}
+
+function keyListener(e){
+   
+   if(!e){ //for IE
+      e = window.event;
+   }
+   if(e.keyCode==37){ //left arrow
+      log("left arrow")	
+	  moveWord(-10);
+   }
+   if(e.keyCode==38){ //up arrow
+     addWPM(10)
+      log("up arrow")	
+   }
+   if(e.keyCode==39){ //right arrow
+      log("right arrow")	
+	  moveWord(10);
+   }
+   if(e.keyCode==40){ //down arrow
+	addWPM(-10)     
+	log("down arrow")	
+   }
+   
+}
+  </script>
+
+  
+</head>
+
+
+
+
+<body>
+<div id="Content">
+  <div class="titlenew">Read words that zoom.</div>
+  <br />
+
+<br />
+
+<textarea id="inputarea" name="InputArea" cols="72" rows="12" class="inputarea" tabindex="1">Enter text to read (news article, essay, list) and press START. The words will fly by in groups. Try to read them without saying the words in your head.
+
+Once you are comfortable, use the arrow keys (up/down) to change the speed. Increase the speed until you can still understand the words, but aren't saying them in your head. This is a tough habit to break (I still haven't), but this is the theory of speed reading.
+
+</textarea>
+<br/>
+
+<div id = "outputfont" class="outputFontMedium">
+<div id="outputtext" class="outputArea">Press
+  start...<br />
+</div>
+</div>
+
+<table style="text-align: left; width: 100%;" border="0" cellpadding="2" cellspacing="2">
+
+  <tbody>
+
+    <tr>
+
+      <td bordercolor="#FFFFFF">
+<br /><div class="center" align="center">
+        <p>
+	    <input name="Go!" value="        Start         " type="button" onclick="clickStart()" />
+</p>
+        <p><strong>Position:</strong> <span id="curposarea">0</span>        <br />
+          <strong>WPM:</strong> <span id="wpmtext">250</span></p>
+        </div></td>
+
+    </tr>
+
+  </tbody>
+</table>
+<hr/>
+<div align="center">
+<a href="index.html#" onclick="toggleItem('instructions')">Instructions</a> | <a href="index.html#" onclick="toggleItem('settings')">Settings</a> | <a href="index.html#" onclick="toggleItem('log')">Log</a>
+<br />
+<br />
+</div>
+<div id="settings" class="settings"><span style="font-weight: bold;">Text
+Size</span>:	<span onclick="changeCSS('outputFont', 'outputFontTiny'); clearFontSelected(); changeCSS('outputFontTiny', 'selected')" id="outputFontTiny">Tiny</span>
+	<span onclick="changeCSS('outputFont', 'outputFontSmall'); clearFontSelected(); changeCSS('outputFontSmall', 'selected')" id="outputFontSmall">Small</span>
+	<span onclick="changeCSS('outputFont', 'outputFontMedium'); clearFontSelected(); changeCSS('outputFontMedium', 'selected')" id="outputFontMedium">Medium</span>
+	<span onclick="changeCSS('outputFont', 'outputFontLarge'); clearFontSelected(); changeCSS('outputFontLarge', 'selected')" id="outputFontLarge">Large</span>
+<br />
+
+<span style="font-weight: bold;">Words Per Minute</span>
+<input maxlength="1" size="1" name="wpmarea" value="250" />&nbsp;<br />
+<span style="font-weight: bold;">Words at one
+time</span>
+<input maxlength="1" size="1" name="chunkSizeArea" value="3" />
+<br />
+
+<!--
+<span onclick="addWPM(15)">[+10]</span> <span onclick="addWPM(-15)">[-10]</span> <a href="#" onclick="moveWord(-15)">[-15]</a> <a href="#" onclick="moveWord(15)">[+15]</a> <a href="#" onclick="clickReset()">[Reset]</a>
+-->
+</div>
+
+<div class="settings" id = "instructions"> 
+  <p><strong>Instructions for the Curious
+    </strong>    </p>
+  <p>Paste text (article, essay) into the box and press START. As the words fly by,
+    use the keyboard. spacebar = pause. left/right = change position. up/down
+    = change speed.<br />
+      <strong><br />
+      The theory: </strong>Most people pronounce
+      words (subvocalize) when reading. This is an old habit from when we first
+    learned to read.</p>
+  <p>This limits our reading speed to our speaking speed - not a good thing. By flashing
+  words more quickly than we can say them, we stop trying to say the words. Our
+  brain sits back and just &quot;sees&quot; them. Funny enough, you can still understand
+  the words even though you don't say them. The goal is to find a speed that
+  breaks you of the subvocalizing habit, and lets you take in words as raw concepts
+  and ideas, not sounds. That's the theory, anyway (I'm still working on it :)</p>
+<p>&nbsp;</p>
+<p><strong>About: </strong>This is still a work in progress and rough around the edges. let me know of
+  features you'd like to see.</p>
+</div>
+<div class="settings" id="log">Log (<a href="index.html#" onclick="clearItem('statusarea')">clear</a> )
+</div>
+</div>
+
+<script type="text/javascript">
+
+  document.onkeydown = keyListener;
+  
+  var inputarea=document.getElementById("inputarea")
+  var outputarea=document.getElementById("outputarea")
+  var outputtext=document.getElementById("outputtext")  
+  var outputbefore=document.getElementById("outputbefore")  
+  var outputafter=document.getElementById("outputafter")  
+  var statusarea=document.getElementById("statusarea")
+  var curposarea=document.getElementById("curposarea")
+  var status="stopped"
+  var words = ['default'] // array of words
+  var word // current word
+  var curpos // current position
+  var tid;  // timer 
+  var wpmarea = document.getElementById("wpmarea")
+  var wpmtext = document.getElementById('wpmtext')
+  var chunkSizeArea = document.getElementById("chunkSizeArea")
+  
+  var wpm = 250; // words per minute
+  var chunkSize; // # of words to appear at once
+  var delay
+  var logging = 0; // 1 = on, 0 = off
+
+  // status of timer
+  var isrunning = 0; // 1 = currently running, 0 = is not running (has not been started)
+  var ispaused = 0; // 1 = is paused, 0 = not paused
+  
+  log("testing log"); 
+  
+//  hideItem("outputbefore")
+//  hideItem("outputafter")
+  hideAll()
+</script>
+
+<!-- Start of StatCounter Code -->
+<script type="text/javascript" language="javascript">
+var sc_project=2157207; 
+var sc_invisible=1; 
+var sc_partition=19; 
+var sc_security="4f8105ea"; 
+</script>
+
+<script type="text/javascript" language="javascript" 
+src="http://www.statcounter.com/counter/counter.js"></script><noscript><a 
+href="http://www.statcounter.com/" target="_blank"><img  
+src="http://c20.statcounter.com/counter.php?sc_project=2157207&java=0&security=4f8105ea&invisible=1" 
+alt="invisible hit counter" border="0"></a> </noscript>
+<!-- End of StatCounter Code -->
+
+</body>
+</html>

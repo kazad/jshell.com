@@ -1,0 +1,667 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+  <title>Online word count | Type text and click to count </title>
+
+
+  <style type="text/css" media="screen">@import url("../general.css");
+body { margin: 50px 0px;
+padding: 0px;
+text-align: center;
+}
+boxed { border: 1px dashed rgb(51, 51, 51);
+margin: 0px auto;
+padding: 15px;
+width: 500px;
+text-align: left;
+background-color: rgb(238, 238, 238);
+}
+#Content { border: 1px dashed rgb(51, 51, 51);
+margin: 0px auto;
+padding: 15px;
+width: 600px;
+text-align: left;
+background-color: rgb(238, 238, 238);
+}
+.inputArea { font-size: 12px;
+font-family: verdana,arial,helvetica,sans-serif;
+background-color: rgb(255, 204, 153);
+}
+.settings {
+	border: 1px solid rgb(0, 0, 0);
+	padding: 2px;
+	background: rgb(204, 204, 255) none repeat scroll 0% 50%;
+	text-align: left;
+-moz-background-clip: initial;
+-moz-background-origin: initial;
+-moz-background-inline-policy: initial;
+display: block;
+visibility: visible;
+}
+#main { border: 1px dashed rgb(51, 51, 51);
+margin: 0px auto;
+padding: 15px;
+width: 80%;
+text-align: left;
+background-color: rgb(238, 238, 238);
+}
+.button { border: 2px solid black;
+margin: 3px;
+background: rgb(221, 170, 221) none repeat scroll 0% 50%;
+-moz-background-clip: initial;
+-moz-background-origin: initial;
+-moz-background-inline-policy: initial;
+font-size: 18px;
+width: 100px;
+float: left;
+text-align: center;
+}
+.selected { background: rgb(221, 238, 255) none repeat scroll 0% 50%;
+-moz-background-clip: initial;
+-moz-background-origin: initial;
+-moz-background-inline-policy: initial;
+}
+.outputFontLarge { font-size: 54px;
+}
+.outputFontMedium { font-size: 36px;
+}
+.outputFontSmall { font-size: 24px;
+}
+.outputFontTiny { font-size: 16px;
+}
+.outputArea { border: 4px groove rgb(0, 0, 0);
+margin: auto;
+padding: 10px;
+font-family: verdana,arial,helvetica,sans-serif;
+
+text-align: center;
+font-size: 36px;
+opacity: 1;
+color: red;
+}
+.drag { position: relative;
+}
+.title { border: 4px solid black;
+padding: 10px;
+font-size: 36px;
+background-color: rgb(221, 170, 187);
+}
+
+.titlenew{
+text-align: center;
+font-size: 28px;
+padding: 5px;
+}
+
+.titlebar{
+  font-size: 12px;
+  text-align: center;
+  padding: 5px;
+}
+
+.instructions { font-size: 12px;
+}
+.center { }
+  </style>
+    <script type="text/javascript">
+
+// ***********************
+//    DRAGGABLE
+// ***********************
+var ie=document.all
+var ns6=document.getElementById&&!document.all
+
+var dragapproved=false
+var z,x,y
+
+function move(e){
+if (dragapproved){
+z.style.left=ns6? temp1+e.clientX-x: temp1+event.clientX-x
+z.style.top=ns6? temp2+e.clientY-y : temp2+event.clientY-y
+return false
+}
+}
+
+function drags(e){
+if (!ie&&!ns6)
+return
+var firedobj=ns6? e.target : event.srcElement
+var topelement=ns6? "HTML" : "BODY"
+
+while (firedobj.tagName!=topelement&&firedobj.className!="drag"){
+firedobj=ns6? firedobj.parentNode : firedobj.parentElement
+}
+
+if (firedobj.className=="drag"){
+dragapproved=true
+z=firedobj
+temp1=parseInt(z.style.left+0)
+temp2=parseInt(z.style.top+0)
+x=ns6? e.clientX: event.clientX
+y=ns6? e.clientY: event.clientY
+document.onmousemove=move
+return false
+}
+}
+
+//document.onmousedown=drags
+//document.onmouseup=new Function("dragapproved=false")
+
+// *************************
+//  Show / Hide text
+// *************************
+
+	function hideItem(itemName)
+	{	
+		var i = document.getElementById(itemName);
+		i.style.display = "none";
+	}
+	
+	function showItem(itemName)
+	{	
+		var i = document.getElementById(itemName);
+		i.style.display = "";
+	}
+	
+	function toggleItem(itemName)
+	{
+		var i = document.getElementById(itemName);
+		if (i.style.display=="none"){
+			i.style.display = "";
+		}
+		else{
+			i.style.display ="none";
+		}
+	}
+	
+	function clearItem(itemName){
+		var i = document.getElementById(itemName);
+		i.innerHTML = "";
+	}
+	
+	function hideAll(){
+	  log("hideall");
+	}
+
+	
+  function changeCSS(id, newClass) {
+	var identity=document.getElementById(id);
+	identity.className=newClass;
+  }
+
+function setFont(element,size){
+   var i = document.getElementById(element)
+   i.style.display = ParseInt(size)
+}
+
+
+// *************************
+//    Speed Reading
+// **************************
+
+// only toggle integeres
+function toggle(i){
+  if (i == 1)
+    i = 0
+  else if (i == 0)
+     i = 1
+
+}
+
+function write(string){
+    statusarea.innerHTML += string
+    statusarea.innerHTML += "<br/>";
+}
+
+function log(string){
+  if (logging > 0){
+    statusarea.innerHTML += string
+    statusarea.innerHTML += "<br/>";
+  }
+}
+
+function loadText(){
+  log("loadText()");
+  curpos = 0;
+  word = 0;
+  
+  //words = inputarea.value.replace(/\s/g," ").split(" ")
+  //inputarea.value = inputarea.value.replace(/\s/g," ");
+  //words = inputarea.value.split(" ")
+  
+  // trim the string
+  // replace multiple whitespace with a single one
+  // split on whitespace
+  
+  str = inputarea.value;
+  str = str.replace(/</g, "&#060;").replace(/>/g, "&#062;"); // replace HTML > and < 
+  str = str.replace(/\s+/g," "); // consolidate whitespace into single space
+  str = str.replace(/^\s*|\s*$/g,""); // trim whitespace
+  //str = str.replace(/^\s*|\s*$/g,"").replace(/\s+/g," "); // trim whitespace & consolidate
+  words = str.split(" "); //tokenize
+  
+  // hack -- if there is nothing after the split
+  if (words[0] == ""){
+    words = [];
+  }
+  
+//  words = inputarea.value.replace(/</g, "&#060;").replace(/>/g, "&#062;").replace(/^\s*|\s*$/g,"").replace(/\s+/g," ").split(" ")
+}
+
+function showWordBeforeAndAfter(count){
+  log("showWordBeforeAndAfter():")
+  
+  return;
+  var i;
+  var pos;
+  var tmp = "";
+  
+  // before
+  for (i = 0, pos = word - count; pos >= 0 && i < count; i++){
+    tmp += words[pos + i] + " ";
+    log("setWordBeforeAndAfter() tmp:" + tmp)
+  }
+  
+  outputbefore.innerHTML = tmp;
+  
+  // after
+  tmp = "";
+  for (i = 0, pos = word + count; pos >= 0 && i < count && pos + i < words.length; i++){
+    tmp += words[pos + i] + " ";
+    log("setWordBeforeAndAfter() tmp:" + tmp)
+  }
+  
+  outputafter.innerHTML = tmp;
+}
+
+function showWord(count){
+  log("showWord()");
+  log("count:" + count);
+  log("word:" + word);
+
+  showWordBeforeAndAfter(count);
+
+  var i;
+  var tmp = "";
+  
+  for (i = 0; i < count && word + i < words.length; i++){
+    tmp += words[word + i] + " ";
+	//setStatus();
+    //log("printing:" + words[word + i])
+  }
+  
+  outputarea.innerHTML = tmp;
+  word += count;
+  //curposarea.innerHTML=word;
+  setStatus();
+}
+
+function setStatus(){
+  return;
+  log("setStatus(): wpm:" + wpm);
+  curposarea.innerHTML= (word > words.length ? words.length : word) + " / " + words.length;
+  wpmtext.innerHTML = wpm;
+}
+
+function blinkWords() {
+  log("blinkWords()");  
+  log("word:" + word);
+  log("words.length:" + words.length);
+  
+  if (word + 1 > words.length ){ //check if we've reached the end
+	log("clearInterval()");
+	clearInterval(tid);
+	pause();
+	clickReset();
+  }
+  else { // only go to next word if running
+     if (isrunning == 1)
+	showWord(chunkSize);
+  }
+}
+ 
+function loadSettings(){
+  log("getDelay()");
+  
+  wpmnew = parseInt(wpmarea.value)
+  setWPM(wpmnew); // function does validation checking
+
+  chunknew = parseInt(chunkSizeArea.value)
+  setChunk(chunknew)
+  
+  setDelay()
+  
+  log("wpm:" + wpm);
+  log("chunkSize:" + chunkSize);
+  log("delay:" + delay);
+  
+  return delay;
+}
+
+// reloads text and settings
+function reload(){
+  log("reload");
+  loadText();
+  loadSettings();
+}
+
+function startTimer(){
+  log("startTimer()");
+  reload();
+  isrunning = 1;
+  resume(); //if previously paused
+}
+
+function unpause(){
+  log("unpause()")
+  
+  ispaused = 0;
+  clearInterval(tid); // remove existing timer and restart
+  tid = setInterval('blinkWords()', delay);
+}
+
+function pause(){
+  log("p1ause()");
+  ispaused = 1;
+  clearInterval(tid); // remove any existing intervals
+}
+
+function resume(){
+  log("resume()");
+  isrunning = 1;
+  ispaused = 0;
+  clearInterval(tid); // remove any existing intervals
+  tid = setInterval('blinkWords()', delay);
+}
+
+function togglePause(){
+  if (isrunning == 1){
+    pause();
+  }
+  else{
+    resume();
+  }
+}
+
+function clickStart(){
+  log("clickStart");
+  
+  if (isrunning == 1){ // already running
+    ispaused == 1 ? unpause() : pause(); 
+  }
+  else { // not running, so start
+    startTimer();
+  }
+}
+
+function clickReset(){
+   log("clickReset");
+   isrunning = 0;
+   reload();
+   setStatus();
+}
+
+// ************
+// Utility functions
+// ************
+
+function clearFontSelected(){
+  changeCSS("outputFontLarge","")
+  changeCSS("outputFontMedium","")
+  changeCSS("outputFontSmall","")
+  changeCSS("outputFontTiny","")
+}
+
+// set words per minute
+function setWPM(wpmnew){
+  log("SetWPM: " + wpmnew);
+  if (isNaN(wpmnew) ){
+    wpm = 250;
+  }
+  else if (wpmnew < 10){
+    wpm = 10
+  }
+  else if (wpmnew > 2000){
+    wpm = 2000
+  }
+  else{
+    wpm = wpmnew;
+    }
+
+  wpmarea.value = wpm;
+}
+
+// set chunk size (# of words appearing at once)
+function setChunk(chunknew){
+  if ( isNaN(chunknew) || chunknew < 1 || chunknew > 40){
+     chunkSize = 3;
+  }
+  else{
+     chunkSize = chunknew;
+  }
+  
+  chunkSizeArea.value = chunkSize;
+}
+
+// set delay between chunks in milliseconds
+function setDelay(){
+  // wpm = 60 * chunk size /delay
+  // delay = chunk size * 60 / wpm
+  delay = chunkSize * 60 * 1000 / wpm;
+}
+
+function moveWord(val){
+  log("moveWord: "+ val)
+  var newword = word + val;
+  if (newword > words.length)
+     word = words.length
+  else if (newword < 0)
+     word = 0
+  else
+     word = newword
+	 
+   setStatus();
+
+}
+
+function addWPM(val){
+  log("AddWPM: " + val)
+  var wpmnew = wpm + val;
+  log("AddWPM wpmnew: " + wpmnew)
+  setWPM(wpmnew)
+  
+  if (isrunning == 1){
+  // replace timer
+  setDelay();
+  pause();
+  resume();
+  }
+  
+  setStatus();
+}
+
+function init(){
+   //get instance vars
+   loadSettings(); //setDelay();
+}
+
+function onKeyPress(e)
+{
+	var key = window.event ? e.keyCode : e.which;
+	var keychar = String.fromCharCode(key);
+	log("CharCode:" + key)
+	log("keychar: " + keychar)
+	log("e.keyCode: " + e.keyCode)
+	log("e.which: " + e.which)
+	//reg = /\d/;
+	//return !reg.test(keychar);
+}
+
+function getTime(){
+		var now = new Date();
+		var ampm = "am"
+		
+		hours = now.getHours();
+		minutes = now.getMinutes();
+		seconds = now.getSeconds();
+
+		// assume am -- switch to pm otherwise.
+		if (hours >= 12){
+		   hours -= 12;
+		   ampm = "pm";
+		}
+		
+		// turn :2 into :02
+		if (minutes < 10){
+		  minutes = "0" + minutes;
+		}
+		
+		return hours + ":" + minutes + ":" + seconds + " "  + ampm;
+}
+
+function writeWords(){
+
+   clearItem('statusarea')
+   
+   for (i = 0; i < words.length; i++){
+    write(i + ":[" + words[i] + "]\n");
+  }
+
+}
+
+function getPreview(){
+   var tmp = "";
+   var max = 10;
+   
+   for (i = 0; i < max && i < words.length; i++){
+    tmp += words[i] + " ";
+  }
+  
+  if (words.length > max)
+    tmp += "...";
+  
+  return "\"" + tmp + "\"";
+}
+
+// save history 
+function saveHistory(){
+  write(getTime() + " - "  + words.length + " words - " + getPreview() );
+}
+
+function keyListener2(e){
+  //log("OnChange");
+  loadText();
+ 
+  // save history with ctrl + s
+    
+  // on first click
+  if (lastcount == 0){
+     lastcount = words.length;
+	 saveHistory();
+  }
+  // item has changed
+  else if (words.length != lastcount ){
+    saveHistory();
+   // write(getTime() + " - "  + words.length + " words - " + getPreview() );
+  }  
+  lastcount = words.length;
+  
+  outputarea.innerHTML = words.length + " Words";
+}
+
+</script>
+
+  
+</head>
+<body>
+
+<div id="Content">
+<div class="titlenew">You type, it counts.</div>
+<br/>
+<div>
+<textarea id="inputarea" name="InputArea" cols="72" rows="12" class="inputarea" tabindex="1">Paste an essay, article, or list here. Click anywhere for a word count.</textarea>
+</div>
+
+<br/>
+<div id="outputarea" class="outputArea">Word Count<br/></div>
+<div class="titlebar"> <a href="index.html#" onclick="toggleItem('instructions')">Instructions</a> 
+<!--
+| <a href="#" onclick="toggleItem('log')">View History</a> | <a href="#" onclick="writeWords()">Show Words</a>
+-->
+</div>
+
+<div class="settings" id = "instructions">
+  <p><b>Instructions for the Curious</b>
+  </p>
+  <p>Type text and get a wordcount automatically. Useful for students,
+    writers, college applicants, list organizers.</p>
+  <p> Planned features: Save previous versions of your text.</p>
+</div>
+
+<div class="settings" id="log"><strong>History </strong>(<a href="index.html#" onclick="clearItem('statusarea')">clear</a>). This is not stored anywhere, and may be lost if you reload the page.<br />
+  <br/>
+
+<span id="statusarea" ></span>
+</div>
+
+</div>
+
+<script type="text/javascript">
+
+//  document.onkeydown = keyListener;
+  
+  var inputarea=document.getElementById("inputarea")
+  var outputarea=document.getElementById("outputarea")
+//  var outputtext=document.getElementById("outputtext")  
+  var outputbefore=document.getElementById("outputbefore")  
+  var outputafter=document.getElementById("outputafter")  
+  var statusarea=document.getElementById("statusarea")
+  var curposarea=document.getElementById("curposarea")
+  var status="stopped"
+  var words = ['default'] // array of words
+  var word // current word
+  var curpos // current position
+  var tid;  // timer 
+  var wpmarea = document.getElementById("wpmarea")
+  var wpmtext = document.getElementById('wpmtext')
+  var chunkSizeArea = document.getElementById("chunkSizeArea")
+  
+  var wpm = 250; // words per minute
+  var chunkSize; // # of words to appear at once
+  var delay
+  var logging = 0; // 1 = on, 0 = off
+  
+  var lastcount = 0;
+
+  // status of timer
+  var isrunning = 0; // 1 = currently running, 0 = is not running (has not been started)
+  var ispaused = 0; // 1 = is paused, 0 = not paused
+  
+  log("testing log"); 
+  
+  //inputarea.onkeydown = keyListener2;
+  //inputarea.onfocus = keyListener2;
+  //inputarea.onblur = keyListener2;
+  inputarea.onselect = keyListener2;
+  // inputarea.onchange = keyListener2;
+  //inputarea.onclick = keyListener2;
+  //inputarea.onmousemove = keyListener2;
+  
+  
+//  inputarea.onblur = keyListener2;
+//  inputarea.onfocus = keyListener2;
+
+document.onkeyup = keyListener2;
+document.onclick = keyListener2;
+  
+    log("testing again"); 
+  
+  hideItem("instructions")
+  hideItem("log")
+  hideAll()
+</script>
+
+</body>
+</html>
