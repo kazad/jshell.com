@@ -106,6 +106,10 @@
       loadBtn.textContent = 'Load';
       loadBtn.onclick = (function(pasteId) { return function() { loadPaste(pasteId); }; })(id);
       
+      var renameBtn = document.createElement('a');
+      renameBtn.textContent = 'Rename';
+      renameBtn.onclick = (function(pasteId) { return function() { renamePaste(pasteId); }; })(id);
+      
       var delBtn = document.createElement('a');
       delBtn.textContent = 'Delete';
       delBtn.onclick = (function(pasteId) { return function() { deletePaste(pasteId); }; })(id);
@@ -113,11 +117,25 @@
       var actions = document.createElement('div');
       actions.appendChild(loadBtn);
       actions.appendChild(document.createTextNode(' | '));
+      actions.appendChild(renameBtn);
+      actions.appendChild(document.createTextNode(' | '));
       actions.appendChild(delBtn);
       
       li.appendChild(nameSpan);
       li.appendChild(actions);
       pasteList.appendChild(li);
+    }
+  }
+
+  function renamePaste(id) {
+    var pastes = getPastes();
+    if (pastes[id]) {
+      var newName = prompt("Rename paste:", pastes[id].name);
+      if (newName) {
+        pastes[id].name = newName;
+        savePastes(pastes);
+        renderList();
+      }
     }
   }
 
@@ -130,10 +148,10 @@
   function savePaste() {
     var pastes = getPastes();
     if (!currentPasteId) {
-      var name = prompt("Enter a name for this paste:", "My HTML Paste");
-      if (!name) return;
-      currentPasteId = 'paste_' + new Date().getTime();
-      pastes[currentPasteId] = { name: name, time: new Date().getTime(), code: inputarea.value };
+      var d = new Date();
+      var name = "HTML Paste " + d.toLocaleTimeString();
+      currentPasteId = 'paste_' + d.getTime();
+      pastes[currentPasteId] = { name: name, time: d.getTime(), code: inputarea.value };
     } else {
       if (pastes[currentPasteId]) {
         pastes[currentPasteId].code = inputarea.value;
@@ -173,6 +191,24 @@
   renderHTML();
 
 </script>
+
+<!-- Start of StatCounter Code -->
+<script type="text/javascript" language="javascript">
+var sc_project=2157207; 
+var sc_invisible=1; 
+var sc_partition=19; 
+var sc_security="4f8105ea"; 
+</script>
+
+<script type="text/javascript" language="javascript" 
+src="http://www.statcounter.com/counter/counter.js"></script><noscript><a 
+href="http://www.statcounter.com/" target="_blank"><img  
+src="http://c20.statcounter.com/counter.php?sc_project=2157207&java=0&security=4f8105ea&invisible=1" 
+alt="invisible hit counter" border="0"></a> </noscript>
+<!-- End of StatCounter Code -->
+
+</body>
+</html>ipt>
 
 <!-- Start of StatCounter Code -->
 <script type="text/javascript" language="javascript">
