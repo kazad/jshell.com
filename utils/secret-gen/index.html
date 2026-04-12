@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secret Generator | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../tool.css">
+    <script src="../state.js"></script>
+    <script src="../ui.js"></script>
+    <style>
+        .secret-group { margin-bottom: 24px; background: #000; border: 1px solid var(--color-border); }
+        .secret-label { padding: 8px 16px; background: var(--color-bg); font-size: 10px; font-weight: 800; color: var(--color-text-muted); text-transform: uppercase; border-bottom: 1px solid var(--color-border); letter-spacing: 1px; }
+        .secret-list { padding: 10px 16px; }
+        .secret-item { font-family: 'JetBrains Mono', monospace; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; color: var(--color-text-main); }
+        .secret-item:last-child { border-bottom: none; }
+        .copy-hint { font-size: 10px; opacity: 0; transition: opacity 0.2s; color: #3b82f6; cursor: pointer; font-weight: 800; }
+        .secret-item:hover .copy-hint { opacity: 1; }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+    <header class="tool-header">
+        <div class="flex gap-2 items-center">
+            <a href="../../index_new.html" class="back-link">← Dashboard</a>
+            <span style="color: var(--color-border)">|</span>
+            <div class="tool-title">The Secret Workbench</div>
+        </div>
+        <div class="tool-actions">
+            <button class="btn primary" onclick="JShellState.copyLink()">Share Link with Data</button>
+            <button class="btn" onclick="generate()">Regenerate All</button>
+        </div>
+    </header>
+
+    <div class="tool-container overflow-hidden">
+        <div class="editor-pane" id="mainPanel">
+            <div class="p-5 overflow-y-auto h-full output-content">
+                <!-- Passwords -->
+                <div class="secret-group">
+                    <div class="secret-label">Strong Passwords</div>
+                    <div class="secret-list" id="passwords"></div>
+                </div>
+                <!-- API Keys -->
+                <div class="secret-group">
+                    <div class="secret-label">API Keys (Base64)</div>
+                    <div class="secret-list" id="apikeys"></div>
+                </div>
+                <!-- UUIDs -->
+                <div class="secret-group">
+                    <div class="secret-label">UUIDs (v4)</div>
+                    <div class="secret-list" id="uuids"></div>
+                </div>
+            </div>
+        </div>
+        <div class="settings-pane p-4 flex flex-col gap-6">
+            <div class="setting-group">
+                <label class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted mb-2 block">Count per type</label>
+                <input type="number" id="countInput" value="5" min="1" max="20" class="w-full bg-black border border-border p-2 text-sm">
+            </div>
+            <div class="setting-group">
+                <label class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted mb-2 block">Password Length</label>
+                <input type="number" id="lengthInput" value="32" min="8" max="128" class="w-full bg-black border border-border p-2 text-sm">
+            </div>
+            <div class="setting-group">
+                <label class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted mb-2 block">Info</label>
+                <p class="text-[11px] text-text-muted italic">Generated 100% locally using window.crypto. Safe for production use.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const passOut = document.getElementById('passwords');
+        const apiOut = document.getElementById('apikeys');
+        const uuidOut = document.getElementById('uuids');
+        const countInput = document.getElementById('countInput');
+        const lengthInput = document.getElementById('lengthInput');
+
+        function generate() {
+            const count = parseInt(countInput.value) || 5;
+            const length = parseInt(lengthInput.value) || 32;
+
+            renderList(passOut, Array.from({length: count}, () => genPass(length)));
+            renderList(apiOut, Array.from({length: count}, () => genKey(length)));
+            renderList(uuidOut, Array.from({length: count}, () => crypto.randomUUID()));
+            
+            JShellState.save({ c: count, l: length });
+        }
+
+        function renderList(container, items) {
+            container.innerHTML = items.map(item => `
+                <div class="secret-item">
+                    <span>${item}</span>
+                    <span class="copy-hint" onclick="copyText(this, '${item}')">COPY</span>
+                </div>
+            `).join('');
+        }
+
+        function genPass(len) {
+            const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+';
+            let res = '';
+            const arr = new Uint32Array(len);
+            crypto.getRandomValues(arr);
+            for (let i = 0; i < len; i++) res += charset[arr[i] % charset.length];
+            return res;
+        }
+
+        function genKey(len) {
+            const arr = new Uint8Array(len);
+            crypto.getRandomValues(arr);
+            return btoa(String.fromCharCode.apply(null, arr)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
+
+        function copyText(el, txt) {
+            navigator.clipboard.writeText(txt);
+            const original = el.textContent;
+            el.textContent = 'COPIED!';
+            el.style.color = '#10b981';
+            setTimeout(() => {
+                el.textContent = original;
+                el.style.color = '#3b82f6';
+            }, 1000);
+        }
+
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
+
+        [countInput, lengthInput].forEach(el => el.addEventListener('input', generate));
+
+        window.addEventListener('load', () => {
+            JShellUI.initPanel('mainPanel', { label: 'Secrets Engine', copy: false, clear: false });
+
+            applyTheme();
+            const state = JShellState.load();
+            if (state) {
+                countInput.value = state.c || 5;
+                lengthInput.value = state.l || 32;
+            }
+            generate();
+        });
+
+        window.addEventListener('storage', (e) => { if(e.key === 'jshell_theme') applyTheme(); });
+    </script>
+</body>
+</html>

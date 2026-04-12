@@ -1,0 +1,134 @@
+/* 
+  JShell Core Theme
+  A minimal, local-first theme designed for AI-generated developer tools.
+  Focus: Readability, Dark Mode, and Simple Structural Layout.
+*/
+
+:root {
+    --color-bg: #0d0d0d;
+    --color-header: #141414;
+    --color-surface: #0d0d0d;
+    --color-surface-hover: #1a1a1a;
+    --color-border: #222222;
+    --color-text-main: #e0e0e0;
+    --color-text-muted: #777777;
+    --color-accent: #ffffff;
+    --color-accent-blue: #3b82f6;
+    --color-success: #00ff88;
+}
+
+body.light-theme {
+    --color-bg: #ffffff;
+    --color-header: #f9f9f9;
+    --color-surface: #ffffff;
+    --color-surface-hover: #f5f5f5;
+    --color-border: #eaeaea;
+    --color-text-main: #171717;
+    --color-text-muted: #666666;
+    --color-accent: #000000;
+    --color-accent-blue: #2563eb;
+    --color-success: #10b981;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background-color: var(--color-bg);
+    color: var(--color-text-main);
+    font-family: 'Inter', -apple-system, sans-serif;
+    overflow: hidden;
+}
+
+/* Tool Layout (Header + Flex Container) */
+.tool-header {
+    background: var(--color-header);
+    border-bottom: 1px solid var(--color-border);
+    padding: 8px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 45px;
+    z-index: 50;
+}
+
+.tool-title { font-weight: 800; font-size: 14px; letter-spacing: -0.02em; }
+.back-link { text-decoration: none; color: var(--color-text-muted); font-size: 12px; }
+.back-link:hover { color: var(--color-text-main); }
+
+.tool-container {
+    display: flex;
+    height: calc(100vh - 45px); 
+}
+
+.editor-pane, .output-pane {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.editor-pane { border-right: 1px solid var(--color-border); }
+
+.pane-label {
+    padding: 6px 16px;
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--color-text-muted);
+    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-border);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+/* Common Components */
+textarea, .monospace {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-variant-ligatures: none;
+}
+
+textarea {
+    flex-grow: 1;
+    background: #000;
+    border: none;
+    color: #fff;
+    padding: 16px;
+    resize: none;
+    outline: none;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+body.light-theme textarea { background: #fff; color: #000; }
+
+.btn {
+    background: var(--color-surface-hover);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-main);
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.1s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+}
+
+.btn:hover { border-color: var(--color-text-muted); background: var(--color-border); }
+.btn.primary { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+.btn.primary:hover { opacity: 0.9; }
+
+.text-success { color: var(--color-success) !important; border-color: var(--color-success) !important; }
+
+/* Utilities */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.gap-2 { gap: 8px; }
+.p-4 { padding: 16px; }
+.overflow-auto { overflow: auto; }
+.hidden { display: none; }

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lorem Ipsum | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../tool.css">
+    <script src="../state.js"></script>
+    <script src="../ui.js"></script>
+</head>
+<body class="h-screen flex flex-col">
+    <header class="tool-header">
+        <div class="flex gap-2 items-center">
+            <a href="../../index_new.html" class="back-link">← Dashboard</a>
+            <span style="color: var(--color-border)">|</span>
+            <div class="tool-title">Lorem Ipsum Generator</div>
+        </div>
+        <div class="tool-actions">
+            <button class="btn primary" onclick="JShellState.copyLink()">Share Link with Data</button>
+            <button class="btn" onclick="generate()">Regenerate</button>
+        </div>
+    </header>
+
+    <div class="tool-container overflow-hidden">
+        <div class="editor-pane" id="outputPanel">
+            <textarea id="output" readonly placeholder="Result will appear here..."></textarea>
+        </div>
+        <div class="settings-pane p-4 flex flex-col gap-6">
+            <div class="setting-group">
+                <label class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted mb-2 block">Type</label>
+                <div class="flex gap-2" id="typeGroup">
+                    <button class="flex-1 py-2 px-3 text-xs font-bold border border-border bg-bg hover:bg-bg-hover active" data-value="paras">Paragraphs</button>
+                    <button class="flex-1 py-2 px-3 text-xs font-bold border border-border bg-bg hover:bg-bg-hover" data-value="words">Words</button>
+                </div>
+            </div>
+            
+            <div class="setting-group">
+                <label class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted mb-2 block">Count</label>
+                <input type="number" id="countInput" value="3" min="1" max="100" class="w-full bg-black border border-border p-2 text-sm mb-2">
+                <div class="flex gap-1 flex-wrap" id="countPresets">
+                    <button class="px-2 py-1 text-[10px] border border-border bg-bg hover:bg-bg-hover" data-value="1">1</button>
+                    <button class="px-2 py-1 text-[10px] border border-border bg-bg hover:bg-bg-hover" data-value="3">3</button>
+                    <button class="px-2 py-1 text-[10px] border border-border bg-bg hover:bg-bg-hover" data-value="5">5</button>
+                    <button class="px-2 py-1 text-[10px] border border-border bg-bg hover:bg-bg-hover" data-value="10">10</button>
+                    <button class="px-2 py-1 text-[10px] border border-border bg-bg hover:bg-bg-hover" data-value="20">20</button>
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <label class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted mb-2 block">Info</label>
+                <p class="text-[11px] text-text-muted italic">Standard placeholder text for layout testing. 100% client-side generation.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+        const countInput = document.getElementById('countInput');
+        const typeGroup = document.getElementById('typeGroup');
+        const countPresets = document.getElementById('countPresets');
+
+        let currentType = 'paras';
+
+        const words = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur excepteur sint occaecat cupidatat non proident sunt in culpa qui officia deserunt mollit anim id est laborum".split(" ");
+
+        function generate() {
+            const count = parseInt(countInput.value) || 1;
+            let res = "";
+            
+            if (currentType === 'words') {
+                for(let i=0; i<count; i++) {
+                    res += words[Math.floor(Math.random()*words.length)] + " ";
+                }
+            } else {
+                for(let j=0; j<count; j++) {
+                    let paraLength = 40 + Math.floor(Math.random() * 40);
+                    for(let i=0; i<paraLength; i++) {
+                        res += words[Math.floor(Math.random()*words.length)] + " ";
+                    }
+                    res += "\n\n";
+                }
+            }
+            output.value = res.trim();
+            save();
+        }
+
+        function save() {
+            JShellState.save({ t: currentType, c: countInput.value });
+        }
+
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
+
+        // Handle Type Toggle
+        typeGroup.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                typeGroup.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentType = btn.dataset.value;
+                generate();
+            });
+        });
+
+        // Handle Presets
+        countPresets.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                countInput.value = btn.dataset.value;
+                generate();
+            });
+        });
+
+        countInput.addEventListener('input', generate);
+
+        window.addEventListener('load', () => {
+            JShellUI.initPanel('outputPanel', { label: 'Generated Lorem Ipsum', clear: false, paste: false, copy: true });
+            
+            applyTheme();
+            const state = JShellState.load();
+            if (state) {
+                currentType = state.t || 'paras';
+                countInput.value = state.c || "3";
+                
+                typeGroup.querySelectorAll('button').forEach(b => {
+                    b.classList.toggle('active', b.dataset.value === currentType);
+                });
+            }
+            generate();
+        });
+
+        window.addEventListener('storage', (e) => { if(e.key === 'jshell_theme') applyTheme(); });
+    </script>
+</body>
+</html>

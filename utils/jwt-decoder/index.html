@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JWT Decoder | JShell</title>
+    <link rel="stylesheet" href="../tool.css">
+    <script src="../lz-string.js"></script>
+    <script src="../state.js"></script>
+    <script src="../ui.js"></script>
+    <style>
+        .jwt-parts { display: flex; flex-direction: column; gap: 20px; padding: 20px; overflow-y: auto; height: 100%; }
+        .part-card { background: var(--color-header); border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; }
+        .part-header { padding: 8px 16px; background: #111; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; }
+        .part-title { font-size: 10px; font-weight: 800; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.1em; }
+        .part-content { padding: 16px; margin: 0; font-size: 13px; color: var(--color-text-main); white-space: pre-wrap; word-break: break-all; }
+        .part-header.header-color { border-left: 4px solid #fb7185; }
+        .part-header.payload-color { border-left: 4px solid #38bdf8; }
+        .part-header.signature-color { border-left: 4px solid #a855f7; }
+        .error-msg { color: #fb7185; font-size: 12px; margin-top: 10px; font-family: monospace; display: none; }
+    </style>
+</head>
+<body>
+    <header class="tool-header">
+        <div class="flex gap-2 items-center">
+            <a href="../../index.html" class="back-link">← Dashboard</a>
+            <span style="color: var(--color-border)">|</span>
+            <div class="tool-title">JWT Decoder</div>
+        </div>
+        <div class="tool-actions">
+            <button class="btn primary" onclick="JShellState.copyLink()">Share Decoded Link</button>
+        </div>
+    </header>
+
+    <div class="tool-container">
+        <div id="inputPanel" class="editor-pane">
+            <textarea id="jwtInput" placeholder="Paste your JWT here..." spellcheck="false"></textarea>
+            <div id="error" class="error-msg p-4" style="position: absolute; bottom: 0; left: 0; width: 100%; background: rgba(0,0,0,0.8); z-index: 10;">Invalid JWT Format</div>
+        </div>
+        <div class="output-pane">
+            <div class="pane-label">Decoded Parts</div>
+            <div class="jwt-parts">
+                <div class="part-card">
+                    <div class="part-header header-color">
+                        <span class="part-title">Header</span>
+                        <button class="btn" style="font-size: 10px; padding: 2px 6px;" onclick="copy('outHeader')">Copy</button>
+                    </div>
+                    <pre id="outHeader" class="part-content monospace"></pre>
+                </div>
+                <div class="part-card">
+                    <div class="part-header payload-color">
+                        <span class="part-title">Payload</span>
+                        <button class="btn" style="font-size: 10px; padding: 2px 6px;" onclick="copy('outPayload')">Copy</button>
+                    </div>
+                    <pre id="outPayload" class="part-content monospace"></pre>
+                </div>
+                <div class="part-card">
+                    <div class="part-header signature-color">
+                        <span class="part-title">Signature</span>
+                    </div>
+                    <pre id="outSig" class="part-content monospace" style="color: var(--color-text-muted)"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const input = document.getElementById('jwtInput');
+        const outHeader = document.getElementById('outHeader');
+        const outPayload = document.getElementById('outPayload');
+        const outSig = document.getElementById('outSig');
+        const error = document.getElementById('error');
+
+        // Initialize JShell UI
+        window.addEventListener('load', () => {
+            JShellUI.initPanel('inputPanel', { label: 'Encoded Token' });
+        });
+
+        function decode(str) {
+            try {
+                return JSON.stringify(JSON.parse(atob(str.replace(/-/g, '+').replace(/_/g, '/'))), null, 2);
+            } catch (e) {
+                return "Error decoding part";
+            }
+        }
+
+        function process() {
+            const token = input.value.trim();
+            error.style.display = 'none';
+            
+            if (!token) {
+                [outHeader, outPayload, outSig].forEach(el => el.textContent = '');
+                return;
+            }
+
+            const parts = token.split('.');
+            if (parts.length !== 3) {
+                error.style.display = 'block';
+                return;
+            }
+
+            outHeader.textContent = decode(parts[0]);
+            outPayload.textContent = decode(parts[1]);
+            outSig.textContent = parts[2];
+
+            JShellState.save({ t: token });
+        }
+
+        function copy(id) {
+            navigator.clipboard.writeText(document.getElementById(id).textContent);
+        }
+
+        input.addEventListener('input', process);
+
+        window.addEventListener('load', () => {
+            const state = JShellState.load();
+            if (state && state.t) {
+                input.value = state.t;
+                process();
+            }
+        });
+    </script>
+</body>
+</html>

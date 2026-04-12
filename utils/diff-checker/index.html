@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diff Checker | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../tool.css">
+    <script src="../state.js"></script>
+    <script src="../ui.js"></script>
+    <style>
+        .diff-result { background: #000; overflow-y: auto; }
+        body.light-theme .diff-result { background: #fff; }
+        .diff-add { background: #063a1e; color: #acf2bd; }
+        body.light-theme .diff-add { background: #dcfce7; color: #166534; }
+        .diff-rem { background: #440c10; color: #fdb8c0; }
+        body.light-theme .diff-rem { background: #fee2e2; color: #991b1b; }
+        .diff-line { padding: 2px 8px; }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+    <header class="tool-header">
+        <a href="../../index_new.html" class="back-link">← Dashboard</a>
+        <div class="tool-title">Diff Checker</div>
+        <div class="tool-actions">
+            <button class="btn primary" onclick="JShellState.copyLink()">Copy Stateless Link</button>
+        </div>
+    </header>
+
+    <div class="tool-container overflow-hidden">
+        <div class="flex-grow flex flex-col p-4 gap-4 overflow-y-auto">
+            <div class="flex gap-4 h-[300px] flex-shrink-0">
+                <div id="originalPanel" class="flex-1">
+                    <textarea id="input1" placeholder="Paste original text..."></textarea>
+                </div>
+                <div id="modifiedPanel" class="flex-1">
+                    <textarea id="input2" placeholder="Paste modified text..."></textarea>
+                </div>
+            </div>
+            <div id="diffPanel" class="flex-1 min-h-[400px]">
+                <div id="diffOutput" class="diff-result monospace output-content"></div>
+            </div>
+        </div>
+        <div class="settings-pane">
+            <div class="setting-group">
+                <label class="block text-[11px] font-bold text-[var(--color-text-muted)] uppercase mb-2">Info</label>
+                <p class="text-xs text-[var(--color-text-muted)] leading-relaxed">Simple line-by-line diff. Green is added, red is removed.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const i1 = document.getElementById('input1');
+        const i2 = document.getElementById('input2');
+        const out = document.getElementById('diffOutput');
+
+        function checkDiff() {
+            const l1 = i1.value.split('\n');
+            const l2 = i2.value.split('\n');
+            out.innerHTML = '';
+
+            const max = Math.max(l1.length, l2.length);
+            for (let i = 0; i < max; i++) {
+                const line1 = l1[i] !== undefined ? l1[i] : null;
+                const line2 = l2[i] !== undefined ? l2[i] : null;
+
+                if (line1 === line2) {
+                    addLine(line1, 'diff-line');
+                } else {
+                    if (line1 !== null) addLine('- ' + line1, 'diff-rem');
+                    if (line2 !== null) addLine('+ ' + line2, 'diff-add');
+                }
+            }
+
+            JShellState.save({ i1: i1.value, i2: i2.value });
+        }
+
+        function addLine(text, className) {
+            const div = document.createElement('div');
+            div.className = className;
+            div.textContent = text === "" ? " " : text;
+            out.appendChild(div);
+        }
+
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
+
+        window.addEventListener('load', () => {
+            JShellUI.initPanel('originalPanel', { label: 'Original', paste: true, clear: true, copy: true });
+            JShellUI.initPanel('modifiedPanel', { label: 'Modified', paste: true, clear: true, copy: true });
+            JShellUI.initPanel('diffPanel', { label: 'Visual Diff', copy: false, clear: false });
+
+            applyTheme();
+            const state = JShellState.load();
+            if (state) {
+                i1.value = state.i1 || "";
+                i2.value = state.i2 || "";
+                checkDiff();
+            }
+        });
+
+        window.addEventListener('storage', (e) => { 
+            if(e.key === 'jshell_theme') applyTheme(); 
+        });
+
+        i1.addEventListener('input', checkDiff);
+        i2.addEventListener('input', checkDiff);
+    </script>
+</body>
+</html>

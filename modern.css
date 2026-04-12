@@ -1,0 +1,38 @@
+:root {
+    /* Base Colors (Dark Theme) */
+    --color-bg: #0d0d0d;
+    --color-header: #141414;
+    --color-surface: #0d0d0d;
+    --color-surface-hover: #1a1a1a;
+    --color-border: #222222;
+    --color-text-main: #e0e0e0;
+    --color-text-muted: #777777;
+    --color-accent: #ffffff;
+    --color-accent-blue: #3b82f6;
+    --color-success: #00ff88;
+}
+
+body.light-theme {
+    /* Light Theme */
+    --color-bg: #ffffff;
+    --color-header: #f9f9f9;
+    --color-surface: #ffffff;
+    --color-surface-hover: #f5f5f5;
+    --color-border: #eaeaea;
+    --color-text-main: #171717;
+    --color-text-muted: #666666;
+    --color-accent: #000000;
+    --color-accent-blue: #2563eb;
+    --color-success: #10b981;
+}
+
+/* Global resets while we transition to Tailwind */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--color-bg);
+    color: var(--color-text-main);
+    transition: background-color 0.2s, color 0.2s;
+}

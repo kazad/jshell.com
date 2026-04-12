@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Encoder | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../tool.css">
+    <script src="../state.js"></script>
+    <script src="../ui.js"></script>
+</head>
+<body class="h-screen flex flex-col">
+    <header class="tool-header">
+        <div class="flex gap-2 items-center">
+            <a href="../../index_new.html" class="back-link">← Dashboard</a>
+            <span style="color: var(--color-border)">|</span>
+            <div class="tool-title">URL Real-time Sync</div>
+        </div>
+        <div class="tool-actions">
+            <button class="btn primary" onclick="JShellState.copyLink()">Share Link with Data</button>
+        </div>
+    </header>
+
+    <div class="tool-container overflow-hidden">
+        <div class="editor-pane" id="plainPanel">
+            <textarea id="plainText" placeholder="https://example.com/search?q=jshell" spellcheck="false"></textarea>
+        </div>
+        <div class="output-pane" id="encodedPanel">
+            <textarea id="encodedText" placeholder="https%3A%2F%2Fexample.com%2Fsearch%3Fq%3Djshell" spellcheck="false"></textarea>
+        </div>
+        <div class="settings-pane p-4 flex flex-col gap-6">
+            <div class="setting-group">
+                <label class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted mb-2 block">Info</label>
+                <p class="text-[11px] text-text-muted italic">Bi-directional sync. Type in either side to encode or decode instantly using encodeURIComponent.</p>
+            </div>
+            <div id="error" class="text-red-500 text-[10px] mt-auto font-bold uppercase tracking-wider h-4"></div>
+        </div>
+    </div>
+
+    <script>
+        const plainInput = document.getElementById('plainText');
+        const encodedInput = document.getElementById('encodedText');
+        const errorDiv = document.getElementById('error');
+
+        function syncFromPlain() {
+            errorDiv.textContent = '';
+            try {
+                encodedInput.value = encodeURIComponent(plainInput.value);
+                saveState();
+            } catch (e) {
+                errorDiv.textContent = 'Encoding error';
+            }
+        }
+
+        function syncFromEncoded() {
+            errorDiv.textContent = '';
+            try {
+                plainInput.value = decodeURIComponent(encodedInput.value);
+                saveState();
+            } catch (e) {
+                errorDiv.textContent = 'Invalid encoded URL';
+            }
+        }
+
+        function saveState() {
+            JShellState.save({ i: plainInput.value });
+        }
+
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
+
+        plainInput.addEventListener('input', syncFromPlain);
+        encodedInput.addEventListener('input', syncFromEncoded);
+
+        window.addEventListener('load', () => {
+            JShellUI.initPanel('plainPanel', { label: 'Plain Text / URL', paste: true, clear: true, copy: true });
+            JShellUI.initPanel('encodedPanel', { label: 'Encoded URL Component', paste: true, clear: true, copy: true });
+
+            applyTheme();
+            const state = JShellState.load();
+            if (state && state.i) {
+                plainInput.value = state.i;
+                syncFromPlain();
+            }
+        });
+
+        window.addEventListener('storage', (e) => { if(e.key === 'jshell_theme') applyTheme(); });
+    </script>
+</body>
+</html>

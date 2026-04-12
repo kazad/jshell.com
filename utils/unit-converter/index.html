@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unit Converter | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../tool.css">
+    <script src="../state.js"></script>
+    <script src="../ui.js"></script>
+    <style>
+        .converter-field input { background: transparent; border: none; color: #fff; width: 100%; font-size: 64px; outline: none; text-align: center; font-family: 'JetBrains Mono', monospace; }
+        body.light-theme .converter-field input { color: #000; }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+    <header class="tool-header">
+        <div class="flex gap-2 items-center">
+            <a href="../../index_new.html" class="back-link">← Dashboard</a>
+            <span style="color: var(--color-border)">|</span>
+            <div class="tool-title">CSS Unit Converter</div>
+        </div>
+        <div class="tool-actions">
+            <button class="btn primary" onclick="JShellState.copyLink()">Share Link with Data</button>
+        </div>
+    </header>
+
+    <div class="tool-container overflow-hidden">
+        <div class="editor-pane flex flex-col">
+            <div id="pxPanel" class="flex-1 min-h-[200px] border-b border-border">
+                <div class="converter-field h-full flex items-center justify-center p-10">
+                    <input type="number" id="pxInput" placeholder="16" step="1">
+                </div>
+            </div>
+            <div id="remPanel" class="flex-1 min-h-[200px]">
+                <div class="converter-field h-full flex items-center justify-center p-10">
+                    <input type="number" id="remInput" placeholder="1" step="0.01">
+                </div>
+            </div>
+        </div>
+        <div class="settings-pane p-4 flex flex-col gap-6">
+            <div class="setting-group">
+                <label class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted mb-2 block">Base Font Size (PX)</label>
+                <input type="number" id="baseInput" value="16" class="w-full bg-black border border-border p-2 text-sm">
+                <p class="text-[11px] text-text-muted italic mt-2">The industry standard is 16px. Modifying this will scale the REM calculation.</p>
+            </div>
+            <div class="setting-group">
+                <label class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted mb-2 block">Info</label>
+                <p class="text-[11px] text-text-muted italic">Instant CSS unit conversion. Highly useful for frontend development.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const pxInput = document.getElementById('pxInput');
+        const remInput = document.getElementById('remInput');
+        const baseInput = document.getElementById('baseInput');
+
+        function syncFromPx() {
+            const px = parseFloat(pxInput.value);
+            const base = parseFloat(baseInput.value) || 16;
+            if (!isNaN(px)) {
+                remInput.value = (px / base).toFixed(3);
+                saveState();
+            }
+        }
+
+        function syncFromRem() {
+            const rem = parseFloat(remInput.value);
+            const base = parseFloat(baseInput.value) || 16;
+            if (!isNaN(rem)) {
+                pxInput.value = Math.round(rem * base);
+                saveState();
+            }
+        }
+
+        function saveState() {
+            JShellState.save({ px: pxInput.value, b: baseInput.value });
+        }
+
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
+
+        pxInput.addEventListener('input', syncFromPx);
+        remInput.addEventListener('input', syncFromRem);
+        baseInput.addEventListener('input', syncFromPx);
+
+        window.addEventListener('load', () => {
+            JShellUI.initPanel('pxPanel', { label: 'Pixels (PX)', copy: true, clear: true });
+            JShellUI.initPanel('remPanel', { label: 'Relative (REM)', copy: true, clear: true });
+
+            applyTheme();
+            const state = JShellState.load();
+            if (state) {
+                baseInput.value = state.b || "16";
+                pxInput.value = state.px || "16";
+                syncFromPx();
+            } else {
+                pxInput.value = "16";
+                syncFromPx();
+            }
+        });
+
+        window.addEventListener('storage', (e) => { if(e.key === 'jshell_theme') applyTheme(); });
+    </script>
+</body>
+</html>
