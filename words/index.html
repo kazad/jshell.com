@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text Analyzer | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../assets/tool.css">
+    <script src="../assets/state.js"></script>
+    <style>
+        .counter-layout { display: flex; flex-direction: column; gap: 24px; padding: 24px; height: 100%; overflow-y: auto; }
+        
+        /* Hero Stat */
+        .hero-stat { background: var(--color-header); border: 1px solid var(--color-border); border-radius: 12px; padding: 40px; display: flex; align-items: center; gap: 30px; position: relative; overflow: hidden; }
+        .hero-icon { width: 80px; height: 80px; color: var(--color-accent-blue); flex-shrink: 0; }
+        .hero-content { flex: 1; }
+        .hero-value { font-size: 72px; font-weight: 800; line-height: 1; color: var(--color-text-main); display: block; }
+        .hero-label { font-size: 14px; font-weight: 800; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 3px; margin-top: 12px; }
+
+        /* Secondary Grid */
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+        .stat-card { background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 24px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 16px; transition: all 0.2s; }
+        .stat-card:hover { border-color: var(--color-text-muted); background: var(--color-surface-hover); }
+        .stat-icon { width: 32px; height: 32px; color: var(--color-text-muted); }
+        .stat-value { font-size: 28px; font-weight: 700; color: var(--color-text-main); }
+        .stat-label { font-size: 11px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 1.5px; }
+
+        svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+</head>
+<body>
+    <header class="tool-header">
+        <a href="../index.html" class="back-link">← Dashboard</a>
+        <div class="tool-title">Text Analyzer</div>
+        <div class="tool-actions">
+            <button class="btn" onclick="clearText()">Clear</button>
+            <button class="btn primary" onclick="JShellState.copyLink()">Copy Stateless Link</button>
+        </div>
+    </header>
+
+    <div class="tool-container">
+        <div class="editor-pane">
+            <div class="editor-label">Input Text</div>
+            <textarea id="inputText" placeholder="Paste text here to analyze..." spellcheck="true"></textarea>
+        </div>
+        <div class="output-pane">
+            <div class="counter-layout">
+                <!-- HERO: WORDS (The "Abc" block) -->
+                <div class="hero-stat">
+                    <div class="hero-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M4 19h6M4 15h10M4 11h16M4 7h16" />
+                            <path d="M18 15l3 3-3 3" />
+                        </svg>
+                    </div>
+                    <div class="hero-content">
+                        <span class="hero-value" id="count-words">0</span>
+                        <span class="hero-label">Words</span>
+                    </div>
+                </div>
+
+                <!-- SUB GRID -->
+                <div class="stat-grid">
+                    <!-- CHARACTERS (The "[A]" icon) -->
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <svg viewBox="0 0 24 24">
+                                <rect x="3" y="3" width="18" height="18" rx="2" />
+                                <path d="M9 17l3-10 3 10M10 13h4" />
+                            </svg>
+                        </div>
+                        <span class="stat-value" id="count-chars">0</span>
+                        <span class="stat-label">Characters</span>
+                    </div>
+                    <!-- LINES (The Numbered list icon) -->
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M4 18h2.5" />
+                            </svg>
+                        </div>
+                        <span class="stat-value" id="count-lines">0</span>
+                        <span class="stat-label">Lines</span>
+                    </div>
+                    <!-- SENTENCES (The text-with-dot icon) -->
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M3 7h18M3 12h18M3 17h12" />
+                                <circle cx="19" cy="17" r="2" fill="currentColor" stroke="none" />
+                            </svg>
+                        </div>
+                        <span class="stat-value" id="count-sentences">0</span>
+                        <span class="stat-label">Sentences</span>
+                    </div>
+                    <!-- READ TIME (The detailed stopwatch) -->
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <svg viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M12 6v6l4 2" />
+                                <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                            </svg>
+                        </div>
+                        <span class="stat-value" id="count-reading">0m</span>
+                        <span class="stat-label">Read Time</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const input = document.getElementById('inputText');
+        const wordsOut = document.getElementById('count-words');
+        const charsOut = document.getElementById('count-chars');
+        const linesOut = document.getElementById('count-lines');
+        const sentencesOut = document.getElementById('count-sentences');
+        const readingOut = document.getElementById('count-reading');
+
+        function analyze() {
+            const text = input.value;
+            
+            // Words (Hero)
+            const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+            wordsOut.textContent = words.toLocaleString();
+
+            // Stats
+            charsOut.textContent = text.length.toLocaleString();
+            
+            const lines = text ? text.split(/\n/).length : 0;
+            linesOut.textContent = lines.toLocaleString();
+
+            const sentences = text ? text.split(/[.!?]+/).filter(s => s.trim().length > 0).length : 0;
+            sentencesOut.textContent = sentences.toLocaleString();
+
+            const readingTime = Math.ceil(words / 225);
+            readingOut.textContent = readingTime + 'm';
+
+            JShellState.save({ t: text });
+        }
+
+        function clearText() {
+            input.value = '';
+            analyze();
+        }
+
+        input.addEventListener('input', analyze);
+
+        window.addEventListener('load', () => {
+            const state = JShellState.load();
+            if (state) {
+                input.value = state.t || "";
+                analyze();
+            }
+        });
+
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
+        window.addEventListener('load', applyTheme);
+        window.addEventListener('storage', (e) => { if(e.key === 'jshell_theme') applyTheme(); });
+    </script>
+</body>
+</html>

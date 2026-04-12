@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Case Converter | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../assets/tool.css">
+    <script src="../assets/state.js"></script>
+    <script src="../assets/ui.js"></script>
+    <style>
+        .case-grid { display: grid; grid-template-columns: 1fr; gap: 16px; padding: 16px; }
+        .case-row { background: var(--color-header); border: 1px solid var(--color-border); padding: 16px; border-radius: 8px; transition: border-color 0.2s; }
+        .case-row:hover { border-color: var(--color-text-muted); }
+        .case-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .case-name { font-size: 11px; font-weight: 800; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 1px; }
+        .case-value { font-size: 14px; color: var(--color-text-main); word-break: break-all; font-family: 'JetBrains Mono', monospace; line-height: 1.6; }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+    <header class="tool-header">
+        <a href="../index.html" class="back-link">← Dashboard</a>
+        <div class="tool-title">Case Converter</div>
+        <div class="tool-actions">
+            <button class="btn primary" onclick="JShellState.copyLink()">Copy Stateless Link</button>
+        </div>
+    </header>
+
+    <div class="tool-container">
+        <div class="editor-pane" id="inputPanel">
+            <textarea id="inputText" placeholder="Enter text to convert case..." spellcheck="false"></textarea>
+        </div>
+        <div class="output-pane flex flex-col" id="outputPanel">
+            <div class="case-grid" id="conversions">
+                <!-- Dynamic -->
+            </div>
+        </div>
+        <div class="settings-pane">
+            <div class="setting-group">
+                <label class="block text-[11px] font-bold text-[var(--color-text-muted)] uppercase mb-2">Info</label>
+                <p class="text-xs text-[var(--color-text-muted)] leading-relaxed">Real-time conversion to common programming case formats.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const input = document.getElementById('inputText');
+        const conversionsOut = document.getElementById('conversions');
+
+        const formats = [
+            { name: 'lower case', fn: s => s.toLowerCase() },
+            { name: 'UPPER CASE', fn: s => s.toUpperCase() },
+            { name: 'camelCase', fn: s => s.replace(/(?:^\w|[A-Z]|\b\w)/g, (m, i) => i === 0 ? m.toLowerCase() : m.toUpperCase()).replace(/[\s-_]+/g, '') },
+            { name: 'PascalCase', fn: s => s.replace(/(?:^\w|[A-Z]|\b\w)/g, m => m.toUpperCase()).replace(/[\s-_]+/g, '') },
+            { name: 'snake_case', fn: s => (s.match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g) || [s]).map(x => x.toLowerCase()).join('_') },
+            { name: 'kebab-case', fn: s => (s.match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g) || [s]).map(x => x.toLowerCase()).join('-') },
+            { name: 'CONSTANT_CASE', fn: s => (s.match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g) || [s]).map(x => x.toUpperCase()).join('_') },
+            { name: 'Sentence case', fn: s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() }
+        ];
+
+        function convert() {
+            const val = input.value.trim();
+            conversionsOut.innerHTML = '';
+            
+            if (!val) return;
+
+            formats.forEach(f => {
+                try {
+                    const row = document.createElement('div');
+                    row.className = 'case-row';
+                    
+                    const res = f.fn(val);
+                    
+                    row.innerHTML = `
+                        <div class="case-header">
+                            <span class="case-name">${f.name}</span>
+                            <button class="btn" style="padding: 2px 8px; font-size: 10px;" onclick="copy(this, \`${res.replace(/`/g, "\\`")}\`)">Copy</button>
+                        </div>
+                        <div class="case-value">${res}</div>
+                    `;
+                    conversionsOut.appendChild(row);
+                } catch(e) {}
+            });
+
+            JShellState.save({ t: input.value });
+        }
+
+        function copy(btn, text) {
+            navigator.clipboard.writeText(text);
+            const originalText = btn.textContent;
+            btn.textContent = "COPIED!";
+            setTimeout(() => { btn.textContent = originalText; }, 1000);
+        }
+
+        function clearText() {
+            input.value = '';
+            convert();
+        }
+
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
+
+        input.addEventListener('input', convert);
+
+        window.addEventListener('load', () => {
+            JShellUI.initPanel('inputPanel', { label: 'Input Text', paste: true, clear: true, copy: true });
+            JShellUI.initPanel('outputPanel', { label: 'Conversions', copy: false, clear: false });
+            
+            applyTheme();
+            const state = JShellState.load();
+            if (state) {
+                input.value = state.t || "";
+                convert();
+            }
+        });
+
+        window.addEventListener('storage', (e) => { 
+            if(e.key === 'jshell_theme') applyTheme(); 
+        });
+    </script>
+</body>
+</html>

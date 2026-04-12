@@ -1,229 +1,141 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
-  <title>Online HTML Render | Paste and view</title>
-  <style type="text/css" media="screen">@import url("../general.css");
-    body { margin: 20px; padding: 0px; text-align: center; }
-    #Content { border: 1px dashed rgb(51, 51, 51); margin: 0px auto; padding: 15px; width: 95%; max-width: none; text-align: left; background-color: rgb(238, 238, 238); box-sizing: border-box; }
-    .inputarea { font-family: monospace; font-size: 14px; width: 100%; height: 60vh; box-sizing: border-box; }
-    .renderArea { border: 2px solid #ccc; width: 100%; height: 60vh; background: #fff; margin-top: 10px; box-sizing: border-box; }
-    .titlenew { text-align: center; font-size: 28px; padding: 5px; }
-    .titlebar { font-size: 12px; text-align: center; padding: 5px; margin-top: 15px; }
-    .settings { border: 1px solid rgb(0, 0, 0); padding: 5px; background: rgb(204, 204, 255); text-align: left; margin-top: 10px; }
-    .btn { margin: 5px 0; cursor: pointer; padding: 5px 10px; }
-    .paste-list { margin-top: 10px; list-style-type: none; padding-left: 0; }
-    .paste-item { margin-bottom: 5px; padding: 5px; background: #ddd; border: 1px solid #aaa; display: flex; justify-content: space-between; }
-    .paste-item a { cursor: pointer; text-decoration: underline; color: blue; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML Snippets | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../assets/tool.css">
+    <script src="../assets/state.js"></script>
+    <script src="../assets/ui.js"></script>
+    <style>
+        .preview-area { background: #fff; height: 100%; width: 100%; border: none; }
+        .snippet-list { display: flex; flex-direction: column; gap: 8px; }
+        .snippet-card { background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 6px; padding: 10px; cursor: pointer; transition: all 0.1s; }
+        .snippet-card:hover { border-color: var(--color-text-muted); background: var(--color-surface-hover); }
+        .snippet-name { font-size: 12px; font-weight: 700; color: var(--color-text-main); margin-bottom: 4px; }
+        .snippet-date { font-size: 10px; color: var(--color-text-muted); }
+        :fullscreen #previewContainer { padding: 0; background: #fff; }
+    </style>
 </head>
-<body>
+<body class="h-screen flex flex-col">
+    <header class="tool-header">
+        <a href="../index.html" class="back-link">← Dashboard</a>
+        <div class="tool-title">HTML Snippet Manager</div>
+        <div class="tool-actions">
+            <button class="btn" onclick="saveSnippet()">Save Snippet</button>
+            <button class="btn primary" onclick="JShellState.copyLink()">Copy Stateless Link</button>
+        </div>
+    </header>
 
-<div id="Content">
-<div class="titlenew">Live HTML Paste</div>
-<br/>
-<table width="100%">
-  <tr>
-    <td width="50%" valign="top" style="padding-right: 10px;">
-      <div><strong>Code:</strong></div>
-      <textarea id="inputarea" class="inputarea" placeholder="Paste HTML here..."></textarea>
-    </td>
-    <td width="50%" valign="top" style="padding-left: 10px;">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <strong>Render:</strong>
-        <a href="javascript:void(0)" onclick="toggleFullscreen()" style="font-size: 12px; text-decoration: none; color: blue;">[Fullscreen]</a>
-      </div>
-      <iframe id="outputframe" class="renderArea" frameborder="0"></iframe>
-    </td>
-  </tr>
-</table>
+    <div class="tool-container overflow-hidden">
+        <div class="editor-pane" id="inputPanel">
+            <textarea id="htmlInput" placeholder="Paste HTML here... CSS in <style> tags works too!" spellcheck="false"></textarea>
+        </div>
+        <div class="output-pane flex flex-col" id="previewPanel">
+            <div id="previewContainer" class="flex-grow bg-[#eee] output-content overflow-hidden">
+                <iframe id="preview" class="preview-area h-full w-full"></iframe>
+            </div>
+        </div>
+        <div class="settings-pane">
+            <div class="setting-group">
+                <label class="block text-[11px] font-bold text-[var(--color-text-muted)] uppercase mb-2">Actions</label>
+                <button class="btn w-full mb-2" onclick="toggleFullscreen()">Toggle Fullscreen Preview</button>
+                <button class="btn w-full text-red-500 border-red-900" onclick="clearAll()">Delete All Saved</button>
+            </div>
+            <div class="setting-group flex-1 overflow-hidden flex flex-col">
+                <label class="block text-[11px] font-bold text-[var(--color-text-muted)] uppercase mb-2">Saved Snippets</label>
+                <div id="savedList" class="snippet-list overflow-y-auto">
+                    <!-- Dynamic -->
+                </div>
+            </div>
+        </div>
+    </div>
 
-<div class="titlebar">
-  <button class="btn" onclick="newPaste()">New Paste</button>
-  <button class="btn" onclick="savePaste()">Save Paste</button>
-</div>
+    <script>
+        const input = document.getElementById('htmlInput');
+        const preview = document.getElementById('preview');
+        const previewContainer = document.getElementById('previewContainer');
+        const savedList = document.getElementById('savedList');
 
-<div class="settings" id="log">
-  <strong>Saved Pastes:</strong>
-  <ul id="pasteList" class="paste-list"></ul>
-</div>
+        function updatePreview() {
+            const content = input.value;
+            const doc = preview.contentDocument || preview.contentWindow.document;
+            doc.open();
+            doc.write(content);
+            doc.close();
+            JShellState.save({ h: content });
+        }
 
-<div class="titlebar"> <a href="javascript:void(0)" onclick="document.getElementById('instructions').style.display = document.getElementById('instructions').style.display === 'none' ? 'block' : 'none'">Instructions</a> 
-</div>
-<div class="settings" id="instructions" style="display:none;">
-  <p><b>Instructions for the Curious</b></p>
-  <p>Type or paste HTML into the left box to see a live render on the right. Click "Save Paste" to keep it in your local storage so you can retrieve it later.</p>
-</div>
-</div>
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                previewContainer.requestFullscreen().catch(err => {
+                    alert(`Error: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
 
-<script type="text/javascript">
-  var inputarea = document.getElementById("inputarea");
-  var outputframe = document.getElementById("outputframe");
-  var pasteList = document.getElementById("pasteList");
-  var currentPasteId = null;
+        function saveSnippet() {
+            const content = input.value;
+            if (!content) return;
+            const id = 'snip_' + Date.now();
+            const name = prompt("Name this snippet:", "Snippet " + new Date().toLocaleTimeString());
+            if (!name) return;
 
-  function toggleFullscreen() {
-    if (outputframe.requestFullscreen) {
-      outputframe.requestFullscreen();
-    } else if (outputframe.webkitRequestFullscreen) { /* Safari */
-      outputframe.webkitRequestFullscreen();
-    } else if (outputframe.msRequestFullscreen) { /* IE11 */
-      outputframe.msRequestFullscreen();
-    }
-  }
+            const snippets = JSON.parse(localStorage.getItem('jshell_snippets') || '{}');
+            snippets[id] = { name, content, date: new Date().toISOString() };
+            localStorage.setItem('jshell_snippets', JSON.stringify(snippets));
+            renderSaved();
+        }
 
-  function renderHTML() {
-    var code = inputarea.value;
-    var doc = outputframe.contentWindow.document;
-    doc.open();
-    doc.write(code);
-    doc.close();
-  }
+        function renderSaved() {
+            const snippets = JSON.parse(localStorage.getItem('jshell_snippets') || '{}');
+            savedList.innerHTML = Object.entries(snippets).map(([id, s]) => `
+                <div class="snippet-card" onclick="loadSnippet('${id}')">
+                    <div class="snippet-name">${s.name}</div>
+                    <div class="snippet-date">${new Date(s.date).toLocaleDateString()}</div>
+                </div>
+            `).join('');
+        }
 
-  function getPastes() {
-    var pastes = localStorage.getItem('htmlPastes');
-    if (pastes) {
-      return JSON.parse(pastes);
-    }
-    return {};
-  }
+        function loadSnippet(id) {
+            const snippets = JSON.parse(localStorage.getItem('jshell_snippets') || '{}');
+            if (snippets[id]) {
+                input.value = snippets[id].content;
+                updatePreview();
+            }
+        }
 
-  function savePastes(pastes) {
-    localStorage.setItem('htmlPastes', JSON.stringify(pastes));
-  }
+        function clearAll() {
+            if (confirm("Delete all saved snippets from local storage?")) {
+                localStorage.removeItem('jshell_snippets');
+                renderSaved();
+            }
+        }
 
-  function renderList() {
-    var pastes = getPastes();
-    pasteList.innerHTML = '';
-    for (var id in pastes) {
-      var li = document.createElement('li');
-      li.className = 'paste-item';
-      
-      var nameSpan = document.createElement('span');
-      nameSpan.textContent = pastes[id].name + " (" + new Date(pastes[id].time).toLocaleString() + ") ";
-      
-      var loadBtn = document.createElement('a');
-      loadBtn.textContent = 'Load';
-      loadBtn.onclick = (function(pasteId) { return function() { loadPaste(pasteId); }; })(id);
-      
-      var renameBtn = document.createElement('a');
-      renameBtn.textContent = 'Rename';
-      renameBtn.onclick = (function(pasteId) { return function() { renamePaste(pasteId); }; })(id);
-      
-      var delBtn = document.createElement('a');
-      delBtn.textContent = 'Delete';
-      delBtn.onclick = (function(pasteId) { return function() { deletePaste(pasteId); }; })(id);
-      
-      var actions = document.createElement('div');
-      actions.appendChild(loadBtn);
-      actions.appendChild(document.createTextNode(' | '));
-      actions.appendChild(renameBtn);
-      actions.appendChild(document.createTextNode(' | '));
-      actions.appendChild(delBtn);
-      
-      li.appendChild(nameSpan);
-      li.appendChild(actions);
-      pasteList.appendChild(li);
-    }
-  }
+        input.addEventListener('input', updatePreview);
 
-  function renamePaste(id) {
-    var pastes = getPastes();
-    if (pastes[id]) {
-      var newName = prompt("Rename paste:", pastes[id].name);
-      if (newName) {
-        pastes[id].name = newName;
-        savePastes(pastes);
-        renderList();
-      }
-    }
-  }
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
 
-  function newPaste() {
-    currentPasteId = null;
-    inputarea.value = '';
-    renderHTML();
-  }
+        window.addEventListener('load', () => {
+            JShellUI.initPanel('inputPanel', { label: 'HTML / CSS Code', paste: true, clear: true, copy: true });
+            JShellUI.initPanel('previewPanel', { label: 'Live Preview', copy: false, clear: false });
 
-  function savePaste() {
-    var pastes = getPastes();
-    if (!currentPasteId) {
-      var d = new Date();
-      var name = "HTML Paste " + d.toLocaleTimeString();
-      currentPasteId = 'paste_' + d.getTime();
-      pastes[currentPasteId] = { name: name, time: d.getTime(), code: inputarea.value };
-    } else {
-      if (pastes[currentPasteId]) {
-        pastes[currentPasteId].code = inputarea.value;
-        pastes[currentPasteId].time = new Date().getTime();
-      }
-    }
-    savePastes(pastes);
-    renderList();
-  }
+            renderSaved();
+            applyTheme();
+            const state = JShellState.load();
+            if (state) {
+                input.value = state.h || "";
+                updatePreview();
+            }
+        });
 
-  function loadPaste(id) {
-    var pastes = getPastes();
-    if (pastes[id]) {
-      currentPasteId = id;
-      inputarea.value = pastes[id].code;
-      renderHTML();
-    }
-  }
-
-  function deletePaste(id) {
-    if (confirm("Are you sure you want to delete this paste?")) {
-      var pastes = getPastes();
-      delete pastes[id];
-      savePastes(pastes);
-      if (currentPasteId === id) {
-        newPaste();
-      }
-      renderList();
-    }
-  }
-
-  inputarea.onkeyup = renderHTML;
-  inputarea.onchange = renderHTML;
-  
-  // init
-  renderList();
-  renderHTML();
-
-</script>
-
-<!-- Start of StatCounter Code -->
-<script type="text/javascript" language="javascript">
-var sc_project=2157207; 
-var sc_invisible=1; 
-var sc_partition=19; 
-var sc_security="4f8105ea"; 
-</script>
-
-<script type="text/javascript" language="javascript" 
-src="http://www.statcounter.com/counter/counter.js"></script><noscript><a 
-href="http://www.statcounter.com/" target="_blank"><img  
-src="http://c20.statcounter.com/counter.php?sc_project=2157207&java=0&security=4f8105ea&invisible=1" 
-alt="invisible hit counter" border="0"></a> </noscript>
-<!-- End of StatCounter Code -->
-
-</body>
-</html>ipt>
-
-<!-- Start of StatCounter Code -->
-<script type="text/javascript" language="javascript">
-var sc_project=2157207; 
-var sc_invisible=1; 
-var sc_partition=19; 
-var sc_security="4f8105ea"; 
-</script>
-
-<script type="text/javascript" language="javascript" 
-src="http://www.statcounter.com/counter/counter.js"></script><noscript><a 
-href="http://www.statcounter.com/" target="_blank"><img  
-src="http://c20.statcounter.com/counter.php?sc_project=2157207&java=0&security=4f8105ea&invisible=1" 
-alt="invisible hit counter" border="0"></a> </noscript>
-<!-- End of StatCounter Code -->
-
+        window.addEventListener('storage', (e) => { if(e.key === 'jshell_theme') applyTheme(); });
+    </script>
 </body>
 </html>

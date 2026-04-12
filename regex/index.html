@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Regex Tester | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../assets/tool.css">
+    <script src="../assets/state.js"></script>
+    <script src="../assets/ui.js"></script>
+    <style>
+        .match-highlight { background: rgba(59, 130, 246, 0.4); border-bottom: 2px solid #3b82f6; color: white; }
+        .regex-input-row { display: flex; align-items: center; gap: 10px; background: #000; padding: 12px; border: 1px solid var(--color-border); }
+        #regexInput, #flagsInput { background: transparent; border: none; outline: none; color: var(--color-text-main); font-family: 'JetBrains Mono', monospace; }
+        #regexInput { flex: 1; font-size: 18px; }
+        #flagsInput { width: 60px; font-size: 18px; border-left: 1px solid var(--color-border); padding-left: 10px; }
+        #highlightOutput { white-space: pre-wrap; word-wrap: break-word; font-family: 'JetBrains Mono', monospace; font-size: 14px; line-height: 1.6; color: var(--color-text-main); }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+    <header class="tool-header">
+        <div class="flex gap-2 items-center">
+            <a href="../index.html" class="back-link">← Dashboard</a>
+            <span style="color: var(--color-border)">|</span>
+            <div class="tool-title">Regex Tester</div>
+        </div>
+        <div class="tool-actions">
+            <button class="btn primary" onclick="JShellState.copyLink()">Share Link with Data</button>
+        </div>
+    </header>
+
+    <div class="tool-container overflow-hidden">
+        <div class="editor-pane flex flex-col">
+            <div class="p-4 bg-bg border-b border-border">
+                <label class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted mb-2 block">Expression</label>
+                <div class="regex-input-row">
+                    <span class="text-2xl text-text-muted">/</span>
+                    <input type="text" id="regexInput" placeholder="[a-z]+" spellcheck="false">
+                    <span class="text-2xl text-text-muted">/</span>
+                    <input type="text" id="flagsInput" value="g" spellcheck="false">
+                </div>
+                <div id="status" class="text-red-500 text-[10px] mt-1 h-4 font-bold uppercase tracking-wider"></div>
+            </div>
+            <div class="flex-grow" id="inputPanel">
+                <textarea id="testString" placeholder="Paste text here to test against the regex..." spellcheck="false"></textarea>
+            </div>
+        </div>
+        <div class="output-pane bg-black" id="outputPanel">
+            <div id="highlightOutput" class="output-content"></div>
+        </div>
+    </div>
+
+    <script>
+        const regexInput = document.getElementById('regexInput');
+        const flagsInput = document.getElementById('flagsInput');
+        const testString = document.getElementById('testString');
+        const highlightOut = document.getElementById('highlightOutput');
+        const status = document.getElementById('status');
+
+        function testRegex() {
+            const pattern = regexInput.value;
+            const flags = flagsInput.value;
+            const text = testString.value;
+            status.textContent = '';
+            
+            if (!pattern) { 
+                highlightOut.textContent = text; 
+                JShellState.save({ i: text, p: pattern, f: flags });
+                return; 
+            }
+
+            try {
+                const re = new RegExp(pattern, flags);
+                let html = '';
+                let lastIndex = 0;
+                let match;
+
+                // Simple escape for HTML
+                const escape = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+                if (flags.includes('g')) {
+                    while ((match = re.exec(text)) !== null) {
+                        html += escape(text.substring(lastIndex, match.index));
+                        html += `<span class="match-highlight">${escape(match[0])}</span>`;
+                        lastIndex = re.lastIndex;
+                        if (match.index === re.lastIndex) re.lastIndex++; // Avoid infinite loops
+                    }
+                } else {
+                    match = re.exec(text);
+                    if (match) {
+                        html += escape(text.substring(0, match.index));
+                        html += `<span class="match-highlight">${escape(match[0])}</span>`;
+                        lastIndex = match.index + match[0].length;
+                    }
+                }
+                
+                html += escape(text.substring(lastIndex));
+                highlightOut.innerHTML = html;
+
+                JShellState.save({ i: text, p: pattern, f: flags });
+            } catch (e) {
+                status.textContent = `Error: ${e.message}`;
+                highlightOut.textContent = text;
+            }
+        }
+
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
+
+        regexInput.addEventListener('input', testRegex);
+        flagsInput.addEventListener('input', testRegex);
+        testString.addEventListener('input', testRegex);
+
+        window.addEventListener('load', () => {
+            JShellUI.initPanel('inputPanel', { label: 'Test String', paste: true, clear: true, copy: true });
+            JShellUI.initPanel('outputPanel', { label: 'Matches', copy: false, clear: false });
+
+            applyTheme();
+            const state = JShellState.load();
+            if (state) {
+                regexInput.value = state.p || "";
+                flagsInput.value = state.f || "g";
+                testString.value = state.i || "";
+                testRegex();
+            }
+        });
+
+        window.addEventListener('storage', (e) => { if(e.key === 'jshell_theme') applyTheme(); });
+    </script>
+</body>
+</html>

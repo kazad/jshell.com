@@ -1,0 +1,25 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]: Live HTML Paste
+    - table [ref=e4]:
+      - rowgroup [ref=e5]:
+        - 'row "Code: Render: [Fullscreen]" [ref=e6]':
+          - cell "Code:" [ref=e7]:
+            - strong [ref=e9]: "Code:"
+            - textbox "Paste HTML here..." [ref=e10]
+          - 'cell "Render: [Fullscreen]" [ref=e11]':
+            - generic [ref=e12]:
+              - strong [ref=e13]: "Render:"
+              - link "[Fullscreen]" [ref=e14] [cursor=pointer]:
+                - /url: javascript:void(0)
+            - iframe [ref=e15]:
+              
+    - generic [ref=e16]:
+      - button "New Paste" [ref=e17] [cursor=pointer]
+      - button "Save Paste" [ref=e18] [cursor=pointer]
+    - generic [ref=e19]:
+      - strong [ref=e20]: "Saved Pastes:"
+      - list
+    - link "Instructions" [ref=e22] [cursor=pointer]:
+      - /url: javascript:void(0)
+  - text: ipt>

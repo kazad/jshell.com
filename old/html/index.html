@@ -1,0 +1,229 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+  <title>Online HTML Render | Paste and view</title>
+  <style type="text/css" media="screen">@import url("../general.css");
+    body { margin: 20px; padding: 0px; text-align: center; }
+    #Content { border: 1px dashed rgb(51, 51, 51); margin: 0px auto; padding: 15px; width: 95%; max-width: none; text-align: left; background-color: rgb(238, 238, 238); box-sizing: border-box; }
+    .inputarea { font-family: monospace; font-size: 14px; width: 100%; height: 60vh; box-sizing: border-box; }
+    .renderArea { border: 2px solid #ccc; width: 100%; height: 60vh; background: #fff; margin-top: 10px; box-sizing: border-box; }
+    .titlenew { text-align: center; font-size: 28px; padding: 5px; }
+    .titlebar { font-size: 12px; text-align: center; padding: 5px; margin-top: 15px; }
+    .settings { border: 1px solid rgb(0, 0, 0); padding: 5px; background: rgb(204, 204, 255); text-align: left; margin-top: 10px; }
+    .btn { margin: 5px 0; cursor: pointer; padding: 5px 10px; }
+    .paste-list { margin-top: 10px; list-style-type: none; padding-left: 0; }
+    .paste-item { margin-bottom: 5px; padding: 5px; background: #ddd; border: 1px solid #aaa; display: flex; justify-content: space-between; }
+    .paste-item a { cursor: pointer; text-decoration: underline; color: blue; }
+  </style>
+</head>
+<body>
+
+<div id="Content">
+<div class="titlenew">Live HTML Paste</div>
+<br/>
+<table width="100%">
+  <tr>
+    <td width="50%" valign="top" style="padding-right: 10px;">
+      <div><strong>Code:</strong></div>
+      <textarea id="inputarea" class="inputarea" placeholder="Paste HTML here..."></textarea>
+    </td>
+    <td width="50%" valign="top" style="padding-left: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <strong>Render:</strong>
+        <a href="javascript:void(0)" onclick="toggleFullscreen()" style="font-size: 12px; text-decoration: none; color: blue;">[Fullscreen]</a>
+      </div>
+      <iframe id="outputframe" class="renderArea" frameborder="0"></iframe>
+    </td>
+  </tr>
+</table>
+
+<div class="titlebar">
+  <button class="btn" onclick="newPaste()">New Paste</button>
+  <button class="btn" onclick="savePaste()">Save Paste</button>
+</div>
+
+<div class="settings" id="log">
+  <strong>Saved Pastes:</strong>
+  <ul id="pasteList" class="paste-list"></ul>
+</div>
+
+<div class="titlebar"> <a href="javascript:void(0)" onclick="document.getElementById('instructions').style.display = document.getElementById('instructions').style.display === 'none' ? 'block' : 'none'">Instructions</a> 
+</div>
+<div class="settings" id="instructions" style="display:none;">
+  <p><b>Instructions for the Curious</b></p>
+  <p>Type or paste HTML into the left box to see a live render on the right. Click "Save Paste" to keep it in your local storage so you can retrieve it later.</p>
+</div>
+</div>
+
+<script type="text/javascript">
+  var inputarea = document.getElementById("inputarea");
+  var outputframe = document.getElementById("outputframe");
+  var pasteList = document.getElementById("pasteList");
+  var currentPasteId = null;
+
+  function toggleFullscreen() {
+    if (outputframe.requestFullscreen) {
+      outputframe.requestFullscreen();
+    } else if (outputframe.webkitRequestFullscreen) { /* Safari */
+      outputframe.webkitRequestFullscreen();
+    } else if (outputframe.msRequestFullscreen) { /* IE11 */
+      outputframe.msRequestFullscreen();
+    }
+  }
+
+  function renderHTML() {
+    var code = inputarea.value;
+    var doc = outputframe.contentWindow.document;
+    doc.open();
+    doc.write(code);
+    doc.close();
+  }
+
+  function getPastes() {
+    var pastes = localStorage.getItem('htmlPastes');
+    if (pastes) {
+      return JSON.parse(pastes);
+    }
+    return {};
+  }
+
+  function savePastes(pastes) {
+    localStorage.setItem('htmlPastes', JSON.stringify(pastes));
+  }
+
+  function renderList() {
+    var pastes = getPastes();
+    pasteList.innerHTML = '';
+    for (var id in pastes) {
+      var li = document.createElement('li');
+      li.className = 'paste-item';
+      
+      var nameSpan = document.createElement('span');
+      nameSpan.textContent = pastes[id].name + " (" + new Date(pastes[id].time).toLocaleString() + ") ";
+      
+      var loadBtn = document.createElement('a');
+      loadBtn.textContent = 'Load';
+      loadBtn.onclick = (function(pasteId) { return function() { loadPaste(pasteId); }; })(id);
+      
+      var renameBtn = document.createElement('a');
+      renameBtn.textContent = 'Rename';
+      renameBtn.onclick = (function(pasteId) { return function() { renamePaste(pasteId); }; })(id);
+      
+      var delBtn = document.createElement('a');
+      delBtn.textContent = 'Delete';
+      delBtn.onclick = (function(pasteId) { return function() { deletePaste(pasteId); }; })(id);
+      
+      var actions = document.createElement('div');
+      actions.appendChild(loadBtn);
+      actions.appendChild(document.createTextNode(' | '));
+      actions.appendChild(renameBtn);
+      actions.appendChild(document.createTextNode(' | '));
+      actions.appendChild(delBtn);
+      
+      li.appendChild(nameSpan);
+      li.appendChild(actions);
+      pasteList.appendChild(li);
+    }
+  }
+
+  function renamePaste(id) {
+    var pastes = getPastes();
+    if (pastes[id]) {
+      var newName = prompt("Rename paste:", pastes[id].name);
+      if (newName) {
+        pastes[id].name = newName;
+        savePastes(pastes);
+        renderList();
+      }
+    }
+  }
+
+  function newPaste() {
+    currentPasteId = null;
+    inputarea.value = '';
+    renderHTML();
+  }
+
+  function savePaste() {
+    var pastes = getPastes();
+    if (!currentPasteId) {
+      var d = new Date();
+      var name = "HTML Paste " + d.toLocaleTimeString();
+      currentPasteId = 'paste_' + d.getTime();
+      pastes[currentPasteId] = { name: name, time: d.getTime(), code: inputarea.value };
+    } else {
+      if (pastes[currentPasteId]) {
+        pastes[currentPasteId].code = inputarea.value;
+        pastes[currentPasteId].time = new Date().getTime();
+      }
+    }
+    savePastes(pastes);
+    renderList();
+  }
+
+  function loadPaste(id) {
+    var pastes = getPastes();
+    if (pastes[id]) {
+      currentPasteId = id;
+      inputarea.value = pastes[id].code;
+      renderHTML();
+    }
+  }
+
+  function deletePaste(id) {
+    if (confirm("Are you sure you want to delete this paste?")) {
+      var pastes = getPastes();
+      delete pastes[id];
+      savePastes(pastes);
+      if (currentPasteId === id) {
+        newPaste();
+      }
+      renderList();
+    }
+  }
+
+  inputarea.onkeyup = renderHTML;
+  inputarea.onchange = renderHTML;
+  
+  // init
+  renderList();
+  renderHTML();
+
+</script>
+
+<!-- Start of StatCounter Code -->
+<script type="text/javascript" language="javascript">
+var sc_project=2157207; 
+var sc_invisible=1; 
+var sc_partition=19; 
+var sc_security="4f8105ea"; 
+</script>
+
+<script type="text/javascript" language="javascript" 
+src="http://www.statcounter.com/counter/counter.js"></script><noscript><a 
+href="http://www.statcounter.com/" target="_blank"><img  
+src="http://c20.statcounter.com/counter.php?sc_project=2157207&java=0&security=4f8105ea&invisible=1" 
+alt="invisible hit counter" border="0"></a> </noscript>
+<!-- End of StatCounter Code -->
+
+</body>
+</html>ipt>
+
+<!-- Start of StatCounter Code -->
+<script type="text/javascript" language="javascript">
+var sc_project=2157207; 
+var sc_invisible=1; 
+var sc_partition=19; 
+var sc_security="4f8105ea"; 
+</script>
+
+<script type="text/javascript" language="javascript" 
+src="http://www.statcounter.com/counter/counter.js"></script><noscript><a 
+href="http://www.statcounter.com/" target="_blank"><img  
+src="http://c20.statcounter.com/counter.php?sc_project=2157207&java=0&security=4f8105ea&invisible=1" 
+alt="invisible hit counter" border="0"></a> </noscript>
+<!-- End of StatCounter Code -->
+
+</body>
+</html>

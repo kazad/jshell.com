@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Base64 Tools | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../assets/tool.css">
+    <script src="../assets/state.js"></script>
+    <script src="../assets/ui.js"></script>
+    <style type="text/tailwindcss">
+        @layer base { body { @apply bg-bg text-text-main font-sans; } }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+    <header class="tool-header">
+        <a href="../index.html" class="back-link">← Dashboard</a>
+        <div class="tool-title">Base64 Multi-Tool</div>
+        <div class="tool-actions flex gap-2">
+            <button class="btn btn-stateless" onclick="JShellState.copyLink()">Copy Stateless Link</button>
+        </div>
+    </header>
+
+    <div class="tool-container">
+        <!-- Input Panel -->
+        <div class="editor-pane" id="inputPanel">
+            <textarea id="plainText" placeholder="Type plain text here..." spellcheck="false"></textarea>
+        </div>
+
+        <!-- Output Pane -->
+        <div class="output-pane flex flex-col">
+            <div class="flex-1" id="stdPanel">
+                <textarea id="standardBase64" placeholder="Standard Base64..." spellcheck="false"></textarea>
+            </div>
+            <div class="flex-1 border-t border-border" id="urlPanel">
+                <textarea id="urlSafeBase64" placeholder="URL-Safe Base64..." spellcheck="false"></textarea>
+            </div>
+        </div>
+
+        <!-- Settings Sidebar -->
+        <div class="settings-pane">
+            <div class="setting-group">
+                <label>Information</label>
+                <p class="text-[12px] text-text-muted leading-relaxed">
+                    Ultimate 3-way sync. Type in any field to update the others instantly. 
+                    URL-safe mode removes padding and replaces <code>+</code> <code>/</code> with <code>-</code> <code>_</code>.
+                </p>
+            </div>
+            <div id="error" class="text-error text-[12px] mt-auto"></div>
+        </div>
+    </div>
+
+    <script>
+        const plainInput = document.getElementById('plainText');
+        const stdInput = document.getElementById('standardBase64');
+        const urlInput = document.getElementById('urlSafeBase64');
+        const errorDiv = document.getElementById('error');
+
+        // Initialize UI Components
+        window.addEventListener('load', () => {
+            JShellUI.initPanel('inputPanel', { label: 'Plain Text', paste: true, clear: true, copy: true });
+            JShellUI.initPanel('stdPanel', { label: 'Base64 Standard', clear: false, copy: true });
+            JShellUI.initPanel('urlPanel', { label: 'Base64 URL-Safe', clear: false, copy: true });
+
+            // Restore State
+            const state = JShellState.load();
+            if (state) {
+                plainInput.value = state.p || "";
+                syncFromPlain();
+            }
+            applyTheme();
+        });
+
+        function toStd(str) { return btoa(unescape(encodeURIComponent(str))); }
+        function toUrl(str) { return toStd(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, ''); }
+        
+        function fromStd(str) {
+            try { return decodeURIComponent(escape(atob(str))); } catch (e) { return null; }
+        }
+        function fromUrl(str) {
+            try {
+                let b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+                while (b64.length % 4) b64 += '=';
+                return decodeURIComponent(escape(atob(b64)));
+            } catch (e) { return null; }
+        }
+
+        function syncFromPlain() {
+            const val = plainInput.value;
+            stdInput.value = toStd(val);
+            urlInput.value = toUrl(val);
+            save();
+        }
+
+        function syncFromStd() {
+            const plain = fromStd(stdInput.value.trim());
+            if (plain !== null) {
+                plainInput.value = plain;
+                urlInput.value = toUrl(plain);
+                save();
+            }
+        }
+
+        function syncFromUrl() {
+            const plain = fromUrl(urlInput.value.trim());
+            if (plain !== null) {
+                plainInput.value = plain;
+                stdInput.value = toStd(plain);
+                save();
+            }
+        }
+
+        function save() { JShellState.save({ p: plainInput.value }); }
+
+        plainInput.addEventListener('input', syncFromPlain);
+        stdInput.addEventListener('input', syncFromStd);
+        urlInput.addEventListener('input', syncFromUrl);
+
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
+        window.addEventListener('storage', (e) => { if(e.key === 'jshell_theme') applyTheme(); });
+    </script>
+</body>
+</html>

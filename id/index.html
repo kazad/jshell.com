@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UUID & ULID Gen | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../assets/tool.css">
+    <script src="../assets/state.js"></script>
+</head>
+<body>
+    <header class="tool-header">
+        <a href="../index.html" class="back-link">← Dashboard</a>
+        <div class="tool-title">ID Generator</div>
+        <div class="tool-actions">
+            <button class="btn primary" onclick="JShellState.copyLink()">Copy Stateless Link</button>
+            <button class="btn" onclick="generate()">Regenerate</button>
+        </div>
+    </header>
+
+    <div class="tool-container">
+        <div class="editor-pane">
+            <div class="editor-label">Generated IDs</div>
+            <textarea id="output" readonly placeholder="IDs will appear here..."></textarea>
+        </div>
+        <div class="settings-pane">
+            <div class="setting-group">
+                <label class="block text-[11px] font-bold text-[var(--color-text-muted)] uppercase mb-2">Type</label>
+                <div class="button-group">
+                    <button id="type-uuid" class="toggle-btn active" onclick="setType('uuid')">UUID v4</button>
+                    <button id="type-ulid" class="toggle-btn" onclick="setType('ulid')">ULID</button>
+                </div>
+            </div>
+            <div class="setting-group">
+                <label class="block text-[11px] font-bold text-[var(--color-text-muted)] uppercase mb-2">Count</label>
+                <input type="number" id="countInput" value="10" min="1" max="500" class="w-full bg-black border border-[var(--color-border)] text-white p-2 rounded mb-2">
+                <div class="flex flex-wrap gap-1">
+                    <button class="preset-btn" onclick="setCount(1)">1</button>
+                    <button class="preset-btn" onclick="setCount(5)">5</button>
+                    <button class="preset-btn" onclick="setCount(10)">10</button>
+                    <button class="preset-btn" onclick="setCount(50)">50</button>
+                    <button class="preset-btn" onclick="setCount(100)">100</button>
+                </div>
+            </div>
+            <div class="setting-group">
+                <label class="block text-[11px] font-bold text-[var(--color-text-muted)] uppercase mb-2">Info</label>
+                <p class="text-xs text-[var(--color-text-muted)] leading-relaxed">UUID v4 is random. ULID is lexicographically sortable and contains a timestamp.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+        const countInput = document.getElementById('countInput');
+        let currentType = 'uuid';
+
+        // Simple ULID generator (not cryptographically secure for this demo, but fits the vibe)
+        function generateULID() {
+            const ENCODING = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+            const ENCODING_LEN = ENCODING.length;
+            const TIME_LEN = 10;
+            const RANDOM_LEN = 16;
+
+            function encodeTime(now, len) {
+                let res = "";
+                for (let i = len - 1; i >= 0; i--) {
+                    const mod = now % ENCODING_LEN;
+                    res = ENCODING.charAt(mod) + res;
+                    now = (now - mod) / ENCODING_LEN;
+                }
+                return res;
+            }
+
+            function encodeRandom(len) {
+                let res = "";
+                for (let i = 0; i < len; i++) {
+                    res += ENCODING.charAt(Math.floor(Math.random() * ENCODING_LEN));
+                }
+                return res;
+            }
+
+            return encodeTime(Date.now(), TIME_LEN) + encodeRandom(RANDOM_LEN);
+        }
+
+        function setType(type) {
+            currentType = type;
+            document.getElementById('type-uuid').classList.toggle('active', type === 'uuid');
+            document.getElementById('type-ulid').classList.toggle('active', type === 'ulid');
+            generate();
+        }
+
+        function generate() {
+            const count = parseInt(countInput.value) || 1;
+            let res = "";
+            for(let i=0; i<count; i++) {
+                if (currentType === 'uuid') {
+                    res += crypto.randomUUID() + "\n";
+                } else {
+                    res += generateULID() + "\n";
+                }
+            }
+            output.value = res.trim();
+            JShellState.save({ c: countInput.value, t: currentType });
+        }
+
+        function setCount(val) {
+            countInput.value = val;
+            generate();
+        }
+
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
+
+        countInput.addEventListener('input', generate);
+
+        window.addEventListener('load', () => {
+            applyTheme();
+            const state = JShellState.load();
+            if (state) {
+                countInput.value = state.c || "10";
+                if (state.t) setType(state.t);
+            }
+            generate();
+        });
+
+        window.addEventListener('storage', (e) => { 
+            if(e.key === 'jshell_theme') applyTheme(); 
+        });
+    </script>
+</body>
+</html>

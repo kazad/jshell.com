@@ -1,0 +1,26 @@
+- generic [ref=e2]:
+  - generic [ref=e3]: Read words that zoom.
+  - textbox [ref=e4]: Enter text to read (news article, essay, list) and press START. The words will fly by in groups. Try to read them without saying the words in your head. Once you are comfortable, use the arrow keys (up/down) to change the speed. Increase the speed until you can still understand the words, but aren't saying them in your head. This is a tough habit to break (I still haven't), but this is the theory of speed reading.
+  - generic [ref=e6]: Press start...
+  - table [ref=e7]:
+    - rowgroup [ref=e8]:
+      - 'row "Start Position: 0 WPM: 250" [ref=e9]':
+        - 'cell "Start Position: 0 WPM: 250" [ref=e10]':
+          - generic [ref=e11]:
+            - paragraph [ref=e12]:
+              - button "Start" [ref=e13]
+            - paragraph [ref=e14]:
+              - strong [ref=e15]: "Position:"
+              - text: "0"
+              - strong [ref=e16]: "WPM:"
+              - text: "250"
+  - separator [ref=e17]
+  - generic [ref=e18]:
+    - link "Instructions" [ref=e19] [cursor=pointer]:
+      - /url: javascript:void(0)
+    - text: "|"
+    - link "Settings" [ref=e20] [cursor=pointer]:
+      - /url: javascript:void(0)
+    - text: "|"
+    - link "Log" [ref=e21] [cursor=pointer]:
+      - /url: javascript:void(0)

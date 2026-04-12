@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>List Filter | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../assets/tool.css">
+    <script src="../assets/state.js"></script>
+    <script src="../assets/ui.js"></script>
+</head>
+<body>
+    <header class="tool-header">
+        <a href="../index.html" class="back-link">← Dashboard</a>
+        <div class="tool-title">Reactive List Filter</div>
+        <div class="tool-actions">
+            <button class="btn primary" onclick="JShellState.copyLink()">Copy Stateless Link</button>
+        </div>
+    </header>
+
+    <div class="tool-container">
+        <div class="editor-pane flex flex-col">
+            <div style="padding: 20px; border-bottom: 1px solid var(--color-border); background: var(--color-header);">
+                <div class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted mb-2 block">Filter (Text or Regex)</div>
+                <input type="text" id="filterInput" placeholder="e.g. error, ^[0-9], .*" style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 12px; border-radius: 8px; font-size: 18px; outline: none; font-family: 'JetBrains Mono', monospace;">
+            </div>
+            <div id="inputPanel" class="flex-grow">
+                <textarea id="listInput" placeholder="Paste your list here..." spellcheck="false"></textarea>
+            </div>
+        </div>
+        <div id="outputPanel" class="output-pane">
+            <textarea id="output" readonly placeholder="Filtered results..." spellcheck="false"></textarea>
+        </div>
+    </div>
+
+    <script>
+        const filter = document.getElementById('filterInput');
+        const input = document.getElementById('listInput');
+        const output = document.getElementById('output');
+        let resLabel;
+
+        // Initialize JShell UI
+        window.addEventListener('load', () => {
+            JShellUI.initPanel('inputPanel', { label: 'Input List' });
+            JShellUI.initPanel('outputPanel', { label: 'Matches (0)', type: 'output' });
+            resLabel = document.querySelector('#outputPanel .editor-label span');
+        });
+
+        function runFilter() {
+            const query = filter.value.trim();
+            const raw = input.value.trim();
+            if (!raw) { 
+                output.value = ''; 
+                if (resLabel) resLabel.textContent = 'Matches (0)'; 
+                return; 
+            }
+
+            const lines = raw.split('\n');
+            let filtered;
+
+            try {
+                const regex = new RegExp(query, 'i');
+                filtered = lines.filter(line => regex.test(line));
+            } catch (e) {
+                // If invalid regex, fall back to simple string includes
+                filtered = lines.filter(line => line.toLowerCase().includes(query.toLowerCase()));
+            }
+
+            output.value = filtered.join('\n');
+            if (resLabel) resLabel.textContent = `Matches (${filtered.length})`;
+            
+            JShellState.save({ f: query, l: raw });
+        }
+
+        filter.addEventListener('input', runFilter);
+        input.addEventListener('input', runFilter);
+
+        window.addEventListener('load', () => {
+            const state = JShellState.load();
+            if (state) {
+                filter.value = state.f || "";
+                input.value = state.l || "";
+                runFilter();
+            }
+        });
+
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
+        window.addEventListener('load', applyTheme);
+        window.addEventListener('storage', (e) => { if(e.key === 'jshell_theme') applyTheme(); });
+    </script>
+</body>
+</html>

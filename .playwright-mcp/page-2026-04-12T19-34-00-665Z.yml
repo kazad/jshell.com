@@ -1,0 +1,31 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]: Math. Fast.
+    - generic [ref=e4]: Instant results. Variables and formulas. Draggable cells. Save and share.
+    - separator [ref=e5]
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - text: "::"
+        - textbox [ref=e8]
+      - generic [ref=e9]:
+        - text: "::"
+        - textbox [ref=e10]
+      - generic [ref=e11]:
+        - text: "::"
+        - textbox [ref=e12]
+      - generic [ref=e13]:
+        - text: "::"
+        - textbox [ref=e14]
+      - generic [ref=e15]:
+        - text: "::"
+        - textbox [ref=e16]
+    - link "More cells..." [ref=e18] [cursor=pointer]:
+      - /url: javascript:void(0)
+    - separator [ref=e19]
+    - generic [ref=e20]:
+      - link "Instructions" [active] [ref=e21] [cursor=pointer]:
+        - /url: javascript:void(0)
+      - generic [ref=e22]:
+        - text: "URL to share:"
+        - textbox [ref=e23]: http://localhost:8787/calc/?items=%7C%7C%7C%7C%7C%7C%7C%7C%7C%7C
+  - text: ounter Code -->

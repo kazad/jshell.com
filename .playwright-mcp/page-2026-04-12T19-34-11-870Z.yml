@@ -1,0 +1,83 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]: Math. Fast.
+    - generic [ref=e4]: Instant results. Variables and formulas. Draggable cells. Save and share.
+    - separator [ref=e5]
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - text: "::"
+        - textbox [ref=e8]
+      - generic [ref=e9]:
+        - text: "::"
+        - textbox [ref=e10]
+      - generic [ref=e11]:
+        - text: "::"
+        - textbox [ref=e12]
+      - generic [ref=e13]:
+        - text: "::"
+        - textbox [ref=e14]
+      - generic [ref=e15]:
+        - text: "::"
+        - textbox [ref=e16]
+    - link "More cells..." [ref=e18] [cursor=pointer]:
+      - /url: javascript:void(0)
+    - separator [ref=e19]
+    - generic [ref=e20]:
+      - link "Instructions" [active] [ref=e21] [cursor=pointer]:
+        - /url: javascript:void(0)
+      - generic [ref=e24]:
+        - text: "The goal is a simple, clean and fast web calculator:"
+        - list [ref=e25]:
+          - listitem [ref=e26]: Instant answers. Just start typing ("3 + 4"). No need to wait.
+          - listitem [ref=e27]: Use equations. Use variables like x,y, or even "profit = revenue - expense"
+          - listitem [ref=e28]: Save and share. Save and come back to any session. Send to a friend for help or advice.
+          - listitem [ref=e29]: Draggable. Drag the "::" and move cells around.
+        - text: "There are many ways to use the program, some examples are below:"
+        - table [ref=e30]:
+          - rowgroup [ref=e31]:
+            - row "Example Result" [ref=e32]:
+              - cell "Example" [ref=e33]:
+                - strong [ref=e34]: Example
+              - cell "Result" [ref=e35]:
+                - strong [ref=e36]: Result
+            - row "2 * 20 40 (appears instantly)" [ref=e37]:
+              - cell "2 * 20" [ref=e38]
+              - cell "40 (appears instantly)" [ref=e39]
+            - row "2 * 200 400 (appears as you type '0')" [ref=e40]:
+              - cell "2 * 200" [ref=e41]
+              - cell "400 (appears as you type '0')" [ref=e42]: 400 (appears as you type '0')
+            - row "x = 3 3 (set \"x\" to 3, can be used later)" [ref=e43]:
+              - cell "x = 3" [ref=e44]
+              - cell "3 (set \"x\" to 3, can be used later)" [ref=e45]
+            - row "3 * x 9 (use x in equation)" [ref=e46]:
+              - cell "3 * x" [ref=e47]
+              - cell "9 (use x in equation)" [ref=e48]
+            - row "y = 2 2 (set \"y\")" [ref=e49]:
+              - cell "y = 2" [ref=e50]
+              - cell "2 (set \"y\")" [ref=e51]
+            - row "x * y 6 (use x and y together)" [ref=e52]:
+              - cell "x * y" [ref=e53]
+              - cell "6 (use x and y together)" [ref=e54]
+            - row "R .412312 (R is special -- random number from 0 - 1)" [ref=e55]:
+              - cell "R" [ref=e56]
+              - cell ".412312 (R is special -- random number from 0 - 1)" [ref=e57]
+            - row "(press enter) .8123 (Creates new random number)" [ref=e58]:
+              - cell "(press enter)" [ref=e59]
+              - cell ".8123 (Creates new random number)" [ref=e60]
+            - row "R * 10 5.123 (Random number from 0 to 10)" [ref=e61]:
+              - cell "R * 10" [ref=e62]
+              - cell "5.123 (Random number from 0 to 10)" [ref=e63]
+            - row "ceil(R * 10) 7 (Math.ceil rounds number up)" [ref=e64]:
+              - cell "ceil(R * 10)" [ref=e65]
+              - cell "7 (Math.ceil rounds number up)" [ref=e66]
+            - row "0x1234 4660 (hex to decimal conversion)" [ref=e67]:
+              - cell "0x1234" [ref=e68]
+              - cell "4660 (hex to decimal conversion)" [ref=e69]
+            - row "043 35 (octal to decimal conversion)" [ref=e70]:
+              - cell "043" [ref=e71]
+              - cell "35 (octal to decimal conversion)" [ref=e72]
+        - text: This is a work in progress - comments are welcome.
+      - generic [ref=e22]:
+        - text: "URL to share:"
+        - textbox [ref=e23]: http://localhost:8787/calc/?items=%7C%7C%7C%7C%7C%7C%7C%7C%7C%7C
+  - text: ounter Code -->
