@@ -35,6 +35,30 @@
     </script>
     <style type="text/tailwindcss">
         @layer base {
+            :root {
+                --color-bg: #0d0d0d;
+                --color-header: #141414;
+                --color-surface: #0d0d0d;
+                --color-surface-hover: #1a1a1a;
+                --color-border: #222222;
+                --color-text-main: #e0e0e0;
+                --color-text-muted: #777777;
+                --color-accent: #ffffff;
+                --color-accent-blue: #3b82f6;
+                --color-success: #00ff88;
+            }
+            body.light-theme {
+                --color-bg: #ffffff;
+                --color-header: #f9f9f9;
+                --color-surface: #ffffff;
+                --color-surface-hover: #f5f5f5;
+                --color-border: #eaeaea;
+                --color-text-main: #171717;
+                --color-text-muted: #666666;
+                --color-accent: #000000;
+                --color-accent-blue: #2563eb;
+                --color-success: #10b981;
+            }
             body { @apply bg-bg text-text-main font-sans; }
         }
         @layer components {
@@ -52,7 +76,7 @@
         <div class="max-w-[1600px] mx-auto flex justify-between items-center">
             <div class="flex items-center gap-3">
                 <span class="font-extrabold text-base tracking-tighter">jshell<span class="text-text-muted">.com</span></span>
-                <span class="font-mono text-[10px] text-text-muted bg-border px-1 rounded">v2.3.0</span>
+                <span class="font-mono text-[10px] text-text-muted bg-border px-1 rounded">v3.0.0</span>
             </div>
             <div class="flex-grow max-w-[500px] relative mx-10 hidden md:block">
                 <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs opacity-50">🔍</span>
@@ -171,7 +195,7 @@
             <!-- TIME & MATH -->
             <div data-category="math">
                 <div class="column-header">
-                    <span class="title text-[11px] font-bold tracking-wider text-text-muted uppercase">TIME & MATH</span>
+                    <span class="column-title">TIME & MATH</span>
                 </div>
                 <div class="flex flex-col">
                     <a href="utils/epoch-converter/index.html" class="tool-item" data-tags="epoch unix date time">
@@ -199,30 +223,18 @@
                         <span class="truncate">HTML Workbench</span>
                         <span class="tool-tag">ui</span>
                     </a>
-                    <a href="utils/color-workbench/index.html" class="tool-item" data-tags="color palette oklch hex rgb">
-                        <span class="truncate">Color Workbench</span>
-                        <span class="tool-tag">style</span>
-                    </a>
-                    <a href="utils/svg-optimizer/index.html" class="tool-item" data-tags="svg minify optimize">
-                        <span class="truncate">SVG Optimizer</span>
-                        <span class="tool-tag">assets</span>
-                    </a>
                 </div>
             </div>
 
-            <!-- MODERN CLASSICS -->
+            <!-- CLASSICS -->
             <div data-category="classics">
                 <div class="column-header">
-                    <span class="column-title text-amber-500">MODERN CLASSICS</span>
+                    <span class="column-title text-amber-500">CLASSICS</span>
                 </div>
                 <div class="flex flex-col">
                     <a href="utils/smart-calculator/index.html" class="tool-item" data-tags="calculator math notebook classic">
                         <span class="truncate">Smart Calculator</span>
                         <span class="tool-tag">core</span>
-                    </a>
-                    <a href="utils/word-counter/index.html" class="tool-item" data-tags="word count text stats classic">
-                        <span class="truncate">Text Analyzer</span>
-                        <span class="tool-tag">stats</span>
                     </a>
                     <a href="utils/list-filter/index.html" class="tool-item" data-tags="search grep filter classic">
                         <span class="truncate">Reactive Filter</span>
@@ -231,15 +243,6 @@
                     <a href="utils/list-sorter/index.html" class="tool-item" data-tags="sort order list classic">
                         <span class="truncate">Multi-Sorter</span>
                         <span class="tool-tag">list</span>
-                    </a>
-                    <a href="utils/speed-reader/index.html" class="tool-item" data-tags="reader zoom speed classic">
-                        <span class="truncate">Speed Reader</span>
-                        <span class="tool-tag">zoom</span>
-                    </a>
-                    <hr class="border-0 border-t border-border my-2">
-                    <a href="calc/index.html" class="tool-item opacity-50" data-tags="legacy old">
-                        <span class="truncate">Original 2000s Tools</span>
-                        <span class="tool-tag">legacy</span>
                     </a>
                 </div>
             </div>
