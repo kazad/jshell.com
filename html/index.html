@@ -29,7 +29,10 @@
       <textarea id="inputarea" class="inputarea" placeholder="Paste HTML here..."></textarea>
     </td>
     <td width="50%" valign="top" style="padding-left: 10px;">
-      <div><strong>Render:</strong></div>
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <strong>Render:</strong>
+        <a href="javascript:void(0)" onclick="toggleFullscreen()" style="font-size: 12px; text-decoration: none; color: blue;">[Fullscreen]</a>
+      </div>
       <iframe id="outputframe" class="renderArea" frameborder="0"></iframe>
     </td>
   </tr>
@@ -58,6 +61,16 @@
   var outputframe = document.getElementById("outputframe");
   var pasteList = document.getElementById("pasteList");
   var currentPasteId = null;
+
+  function toggleFullscreen() {
+    if (outputframe.requestFullscreen) {
+      outputframe.requestFullscreen();
+    } else if (outputframe.webkitRequestFullscreen) { /* Safari */
+      outputframe.webkitRequestFullscreen();
+    } else if (outputframe.msRequestFullscreen) { /* IE11 */
+      outputframe.msRequestFullscreen();
+    }
+  }
 
   function renderHTML() {
     var code = inputarea.value;
