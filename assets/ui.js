@@ -102,3 +102,4 @@ const JShellUI = {
 };
 
 window.JShellUI = JShellUI;
+// v1.0.1
