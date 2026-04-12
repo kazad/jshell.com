@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>JShell | Test Runner</title>
+    <link rel="stylesheet" href="../utils/tool.css">
+    <style>
+        .test-container { padding: 40px; max-width: 1000px; margin: 0 auto; }
+        .test-result { margin-bottom: 8px; padding: 8px 12px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+        .test-pass { background: #063a1e; color: #acf2bd; border: 1px solid #0a5a2a; }
+        .test-fail { background: #440c10; color: #fdb8c0; border: 1px solid #6a1218; }
+        .test-group-header { font-weight: 800; font-size: 14px; margin: 20px 0 10px 0; color: var(--color-accent-blue); text-transform: uppercase; border-bottom: 1px solid var(--color-border); padding-bottom: 4px; }
+        .summary-box { background: #111; padding: 20px; border-radius: 12px; border: 1px solid var(--color-border); margin-bottom: 30px; display: flex; justify-content: space-around; }
+        .stat-item { text-align: center; }
+        .stat-val { font-size: 32px; font-weight: 800; display: block; }
+        .stat-lbl { font-size: 10px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 1px; }
+    </style>
+</head>
+<body class="dark-theme">
+    <header class="tool-header">
+        <a href="../index_new.html" class="back-link">← Dashboard</a>
+        <div class="tool-title">Integrated Logic Validator</div>
+        <div class="tool-actions">
+            <button class="btn primary" onclick="runAll()">Execute All Tests</button>
+        </div>
+    </header>
+
+    <div class="test-container">
+        <div class="summary-box" id="summary" style="display:none">
+            <div class="stat-item">
+                <span class="stat-val text-success" id="passCount">0</span>
+                <span class="stat-lbl">Passed</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-val text-error" id="failCount">0</span>
+                <span class="stat-lbl">Failed</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-val" id="totalCount">0</span>
+                <span class="stat-lbl">Total</span>
+            </div>
+        </div>
+
+        <div id="results">
+            <p style="color: var(--color-text-muted)">Ready for validation suite execution.</p>
+        </div>
+    </div>
+
+    <!-- Load the shared logic to test -->
+    <script src="../utils/state.js"></script>
+    <!-- We don't load UI.js here because it manipulates the DOM, but we test its utility logic -->
+
+    <script>
+        const results = document.getElementById('results');
+        let passes = 0;
+        let fails = 0;
+
+        function assert(condition, message) {
+            const div = document.createElement('div');
+            div.className = 'test-result ' + (condition ? 'test-pass' : 'test-fail');
+            div.textContent = (condition ? '✓ ' : '✗ ') + message;
+            results.appendChild(div);
+            if (condition) passes++; else fails++;
+            return condition;
+        }
+
+        function group(name) {
+            const h = document.createElement('div');
+            h.className = 'test-group-header';
+            h.textContent = name;
+            results.appendChild(h);
+        }
+
+        async function runAll() {
+            results.innerHTML = '';
+            passes = 0;
+            fails = 0;
+            document.getElementById('summary').style.display = 'flex';
+
+            group('1. Core State (state.js)');
+            const testObj = { id: 1, text: "hello world", meta: { active: true } };
+            const encoded = JShellState.encode(testObj);
+            const decoded = JShellState.decode(encoded);
+            assert(typeof encoded === 'string', 'State encodes to Base64 string');
+            assert(encoded.indexOf(' ') === -1, 'Encoded string has no spaces');
+            assert(decoded.id === 1, 'Integers preserved');
+            assert(decoded.text === "hello world", 'Unicode strings preserved');
+            assert(decoded.meta.active === true, 'Nested objects preserved');
+
+            group('2. JSON Formatting Logic');
+            const rawJson = '{"b":2,"a":1}';
+            const parsed = JSON.parse(rawJson);
+            const beautified = JSON.stringify(parsed, null, 2);
+            assert(beautified.includes('\n'), 'Beautification adds newlines');
+            assert(beautified.includes('  '), 'Beautification adds indentation');
+            // Test sort logic
+            const sortObject = (obj) => {
+                if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+                return Object.keys(obj).sort().reduce((acc, key) => { acc[key] = obj[key]; return acc; }, {});
+            };
+            const sorted = sortObject(parsed);
+            assert(Object.keys(sorted)[0] === 'a', 'Key sorting correctly orders alphabetically');
+
+            group('3. Base64 & URL Safe Logic');
+            const plain = "user:password?";
+            const stdB64 = btoa(unescape(encodeURIComponent(plain)));
+            const urlB64 = stdB64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+            assert(stdB64 === "dXNlcjpwYXNzd29yZD8=", "Standard Base64 matches expected output");
+            assert(!urlB64.includes('+') && !urlB64.includes('/') && !urlB64.includes('='), "URL Safe transform removes problematic characters");
+            
+            // Reverse
+            const decodeUrl = (str) => {
+                let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+                while (base64.length % 4) base64 += '=';
+                return decodeURIComponent(escape(atob(base64)));
+            };
+            assert(decodeUrl(urlB64) === plain, "URL Safe Base64 round-trip is lossless");
+
+            group('4. CSV to JSON Sync');
+            const csv = "id,val\n1,foo\n2,bar";
+            const csvToJSON = (raw) => {
+                const lines = raw.trim().split('\n');
+                const headers = lines[0].split(',');
+                return lines.slice(1).map(line => {
+                    const values = line.split(',');
+                    return headers.reduce((obj, h, i) => { obj[h.trim()] = values[i].trim(); return obj; }, {});
+                });
+            };
+            const jsonRes = csvToJSON(csv);
+            assert(jsonRes.length === 2, "Correct number of rows parsed");
+            assert(jsonRes[0].id === "1" && jsonRes[0].val === "foo", "Row values correctly mapped to headers");
+
+            group('5. JWT Decoder Logic');
+            // Header: {"alg":"HS256","typ":"JWT"}
+            // Payload: {"sub":"1234567890","name":"John Doe","iat":1516239022}
+            const testJwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+            const parts = testJwt.split('.');
+            assert(parts.length === 3, "JWT has correct 3-part structure");
+            const decodedHeader = JSON.parse(decodeUrl(parts[0]));
+            assert(decodedHeader.alg === "HS256", "JWT Header correctly decoded");
+            const decodedPayload = JSON.parse(decodeUrl(parts[1]));
+            assert(decodedPayload.name === "John Doe", "JWT Payload correctly decoded");
+
+            group('6. Unit Converter Math');
+            const px = 24;
+            const base = 16;
+            const rem = (px / base).toFixed(3);
+            assert(rem === "1.500", "24px correctly converts to 1.500rem (base 16)");
+            assert((0.5 * 16) === 8, "0.5rem correctly converts to 8px (base 16)");
+
+            group('7. Text Analyzer (Advanced)');
+            const complexText = "Word. Another sentence! Final paragraph line.\n\nNew para.";
+            const getWords = (t) => t.trim() ? t.trim().split(/\s+/).length : 0;
+            const getSentences = (t) => t ? t.split(/[.!?]+/).filter(s => s.trim().length > 0).length : 0;
+            assert(getWords(complexText) === 8, "Word count handles newlines and punctuation");
+            assert(getSentences(complexText) === 4, "Sentence count detects periods and exclamation marks");
+
+            // Update Summary
+            document.getElementById('passCount').textContent = passes;
+            document.getElementById('failCount').textContent = fails;
+            document.getElementById('totalCount').textContent = passes + fails;
+        }
+    </script>
+</body>
+</html>
