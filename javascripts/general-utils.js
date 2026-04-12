@@ -25,10 +25,9 @@ http://www.jshell.com
 	{
 		var i = document.getElementById(itemName);
 		if (i.style.display=="none"){
-			//fade in the item
-			new Effect.Highlight(i)
-		
 			i.style.display = "";
+			//fade in the item
+			new Effect.Highlight(i);
 		}
 		else{
 			i.style.display ="none";

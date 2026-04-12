@@ -7,9 +7,8 @@
 
 
   <script src="../javascripts/general-utils.js" type="text/javascript"></script>
-  <script src="http://jshell.com/javascripts/global.js" type="text/javascript"></script>
-  <script src="../javascripts/prototype.js" type="text/javascript"></script>
-  <script src="../javascripts/scriptaculous.js" type="text/javascript"></script>
+  <script src="../lib/prototype.js" type="text/javascript"></script>
+  <script src="../lib/scriptaculous.js" type="text/javascript"></script>
   <script src="../javascripts/drag.js" type="text/javascript"></script>
   <style type="text/css" media="screen">@import url("../general.css");
 INPUT {
@@ -105,43 +104,7 @@ padding: 5px;
 .center { }
   </style>
   <script type="text/javascript">
-/***********************************************
-* Drag and Drop Script: � Dynamic Drive (http://www.dynamicdrive.com)
-* This notice MUST stay intact for legal use
-* Visit http://www.dynamicdrive.com/ for this script and 100s more.
-***********************************************/
-var dragobject={
-z: 0, x: 0, y: 0, offsetx : null, offsety : null, targetobj : null, dragapproved : 0,
-initialize:function(){
-document.onmousedown=this.drag
-document.onmouseup=function(){this.dragapproved=0}
-},
-drag:function(e){
-var evtobj=window.event? window.event : e
-this.targetobj=window.event? event.srcElement : e.target
-if (this.targetobj.className=="drag"){
-this.dragapproved=1
-if (isNaN(parseInt(this.targetobj.style.left))){this.targetobj.style.left=0}
-if (isNaN(parseInt(this.targetobj.style.top))){this.targetobj.style.top=0}
-this.offsetx=parseInt(this.targetobj.style.left)
-this.offsety=parseInt(this.targetobj.style.top)
-this.x=evtobj.clientX
-this.y=evtobj.clientY
-if (evtobj.preventDefault)
-evtobj.preventDefault()
-document.onmousemove=dragobject.moveit
-}
-},
-moveit:function(e){
-var evtobj=window.event? window.event : e
-if (this.dragapproved==1){
-this.targetobj.style.left=this.offsetx+evtobj.clientX-this.x+"px"
-this.targetobj.style.top=this.offsety+evtobj.clientY-this.y+"px"
-return false
-}
-}
-}
-dragobject.initialize()
+
 function write(string){
 statusarea.innerHTML += string
 statusarea.innerHTML += "<br/>";
@@ -287,10 +250,6 @@ Inputs[i] = document.getElementById("input_" + i);
 Outputs[i] = document.getElementById("output_" + i);
 // make sure we 
 
-if ( isNull(Inputs[i].value) ){
-continue;
-}
-
 log("Inputs[" + i + "].value:" + Inputs[i].value );
 if (undefined == Outputs[i] || undefined == Inputs[i] || undefined == saved[i]){
 continue;
@@ -321,7 +280,11 @@ function keyListener(e){
 		}
 		else {
 			inputstr = cleanup(Inputs[i].value);
-			tmp = eval(inputstr);
+			try {
+				tmp = eval(inputstr);
+			} catch(e) {
+				tmp = " ";
+			}
 		}
 		if (tmp == "NaN" || tmp == "undefined"){
 			tmp = " " // variable not recognized
@@ -399,12 +362,12 @@ Save and share.</div>
 <!--<span onclick="saveCells(); addCell(extended, CELLS, CELLS); CELLS = CELLS + 1; setCells();">Add Cell</span>--></div>
 
 <div>
-<a href="index.html#" onclick="toggleItem('extracells')">More
+<a href="javascript:void(0)" onclick="toggleItem('extracells')">More
 cells...</a> </div>
 
 <hr />
 <!-- <div align="center"><strong>Saved Variables</strong> (reload page to clear)<br /> <span id="variablearea"></span> </div> -->
-<div class="titlebar"> <a href="index.html#" onclick="toggleItem('instructions')">Instructions</a><!-- | <a href="#" onclick="toggleItem('log')">View History</a> | <a href="#" onclick="writeWords()">Show Words</a> --><!-- <a href="#" onclick="clearItem('statusarea')">clear</a></div> -->
+<div class="titlebar"> <a href="javascript:void(0)" onclick="toggleItem('instructions')">Instructions</a><!-- | <a href="#" onclick="toggleItem('log')">View History</a> | <a href="#" onclick="writeWords()">Show Words</a> --><!-- <a href="#" onclick="clearItem('statusarea')">clear</a></div> -->
 <div class="settings" id="instructions">The goal is
 a simple, clean and fast web calculator: <br />
 
@@ -552,7 +515,7 @@ This is a work in progress - comments are welcome.
 
 <!-- <div class="settings" id="log"><strong>History </strong>(<a href="#" onclick="clearItem('statusarea')">clear</a>). This is not stored anywhere, and may be lost if you reload the page.</div> -->
 <div id="url">URL to share: <br/>
-<textarea type="text" readonly="true" cols="50" rows="1" name="urlbox" id="urlbox"></textarea>
+<input type="text" readonly="readonly" size="60" name="urlbox" id="urlbox" onclick="this.select()" />
 </div>
 
 </div>
@@ -616,6 +579,10 @@ src="http://www.statcounter.com/counter/counter.js"></script><noscript><a
 href="http://www.statcounter.com/" target="_blank"><img  
 src="http://c20.statcounter.com/counter.php?sc_project=2157207&java=0&security=4f8105ea&invisible=1" 
 alt="invisible hit counter" border="0"></a> </noscript>
+<!-- End of StatCounter Code -->
+</body>
+</html>
+a> </noscript>
 <!-- End of StatCounter Code -->
 </body>
 </html>

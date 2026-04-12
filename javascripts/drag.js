@@ -1,4 +1,4 @@
-//Generic Drag Script- © Dynamic Drive (www.dynamicdrive.com)
+//Generic Drag Script- ï¿½ Dynamic Drive (www.dynamicdrive.com)
 //For full source code and terms of usage,
 //visit http://www.dynamicdrive.com
 
@@ -10,8 +10,8 @@ var z,x,y
 
 function move(e){
 if (dragapproved){
-z.style.left=ns6? temp1+e.clientX-x: temp1+event.clientX-x
-z.style.top=ns6? temp2+e.clientY-y : temp2+event.clientY-y
+z.style.left=(ns6? temp1+e.clientX-x: temp1+event.clientX-x) + "px";
+z.style.top=(ns6? temp2+e.clientY-y : temp2+event.clientY-y) + "px";
 return false
 }
 }
@@ -20,6 +20,9 @@ function drags(e){
 if (!ie&&!ns6)
 return
 var firedobj=ns6? e.target : event.srcElement
+
+if (firedobj.tagName == "INPUT" || firedobj.tagName == "TEXTAREA") return true;
+
 var topelement=ns6? "HTML" : "BODY"
 
 while (firedobj.tagName!=topelement&&firedobj.className!="drag"){
@@ -29,8 +32,8 @@ firedobj=ns6? firedobj.parentNode : firedobj.parentElement
 if (firedobj.className=="drag"){
 dragapproved=true
 z=firedobj
-temp1=parseInt(z.style.left+0)
-temp2=parseInt(z.style.top+0)
+temp1=parseInt(z.style.left+0)||0
+temp2=parseInt(z.style.top+0)||0
 x=ns6? e.clientX: event.clientX
 y=ns6? e.clientY: event.clientY
 document.onmousemove=move

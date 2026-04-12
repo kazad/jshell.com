@@ -4,9 +4,8 @@
 
   <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
   <title>Easy, online sort</title>
-	<script src="http://jshell.com/javascripts/global.js" type="text/javascript"></script>
-	<script src="../javascripts/prototype.js" type="text/javascript"></script>
-	<script src="../javascripts/scriptaculous.js" type="text/javascript"></script>
+	<script src="../lib/prototype.js" type="text/javascript"></script>
+	<script src="../lib/scriptaculous.js" type="text/javascript"></script>
   <style type="text/css" media="screen">@import url("../general.css");
 
 #inputre {
@@ -182,10 +181,9 @@ function getURLParam(strParamName){
 	{
 		var i = document.getElementById(itemName);
 		if (i.style.display=="none"){
-			//fade in the item
-			new Effect.Highlight(i)
-		
 			i.style.display = "";
+			//fade in the item
+			new Effect.Highlight(i);
 		}
 		else{
 			i.style.display ="none";
@@ -647,7 +645,7 @@ Order by count</span>
   </p>
 </div>
 </div>
-<div class="titlebar"> <a href="index.html#" onclick="toggleItem('instructions')">Instructions</a> 
+<div class="titlebar"> <a href="javascript:void(0)" onclick="toggleItem('instructions')">Instructions</a> 
 <!--
 | <a href="#" onclick="toggleItem('log')">View History</a> | <a href="#" onclick="writeWords()">Show Words</a>
 <a href="#" onclick="clearItem('statusarea')">clear</a>
@@ -664,7 +662,7 @@ Order by count</span>
 
 
 
-<div class="settings" id="log"><strong>History </strong>(<a href="index.html#" onclick="clearItem('statusarea')">clear</a>). This is not stored anywhere, and may be lost if you reload the page.</div>
+<div class="settings" id="log"><strong>History </strong>(<a href="javascript:void(0)" onclick="clearItem('statusarea')">clear</a>). This is not stored anywhere, and may be lost if you reload the page.</div>
 
 <a href="javascript: toggle(logging)">Logging on/off</a>
 <span id="statusarea"></span>
