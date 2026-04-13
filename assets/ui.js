@@ -13,24 +13,31 @@ const JShellUI = {
         const showCopy = options.copy !== false;
         const showClear = options.clear !== false;
 
-        // Extract the existing content (usually a textarea or pre)
-        const content = container.innerHTML;
+        // Create the shell structure using DOM methods to preserve internal element references/listeners
+        const panel = document.createElement('div');
+        panel.className = 'jshell-panel h-full flex flex-col';
         
-        // Rebuild with standard structure
-        container.innerHTML = `
-            <div class="jshell-panel h-full flex flex-col">
-                <div class="pane-label">
-                    <span class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted">${label}</span>
-                    <div class="flex gap-1.5">
-                        ${showClear ? `<button class="ui-action-btn" onclick="JShellUI.clear('${containerId}')">${JShellUI.svg('clear')} Clear</button>` : ''}
-                        ${showCopy ? `<button class="ui-action-btn action-copy" onclick="JShellUI.copy('${containerId}')">${JShellUI.svg('copy')} <span>Copy</span></button>` : ''}
-                    </div>
-                </div>
-                <div class="flex-grow relative overflow-hidden bg-black panel-content-area">
-                    ${content}
-                </div>
+        const header = document.createElement('div');
+        header.className = 'pane-label';
+        header.innerHTML = `
+            <span class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted">${label}</span>
+            <div class="flex gap-1.5">
+                ${showClear ? `<button class="ui-action-btn" onclick="JShellUI.clear('${containerId}')">${JShellUI.svg('clear')} Clear</button>` : ''}
+                ${showCopy ? `<button class="ui-action-btn action-copy" onclick="JShellUI.copy('${containerId}')">${JShellUI.svg('copy')} <span>Copy</span></button>` : ''}
             </div>
         `;
+
+        const contentArea = document.createElement('div');
+        contentArea.className = 'flex-grow relative overflow-hidden bg-black panel-content-area';
+
+        // Move existing children into the content area
+        while (container.firstChild) {
+            contentArea.appendChild(container.firstChild);
+        }
+
+        panel.appendChild(header);
+        panel.appendChild(contentArea);
+        container.appendChild(panel);
 
         // Ensure the internal textarea/pre fills the container
         const internal = container.querySelector('textarea, pre, div.output-content');
@@ -89,4 +96,4 @@ const JShellUI = {
 };
 
 window.JShellUI = JShellUI;
-// v1.0.2
+// v1.0.3
