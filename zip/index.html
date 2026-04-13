@@ -23,23 +23,50 @@
         </div>
     </header>
 
-    <div class="tool-container overflow-hidden">
-        <div class="editor-pane" id="inputPanel">
-            <textarea id="plainText" placeholder="Paste text here to compress..." spellcheck="false"></textarea>
+    <div class="tool-container overflow-hidden flex-col">
+        <div class="flex flex-grow overflow-hidden">
+            <div class="editor-pane flex-1" id="inputPanel">
+                <textarea id="plainText" placeholder="Paste text here to compress..." spellcheck="false"></textarea>
+            </div>
+            <div class="output-pane flex-1" id="outputPanel">
+                <textarea id="compressedText" placeholder="Paste Gzip+Base64 here to decompress..." spellcheck="false"></textarea>
+            </div>
         </div>
-        <div class="output-pane" id="outputPanel">
-            <textarea id="compressedText" placeholder="Paste Gzip+Base64 here to decompress..." spellcheck="false"></textarea>
+        <div id="stats" class="px-6 py-2 bg-header border-t border-border flex gap-8 text-[11px] font-mono text-text-muted">
+            <div class="flex gap-2">CHARS: <span id="statChars" class="text-text-main">0</span></div>
+            <div class="flex gap-2">PLAIN: <span id="statPlainBytes" class="text-text-main">0</span> B</div>
+            <div class="flex gap-2">GZIPPED: <span id="statZipBytes" class="text-text-main">0</span> B</div>
+            <div class="flex gap-2">RATIO: <span id="statRatio" class="text-text-main">0</span>%</div>
         </div>
     </div>
 
     <script>
         const plainInput = document.getElementById('plainText');
         const compressedInput = document.getElementById('compressedText');
+        
+        const statChars = document.getElementById('statChars');
+        const statPlainBytes = document.getElementById('statPlainBytes');
+        const statZipBytes = document.getElementById('statZipBytes');
+        const statRatio = document.getElementById('statRatio');
+
+        function updateStats(plainStr, zipBytes) {
+            const plainBytes = new TextEncoder().encode(plainStr).length;
+            const zipCount = zipBytes.length;
+            
+            statChars.textContent = plainStr.length.toLocaleString();
+            statPlainBytes.textContent = plainBytes.toLocaleString();
+            statZipBytes.textContent = zipCount.toLocaleString();
+            
+            const ratio = plainBytes > 0 ? ((1 - (zipCount / plainBytes)) * 100).toFixed(1) : 0;
+            statRatio.textContent = ratio;
+            statRatio.parentElement.className = `flex gap-2 ${ratio > 0 ? 'text-success' : 'text-text-muted'}`;
+        }
 
         function compress() {
-            const val = plainInput.value.trim();
+            const val = plainInput.value;
             if (!val) {
                 compressedInput.value = '';
+                updateStats('', []);
                 return;
             }
 
@@ -48,6 +75,7 @@
                 const compressed = pako.gzip(uint8);
                 const base64 = btoa(String.fromCharCode.apply(null, compressed));
                 compressedInput.value = base64;
+                updateStats(val, compressed);
                 JShellState.save({ t: val });
             } catch (e) {
                 console.error("Compression error:", e);
@@ -58,6 +86,7 @@
             const val = compressedInput.value.trim();
             if (!val) {
                 plainInput.value = '';
+                updateStats('', []);
                 return;
             }
 
@@ -70,6 +99,7 @@
                 const decompressed = pako.ungzip(uint8);
                 const text = new TextDecoder().decode(decompressed);
                 plainInput.value = text;
+                updateStats(text, uint8);
                 JShellState.save({ t: text });
             } catch (e) {
                 // Silently fail or show error in output placeholder
@@ -92,7 +122,9 @@
             const state = JShellState.load();
             if (state && state.t) {
                 plainInput.value = state.t;
-                compress();
+                compress(); // This calls updateStats
+            } else {
+                updateStats('', []);
             }
         });
 
