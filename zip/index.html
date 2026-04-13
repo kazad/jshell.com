@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gzip (Base64) | JShell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../assets/tool.css">
+    <script src="../assets/lz-string.js"></script>
+    <script src="../assets/state.js"></script>
+    <script src="../assets/ui.js"></script>
+    <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
+</head>
+<body class="h-screen flex flex-col">
+    <header class="tool-header">
+        <div class="flex gap-2 items-center">
+            <a href="../index.html" class="back-link">← Dashboard</a>
+            <span style="color: var(--color-border)">|</span>
+            <div class="tool-title">Gzip (Base64) Tool</div>
+        </div>
+        <div class="tool-actions">
+            <button class="btn primary" onclick="JShellState.copyLink()">Share Link with Data</button>
+        </div>
+    </header>
+
+    <div class="tool-container overflow-hidden">
+        <div class="editor-pane" id="inputPanel">
+            <textarea id="plainText" placeholder="Paste text here to compress..." spellcheck="false"></textarea>
+        </div>
+        <div class="output-pane" id="outputPanel">
+            <textarea id="compressedText" placeholder="Paste Gzip+Base64 here to decompress..." spellcheck="false"></textarea>
+        </div>
+    </div>
+
+    <script>
+        const plainInput = document.getElementById('plainText');
+        const compressedInput = document.getElementById('compressedText');
+
+        function compress() {
+            const val = plainInput.value.trim();
+            if (!val) {
+                compressedInput.value = '';
+                return;
+            }
+
+            try {
+                const uint8 = new TextEncoder().encode(val);
+                const compressed = pako.gzip(uint8);
+                const base64 = btoa(String.fromCharCode.apply(null, compressed));
+                compressedInput.value = base64;
+                JShellState.save({ t: val });
+            } catch (e) {
+                console.error("Compression error:", e);
+            }
+        }
+
+        function decompress() {
+            const val = compressedInput.value.trim();
+            if (!val) {
+                plainInput.value = '';
+                return;
+            }
+
+            try {
+                const binary = atob(val);
+                const uint8 = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) {
+                    uint8[i] = binary.charCodeAt(i);
+                }
+                const decompressed = pako.ungzip(uint8);
+                const text = new TextDecoder().decode(decompressed);
+                plainInput.value = text;
+                JShellState.save({ t: text });
+            } catch (e) {
+                // Silently fail or show error in output placeholder
+            }
+        }
+
+        function applyTheme() {
+            const theme = localStorage.getItem('jshell_theme') || 'dark';
+            document.body.classList.toggle('light-theme', theme === 'light');
+        }
+
+        plainInput.addEventListener('input', compress);
+        compressedInput.addEventListener('input', decompress);
+
+        window.addEventListener('load', () => {
+            JShellUI.initPanel('inputPanel', { label: 'Plain Text', paste: true, clear: true, copy: true });
+            JShellUI.initPanel('outputPanel', { label: 'Gzip + Base64', paste: true, clear: true, copy: true });
+
+            applyTheme();
+            const state = JShellState.load();
+            if (state && state.t) {
+                plainInput.value = state.t;
+                compress();
+            }
+        });
+
+        window.addEventListener('storage', (e) => { if(e.key === 'jshell_theme') applyTheme(); });
+    </script>
+</body>
+</html>
