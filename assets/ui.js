@@ -12,7 +12,6 @@ const JShellUI = {
         const label = options.label || (type === 'editor' ? 'Input' : 'Output');
         const showCopy = options.copy !== false;
         const showClear = options.clear !== false;
-        const showPaste = type === 'editor' && options.paste !== false;
 
         // Extract the existing content (usually a textarea or pre)
         const content = container.innerHTML;
@@ -23,7 +22,6 @@ const JShellUI = {
                 <div class="pane-label">
                     <span class="text-[10px] font-extrabold tracking-widest uppercase text-text-muted">${label}</span>
                     <div class="flex gap-1.5">
-                        ${showPaste ? `<button class="ui-action-btn" onclick="JShellUI.paste('${containerId}')">${JShellUI.svg('paste')} Paste</button>` : ''}
                         ${showClear ? `<button class="ui-action-btn" onclick="JShellUI.clear('${containerId}')">${JShellUI.svg('clear')} Clear</button>` : ''}
                         ${showCopy ? `<button class="ui-action-btn action-copy" onclick="JShellUI.copy('${containerId}')">${JShellUI.svg('copy')} <span>Copy</span></button>` : ''}
                     </div>
@@ -87,19 +85,8 @@ const JShellUI = {
             target.dispatchEvent(new Event('input'));
             target.focus();
         }
-    },
-
-    // Action: Paste
-    async paste(containerId) {
-        const container = document.getElementById(containerId);
-        const target = container.querySelector('textarea');
-        if (target) {
-            const text = await navigator.clipboard.readText();
-            target.value = text;
-            target.dispatchEvent(new Event('input'));
-        }
     }
 };
 
 window.JShellUI = JShellUI;
-// v1.0.1
+// v1.0.2
