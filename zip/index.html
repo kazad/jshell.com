@@ -36,18 +36,13 @@
             <div class="flex gap-2">CHARS: <span id="statChars" class="text-text-main">0</span></div>
             <div class="flex gap-2">PLAIN: <span id="statPlainBytes" class="text-text-main">0</span> B</div>
             <div class="flex gap-2">GZIPPED: <span id="statZipBytes" class="text-text-main">0</span> B</div>
-            <div class="flex gap-2">RATIO: <span id="statRatio" class="text-text-main">0</span>%</div>
+            <div class="flex gap-2">RATIO: <span id="statRatio" class="text-text-main">0.00:1</span></div>
         </div>
     </div>
 
     <script>
-        const plainInput = document.getElementById('plainText');
-        const compressedInput = document.getElementById('compressedText');
-        
-        const statChars = document.getElementById('statChars');
-        const statPlainBytes = document.getElementById('statPlainBytes');
-        const statZipBytes = document.getElementById('statZipBytes');
-        const statRatio = document.getElementById('statRatio');
+        let plainInput, compressedInput;
+        let statChars, statPlainBytes, statZipBytes, statRatio;
 
         function updateStats(plainStr, zipBytes) {
             const plainBytes = new TextEncoder().encode(plainStr).length;
@@ -57,9 +52,13 @@
             statPlainBytes.textContent = plainBytes.toLocaleString();
             statZipBytes.textContent = zipCount.toLocaleString();
             
-            const ratio = plainBytes > 0 ? ((1 - (zipCount / plainBytes)) * 100).toFixed(1) : 0;
-            statRatio.textContent = ratio;
-            statRatio.parentElement.className = `flex gap-2 ${ratio > 0 ? 'text-success' : 'text-text-muted'}`;
+            let ratio = 1.0;
+            if (zipCount > 0 && plainBytes > 0) {
+                ratio = (plainBytes / zipCount).toFixed(2);
+            }
+            
+            statRatio.textContent = `${ratio}:1`;
+            statRatio.parentElement.className = `flex gap-2 ${ratio > 1 ? 'text-success' : 'text-text-muted'}`;
         }
 
         function compress() {
@@ -111,18 +110,27 @@
             document.body.classList.toggle('light-theme', theme === 'light');
         }
 
-        plainInput.addEventListener('input', compress);
-        compressedInput.addEventListener('input', decompress);
-
         window.addEventListener('load', () => {
             JShellUI.initPanel('inputPanel', { label: 'Plain Text', paste: true, clear: true, copy: true });
             JShellUI.initPanel('outputPanel', { label: 'Gzip + Base64', paste: true, clear: true, copy: true });
+
+            // Assign variables AFTER initPanel replaces the DOM
+            plainInput = document.getElementById('plainText');
+            compressedInput = document.getElementById('compressedText');
+            statChars = document.getElementById('statChars');
+            statPlainBytes = document.getElementById('statPlainBytes');
+            statZipBytes = document.getElementById('statZipBytes');
+            statRatio = document.getElementById('statRatio');
+
+            // Attach listeners AFTER initPanel
+            plainInput.addEventListener('input', compress);
+            compressedInput.addEventListener('input', decompress);
 
             applyTheme();
             const state = JShellState.load();
             if (state && state.t) {
                 plainInput.value = state.t;
-                compress(); // This calls updateStats
+                compress(); 
             } else {
                 updateStats('', []);
             }
