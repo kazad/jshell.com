@@ -118,24 +118,27 @@ html, body {
 }
 
 /* Common Components */
-textarea, .monospace {
+textarea, input, .monospace {
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     font-variant-ligatures: none;
 }
 
-textarea {
-    flex-grow: 1;
+textarea, input {
     background: #000;
-    border: none;
     color: #fff;
-    padding: 16px;
-    resize: none;
+    border: none;
     outline: none;
     font-size: 13px;
+}
+
+textarea {
+    flex-grow: 1;
+    padding: 16px;
+    resize: none;
     line-height: 1.5;
 }
 
-body.light-theme textarea { background: #fff; color: #000; }
+body.light-theme textarea, body.light-theme input { background: #fff; color: #000; }
 
 .btn {
     background: var(--color-surface-hover);
