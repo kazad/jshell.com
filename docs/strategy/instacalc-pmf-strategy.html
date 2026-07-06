@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>InstaCalc: The Road to Product–Market Fit</title>
+<style>
+  @page {
+    size: letter;
+    margin: 22mm 20mm 24mm 20mm;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #1a2332;
+    font-size: 10.5pt;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .sans { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+
+  /* ---------- Cover ---------- */
+  .cover {
+    page-break-after: always;
+    display: flex; flex-direction: column; justify-content: space-between;
+    height: 226mm; padding-top: 24mm;
+  }
+  .cover .kicker {
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: 9pt; letter-spacing: 3px; text-transform: uppercase;
+    color: #0e7a5f; font-weight: bold; margin-bottom: 8mm;
+  }
+  .cover h1 {
+    font-size: 34pt; line-height: 1.12; margin: 0 0 6mm 0; font-weight: normal;
+    color: #10243e;
+  }
+  .cover .subtitle { font-size: 13pt; color: #4a5a6e; max-width: 130mm; line-height: 1.5; }
+  .cover .meta {
+    font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #6b7a8d;
+    border-top: 1px solid #d7dee6; padding-top: 5mm;
+  }
+  .cover .thesis {
+    background: #f2f7f5; border-left: 4px solid #0e7a5f;
+    padding: 6mm 7mm; margin-top: 14mm; max-width: 145mm;
+  }
+  .cover .thesis .label {
+    font-family: Helvetica, Arial, sans-serif; font-size: 8pt; font-weight: bold;
+    letter-spacing: 2px; text-transform: uppercase; color: #0e7a5f; margin-bottom: 2mm;
+  }
+  .cover .thesis p { margin: 0; font-size: 11.5pt; line-height: 1.55; color: #1a2f28; }
+
+  /* ---------- Headings ---------- */
+  h2 {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 16pt; color: #10243e; font-weight: bold;
+    margin: 0 0 4mm 0; padding-bottom: 2mm; border-bottom: 2px solid #0e7a5f;
+    page-break-after: avoid;
+  }
+  h2 .num { color: #0e7a5f; margin-right: 3mm; }
+  h3 {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 11.5pt; color: #0e7a5f; font-weight: bold;
+    margin: 6mm 0 2mm 0; page-break-after: avoid;
+  }
+  h4 {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 10pt; color: #10243e; margin: 4mm 0 1.5mm 0; page-break-after: avoid;
+  }
+  section { page-break-before: always; }
+  section.flow { page-break-before: auto; margin-top: 10mm; }
+  p { margin: 0 0 3mm 0; }
+  ul, ol { margin: 0 0 3mm 0; padding-left: 6mm; }
+  li { margin-bottom: 1.6mm; }
+  strong { color: #10243e; }
+  em.term { font-style: italic; color: #0e7a5f; }
+
+  .pullquote {
+    border-left: 3px solid #c9a227; background: #fbf7ec;
+    padding: 4mm 6mm; margin: 4mm 0; font-size: 11pt; font-style: italic;
+    color: #43506b; page-break-inside: avoid;
+  }
+  .callout {
+    background: #f2f7f5; border: 1px solid #cfe0da; border-radius: 4px;
+    padding: 4mm 6mm; margin: 4mm 0; page-break-inside: avoid;
+  }
+  .callout .label {
+    font-family: Helvetica, Arial, sans-serif; font-size: 8pt; font-weight: bold;
+    letter-spacing: 1.5px; text-transform: uppercase; color: #0e7a5f; margin-bottom: 1.5mm;
+  }
+  .warn { background: #fdf3f2; border-color: #e8c8c4; }
+  .warn .label { color: #a4402f; }
+
+  table {
+    border-collapse: collapse; width: 100%; margin: 3mm 0 5mm 0;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9pt;
+    page-break-inside: avoid;
+  }
+  th {
+    text-align: left; background: #10243e; color: #fff; padding: 2.2mm 3mm;
+    font-size: 8.5pt; letter-spacing: 0.5px;
+  }
+  td { padding: 2.2mm 3mm; border-bottom: 1px solid #dde4ec; vertical-align: top; line-height: 1.45; }
+  tr:nth-child(even) td { background: #f6f8fa; }
+  td.hl { background: #eaf4f0 !important; font-weight: bold; color: #0e5a46; }
+
+  .loop {
+    display: flex; align-items: stretch; gap: 0; margin: 5mm 0; page-break-inside: avoid;
+    font-family: Helvetica, Arial, sans-serif;
+  }
+  .loop .step {
+    flex: 1; background: #f2f7f5; border: 1px solid #b9d4ca; border-radius: 4px;
+    padding: 3mm; font-size: 8.5pt; line-height: 1.4; text-align: center;
+  }
+  .loop .step b { display: block; color: #0e5a46; font-size: 9pt; margin-bottom: 1mm; }
+  .loop .arrow {
+    display: flex; align-items: center; padding: 0 1.5mm; color: #0e7a5f;
+    font-size: 13pt; font-weight: bold;
+  }
+  .footer-note { font-size: 8.5pt; color: #6b7a8d; margin-top: 2mm; font-family: Helvetica, Arial, sans-serif; }
+
+  .toc { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+  .toc ol { list-style: none; padding: 0; counter-reset: toc; }
+  .toc li {
+    counter-increment: toc; display: flex; align-items: baseline;
+    padding: 2.2mm 0; border-bottom: 1px dotted #c8d2dc; font-size: 10.5pt;
+  }
+  .toc li::before {
+    content: counter(toc, decimal-leading-zero);
+    font-weight: bold; color: #0e7a5f; width: 10mm; flex-shrink: 0;
+  }
+  .toc .sub { font-size: 9pt; color: #6b7a8d; margin-left: 3mm; }
+</style>
+</head>
+<body>
+
+<!-- ================= COVER ================= -->
+<div class="cover">
+  <div>
+    <div class="kicker">Strategy Deep Dive &nbsp;·&nbsp; Confidential Working Document</div>
+    <h1>InstaCalc:<br>The Road to Product–Market&nbsp;Fit</h1>
+    <p class="subtitle">Why the daily users and the gaming-calculator makers are the signal, what product they are actually asking for, and a focused plan to turn a beloved utility into a durable, compounding product.</p>
+    <div class="thesis">
+      <div class="label">Core Thesis</div>
+      <p>InstaCalc's drive-by traffic is a funnel, not a product. Product–market fit lives in the small cohort that already returns daily and "manages their calc life" — most visibly, gaming theorycrafters. The strategy: <strong>own the calc maker, make every calc a shareable, forkable landing page, and let the makers' communities do the distribution.</strong></p>
+    </div>
+  </div>
+  <div class="meta">
+    Prepared July 2026 &nbsp;·&nbsp; instacalc.com &nbsp;·&nbsp; “Think in numbers. Share a link.”
+  </div>
+</div>
+
+<!-- ================= TOC ================= -->
+<div class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li>Executive summary <span class="sub">— the whole argument in one page</span></li>
+    <li>Where InstaCalc stands today <span class="sub">— assets, signals, and the honest gap</span></li>
+    <li>What PMF actually means here <span class="sub">— defining and measuring fit for a horizontal tool</span></li>
+    <li>The two products hiding inside InstaCalc <span class="sub">— scratchpad vs. calc library</span></li>
+    <li>Segment deep dive: who retains and why <span class="sub">— gaming makers, daily-number people, embedders</span></li>
+    <li>The competitive map and the whitespace <span class="sub">— Desmos, Soulver, Omni, Calconic</span></li>
+    <li>The strategy: own the maker <span class="sub">— positioning, product, moats</span></li>
+    <li>Growth loops <span class="sub">— fork loop, embed loop, patch loop, SEO loop</span></li>
+    <li>Monetization <span class="sub">— who pays, for what, and when</span></li>
+    <li>The PMF engine <span class="sub">— survey, interviews, metrics, cadence</span></li>
+    <li>90-day plan and 12-month milestones</li>
+    <li><span>Risks, AI, and what <em>not</em> to do</span></li>
+  </ol>
+</div>
+
+<!-- ================= 1. EXEC SUMMARY ================= -->
+<section>
+  <h2><span class="num">01</span>Executive summary</h2>
+
+  <p>InstaCalc has been alive for nearly twenty years — a rare feat for an indie web tool — and it has something most products chasing product–market fit would kill for: <strong>a cohort of users who come back daily without being asked to.</strong> They build gaming calculators. They keep budgets, quotes, and life-math in it. They describe their usage as "managing their calc life." That phrase is the tell: for these people InstaCalc is not a calculator, it is <em class="term">the home for their numbers</em>.</p>
+
+  <p>The honest diagnosis is that InstaCalc currently serves two very different jobs with one interface:</p>
+  <ul>
+    <li><strong>The scratchpad job</strong> — quick, disposable math. Huge audience, near-zero retention by nature. LLMs and browser omniboxes are eating this job from both sides.</li>
+    <li><strong>The library job</strong> — durable, named, shared calculations that people return to, update, and send to others. Small audience today, but with retention curves that flatten — the textbook shape of product–market fit.</li>
+  </ul>
+
+  <p>The strategic error to avoid is optimizing for the first job (traffic) at the expense of the second (retention). The recommendation is the opposite: <strong>treat the scratchpad as top-of-funnel and build the product for the people who keep calcs, not the people who do a calculation.</strong></p>
+
+  <h3>The five moves</h3>
+  <ol>
+    <li><strong>Pick the wedge: gaming theorycrafters.</strong> They are passionate, communal, chronically underserved (view-only Google Sheets, abandoned fan sites), and their games ship patches — which means their calcs need updates, which means recurring engagement is built into the domain. One good calc shared into a subreddit or Discord reaches thousands of players; some of those players become makers. No other segment has this built-in distribution.</li>
+    <li><strong>Make the maker a first-class citizen.</strong> Profiles, collections/folders, a "your calcs" home screen, view counts, and — critically — a <em class="term">Fork</em> button on every public calc. Forking turns a gallery into a network: every popular calc becomes the parent of a family tree of variants, and every fork is a new landing page with a new author invested in InstaCalc.</li>
+    <li><strong>Make every calc a great landing page.</strong> Fast, mobile-friendly, rich link previews in Discord/Reddit, embeddable in wikis and blogs, indexable by search engines. Omni Calculator built a business measured in tens of millions of monthly visits on staff-written calculators; InstaCalc can attack the same demand with user-generated supply.</li>
+    <li><strong>Run a real PMF engine.</strong> Instrument cohort retention, run the Sean Ellis "very disappointed" survey on weekly actives, interview twenty daily users (start with the gaming makers), and let the "very disappointed" segment's own words set the roadmap — the Superhuman method, applied honestly.</li>
+    <li><strong>Monetize the serious maker, never the viral loop.</strong> Viewing, sharing, and forking stay free forever. Charge for the "calc life" tier: private calcs, folders, version history, data import, clean embeds, custom branding. The B2B embed market (Calconic, ConvertCalculator) already proves willingness to pay $5–50/month for far less pleasant tools.</li>
+  </ol>
+
+  <div class="callout">
+    <div class="label">North-star metric</div>
+    <p style="margin:0"><strong>Weekly Returning Calc Owners (WRCO):</strong> people who, in a given week, open or edit a calc they created or forked. This one number captures the library job, ignores drive-by noise, and is the quantity that must compound. Secondary: forks per popular calc (network formation) and D30 maker retention (habit formation).</p>
+  </div>
+
+  <p>PMF for InstaCalc is not a mystery to be discovered — the early evidence is already in the daily users. The work is to <strong>name the segment, build the product they are implicitly asking for, and wire up the loops so their enthusiasm compounds</strong> instead of evaporating into one-off shared links.</p>
+</section>
+
+<!-- ================= 2. WHERE INSTACALC STANDS ================= -->
+<section>
+  <h2><span class="num">02</span>Where InstaCalc stands today</h2>
+
+  <h3>Assets — what is already true</h3>
+  <ul>
+    <li><strong>A genuinely differentiated core interaction.</strong> Results as you type, variables that cascade, natural language, units and currency, Excel-style functions — and a public share link in one click with no login. That last part is still rare in 2026, and it is the seed of every growth loop in this document.</li>
+    <li><strong>Longevity and trust.</strong> Covered by TechCrunch in 2006; still alive, still fast. A twenty-year-old domain with organic links is an SEO asset most startups cannot buy.</li>
+    <li><strong>An existing UGC corpus.</strong> A gallery of 1,000+ public calcs across business, cooking, <strong>gaming</strong>, and education. The supply side of a marketplace already exists in embryo.</li>
+    <li><strong>Surface area for habit.</strong> Chrome extension (Cmd+I), iOS app with sync, offline mode, command bar, presentation mode, sliders and dropdowns, revision history. Much of the "daily driver" product is already built — it is under-narrated, not missing.</li>
+    <li><strong>The BetterExplained halo.</strong> A large audience that already trusts the author on "math, explained intuitively." InstaCalc is the interactive twin of that promise, and the cross-pollination channel is essentially free.</li>
+    <li><strong>Recent product energy pointed the right way.</strong> Calculus/mini-Wolfram support, previous-row references, dashboard, revision history — the community discussion themes show a tool being sharpened for people who <em>keep</em> calcs, not just people who compute once.</li>
+  </ul>
+
+  <h3>Signals — the evidence hiding in plain sight</h3>
+  <p>Three observations from actual usage, and what each one means:</p>
+  <table>
+    <tr><th style="width:32%">Observation</th><th>What it actually means</th></tr>
+    <tr>
+      <td><strong>People build gaming calcs</strong></td>
+      <td>A community with intense, recurring math needs has <em>self-selected</em> InstaCalc without being marketed to. When a segment adopts you organically for a job you didn't design for, that is the single strongest PMF lead a product can get.</td>
+    </tr>
+    <tr>
+      <td><strong>Some people visit daily</strong></td>
+      <td>A retention curve that flattens above zero. Most calculator sites have zero true retention — every visit is a new "session of need." Daily visitors mean InstaCalc has crossed from <em>tool</em> to <em>place</em> for at least one cohort.</td>
+    </tr>
+    <tr>
+      <td><strong>They "manage their calc life" in it</strong></td>
+      <td>Users have invented a job description the product doesn't officially offer. There is no "calc life management" feature set — no real home screen for <em>your</em> numbers, folders, or identity. Users are doing this job <em>despite</em> the product. Build it, and the job gets easier and stickier.</td>
+    </tr>
+  </table>
+
+  <h3>The honest gap</h3>
+  <p>What stands between today and PMF is not the calculator engine — it is everything <em>around</em> the calc:</p>
+  <ul>
+    <li><strong>No maker identity.</strong> A calc is an anonymous URL. There is no profile, no "more by this author," no reputation, no reason for a maker's audience to become InstaCalc's audience.</li>
+    <li><strong>No network structure.</strong> Calcs can be shared but not (visibly) forked, followed, or collected. Each viral moment is a dead end instead of a graph edge.</li>
+    <li><strong>Weak discovery.</strong> A gallery of 1,000+ examples exists, but there is no evident ranking by popularity, no category landing pages engineered for search, no "trending in gaming this week."</li>
+    <li><strong>No measured funnel.</strong> Without cohort analytics and a PMF survey, "some people visit daily" stays an anecdote rather than a number that can be grown 10% a month.</li>
+    <li><strong>No revenue engine.</strong> Free-with-no-pro-tier means the most devoted users — the ones asking for depth — have no way to vote with their wallets, and the product has no compounding budget for its own growth.</li>
+  </ul>
+
+  <div class="pullquote">The engine is a decade ahead of the chassis. InstaCalc computes like a modern product and distributes like a 2006 widget.</div>
+</section>
+
+<!-- ================= 3. WHAT PMF MEANS ================= -->
+<section>
+  <h2><span class="num">03</span>What product–market fit actually means here</h2>
+
+  <p>"PMF" gets used loosely. For a horizontal free tool with twenty years of ambient traffic, it needs a precise definition, or the traffic itself will masquerade as fit.</p>
+
+  <h3>Three tests, in order of rigor</h3>
+  <ol>
+    <li><strong>The retention test (the real one).</strong> Plot cohort retention: of the people who create a calc in week 0, what fraction are back doing anything meaningful in weeks 4, 8, 12? PMF is the curve <em>flattening at a healthy level</em> rather than decaying to zero. Marc Andreessen's "you can always feel it" is this curve, felt. The daily users say the flat asymptote exists — the job is to find out how high it is and for whom.</li>
+    <li><strong>The Sean Ellis test (the leading indicator).</strong> Ask users who've used the product at least twice in the last two weeks: <em>"How would you feel if you could no longer use InstaCalc?"</em> If ≥40% answer "very disappointed," the segment has PMF. Below 40%, the gap analysis (below, §10) tells you what to build. This is cheap, fast, and was the backbone of Superhuman's public PMF engine.</li>
+    <li><strong>The pull test (the vibe check made concrete).</strong> Do users do unpaid work for the product — write guides, request features in public, defend it in forums, build things you didn't anticipate? Gaming calc makers building for their communities is exactly this. Pull exists; it is narrow.</li>
+  </ol>
+
+  <h3>The crucial reframe: PMF is per-segment, not per-product</h3>
+  <p>A horizontal tool never has "PMF" in general — it has PMF <em>with someone, for some job</em>. Slack had PMF with small tech teams long before enterprises. Notion had it with personal-wiki nerds before companies. The question is never "does InstaCalc have PMF?" but <strong>"which segment already exhibits fit-shaped behavior, and can the product double down on them without losing its soul?"</strong></p>
+
+  <p>The evidence points at one primary answer (gaming theorycrafters) and one adjacent answer (personal daily-numbers people). Everything that follows is built on taking that seriously.</p>
+
+  <div class="callout">
+    <div class="label">Definition adopted for this document</div>
+    <p style="margin:0">InstaCalc has product–market fit when <strong>a named segment shows ≥40% "very disappointed" on the Ellis survey, a flattening D30 retention curve, and a growth loop where existing users' calcs bring in next month's new makers without paid acquisition.</strong> All three, for one segment, before generalizing.</p>
+  </div>
+</section>
+
+<!-- ================= 4. TWO PRODUCTS ================= -->
+<section>
+  <h2><span class="num">04</span>The two products hiding inside InstaCalc</h2>
+
+  <p>Every strategic confusion about InstaCalc dissolves once you see that it is two products sharing one codebase:</p>
+
+  <table>
+    <tr><th></th><th style="width:38%">Product A: The Scratchpad</th><th style="width:38%">Product B: The Calc Library</th></tr>
+    <tr><td><strong>Job</strong></td><td>"Do this math, right now, faster than a spreadsheet."</td><td>"Keep my numbers alive, organized, and shareable."</td></tr>
+    <tr><td><strong>Session</strong></td><td>90 seconds, anonymous, disposable</td><td>Recurring; named calcs; edited over months</td></tr>
+    <tr><td><strong>Audience</strong></td><td>Everyone, occasionally (huge, shallow)</td><td>Makers &amp; their communities (small, deep)</td></tr>
+    <tr><td><strong>Retention</strong></td><td>Structurally near zero</td><td>Flattening — the PMF shape</td></tr>
+    <tr><td><strong>Threats</strong></td><td>LLM chat, Google answer box, Spotlight, phone calculator</td><td>Google Sheets inertia; abandoned bespoke fan sites</td></tr>
+    <tr><td><strong>Strategic role</strong></td><td class="hl">Top of funnel. Keep excellent, keep free, keep fast.</td><td class="hl">The product. Build, measure, monetize.</td></tr>
+  </table>
+
+  <p><strong>The scratchpad cannot be the business.</strong> Its job is being commoditized from every direction — most brutally by AI chat, which now does "what's 15% of my dinner bill in euros" conversationally. Competing for the disposable calculation is a war of attrition against every OS vendor and LLM on earth.</p>
+
+  <p><strong>But the scratchpad is a superb funnel</strong>, because the transition from A to B is one click: the moment someone hits "share" or names a variable, they have created an artifact worth keeping — and Product B's entire pitch is "we'll keep it, organize it, and make it shine."</p>
+
+  <p>The library job is also structurally AI-resistant in a way the scratchpad is not. An LLM can compute an answer; it cannot <em>be</em> the living, community-trusted, interactive artifact that a maker maintains and a subreddit links to. A DPS calculator with sliders, updated for patch 2.4 by a known community member with 40,000 views, is a social object, not a computation. Social objects don't get commoditized by models — they get <em>distributed</em> by them (more in §12).</p>
+
+  <div class="pullquote">"Managing my calc life" is the user-invented name for Product B. When users name your product before you do, ship the product they named.</div>
+
+  <h3>What Product B concretely is</h3>
+  <p>Assembled from what daily users are already doing plus what's missing around it:</p>
+  <ul>
+    <li><strong>A home for your numbers</strong> — a personal dashboard of your calcs: pinned dailies at top, folders/collections, recent activity, search. (The dashboard and command bar work already points here; this names the destination.)</li>
+    <li><strong>Living calcs</strong> — revision history (exists), version notes ("updated for patch 2.4"), and the ability for followers to see "this calc changed."</li>
+    <li><strong>Calcs with an audience</strong> — view counts, forks, embeds; the maker can see that their work matters, which is the fuel that keeps supply growing.</li>
+    <li><strong>Identity and reputation</strong> — a profile page that doubles as a portfolio: "TheoryCrafterTom · 12 calcs · 180k views." This is what converts a maker's community standing into InstaCalc lock-in.</li>
+  </ul>
+</section>
+
+<!-- ================= 5. SEGMENTS ================= -->
+<section>
+  <h2><span class="num">05</span>Segment deep dive: who retains and why</h2>
+
+  <h3>Segment 1 — Gaming theorycrafters (the wedge)</h3>
+  <p>Every game with numbers breeds a priesthood of players who do the math for everyone else: damage-per-second calculators, drop-rate and pity-timer calcs, crafting profit spreadsheets, build optimizers, idle-game prestige timing, XP-per-hour tables. This exists for WoW, Path of Exile, OSRS, Genshin-style gacha games, factory and idle games, D&amp;D — effectively every persistent game economy.</p>
+
+  <h4>Why they are underserved</h4>
+  <ul>
+    <li><strong>Google Sheets is the incumbent, and it's miserable for this.</strong> View-only links; "File → Make a copy" friction to try your own numbers; brutal on mobile, where most players read Discord and Reddit; ugly when embedded; anonymous and unforkable in any visible way.</li>
+    <li><strong>Bespoke calculator websites are the other incumbent, and they die.</strong> A fan builds a beautiful damage calc as a side project; the game patches; the fan gets a job; the calc rots. The community's institutional math evaporates every couple of years.</li>
+    <li><strong>Wiki infrastructure is in flux.</strong> Communities have been migrating off legacy wiki farms toward independent wikis, and those wikis need embeddable interactive tools. An embeddable, always-up InstaCalc widget is exactly the missing piece.</li>
+  </ul>
+
+  <h4>Why they are the perfect wedge for InstaCalc specifically</h4>
+  <ul>
+    <li><strong>Built-in distribution.</strong> One calc posted in a subreddit or Discord reaches thousands of players in a day. Every viewer is a potential maker for <em>their</em> game. No other segment ships its own audience.</li>
+    <li><strong>Built-in retention.</strong> Games patch. Patches change numbers. Changed numbers mean makers update calcs and players return to check them. The domain has a <em class="term">recurring engagement clock</em> that most products spend millions trying to simulate.</li>
+    <li><strong>The feature fit already exists.</strong> Sliders and dropdowns (shipped) are precisely the "try your own gear score" interface theorycrafting needs. Variables, instant results, mobile-usable share links — the core is already better than Sheets for this job.</li>
+    <li><strong>Forking is native to the culture.</strong> Gamers remix builds constantly. A visible fork graph ("this Diablo calc has 34 variants") is both a feature and a network effect.</li>
+    <li><strong>Identity matters to them.</strong> Theorycrafters build community reputation. A profile with view counts is a reason to consolidate their work on InstaCalc rather than scatter it.</li>
+  </ul>
+
+  <h3>Segment 2 — Daily-numbers people (the retention core)</h3>
+  <p>The people running their lives in InstaCalc: budgets, mortgage and FIRE scenarios, freelancer quotes, fitness macros, unit-heavy hobbies (woodworking, brewing, 3D printing). They are quieter than gamers but they are the ones who visit <em>daily</em>. Their needs: the personal dashboard, folders, pinned calcs, privacy for financial numbers, and frictionless capture (extension, iOS, command bar — mostly shipped). <strong>They are the natural first buyers of a Pro tier</strong>, because privacy and organization are exactly what one pays for.</p>
+
+  <h3>Segment 3 — Embedders: bloggers, educators, niche-site owners (the amplifier)</h3>
+  <p>People who want an interactive calc <em>inside</em> their content: personal-finance bloggers, teachers, hobby-site owners. Omni Calculator proved the demand side — thousands of staff-built calculators drawing tens of millions of visits monthly. The B2B builders (Calconic at $5–14/month, ConvertCalculator, Calculoid) proved the payment side. InstaCalc's angle: <strong>the embed is free and instant and the calc can be forked by readers</strong> — an interactivity story the SEO farms and form-builders can't match. Every embed is a permanent, high-intent backlink and acquisition surface.</p>
+
+  <h3>Segment prioritization</h3>
+  <table>
+    <tr><th>Segment</th><th>Passion</th><th>Distribution built-in</th><th>Willingness to pay</th><th>Role in strategy</th></tr>
+    <tr><td><strong>Gaming theorycrafters</strong></td><td>Extreme</td><td class="hl">Yes — communities</td><td>Modest (cosmetic/pride)</td><td><strong>Wedge:</strong> supply + virality + culture</td></tr>
+    <tr><td><strong>Daily-numbers people</strong></td><td>High (private)</td><td>Low</td><td class="hl">High — privacy &amp; organization</td><td><strong>Retention core + first revenue</strong></td></tr>
+    <tr><td><strong>Embedders / creators</strong></td><td>Moderate</td><td class="hl">Yes — their sites</td><td class="hl">High — proven market</td><td><strong>Amplifier + second revenue</strong></td></tr>
+  </table>
+  <p class="footer-note">One product serves all three: the maker-centric calc library. The segments differ only in which loop they power.</p>
+</section>
+
+<!-- ================= 6. COMPETITIVE MAP ================= -->
+<section>
+  <h2><span class="num">06</span>The competitive map and the whitespace</h2>
+
+  <table>
+    <tr><th style="width:20%">Player</th><th style="width:28%">What they own</th><th>Why they won't take InstaCalc's ground</th></tr>
+    <tr><td><strong>Desmos</strong></td><td>Math <em>education</em>: graphing, classrooms, standardized tests</td><td>Institutionally anchored to curriculum. Doesn't care about a Path of Exile drop-rate calc or your freelance quote sheet.</td></tr>
+    <tr><td><strong>Soulver / Numi / Calca</strong></td><td>The beautiful <em>local</em> notepad calculator (paid Mac/iOS apps)</td><td>Deliberately personal and offline. No sharing, no URLs, no community, no embeds. They validate the interaction model while ceding the network entirely.</td></tr>
+    <tr><td><strong>Omni Calculator</strong></td><td>SEO for "X calculator" queries; thousands of <em>staff-authored</em> calcs</td><td>Closed supply — users consume, never create or fork. They proved the demand is enormous; they structurally cannot do UGC, community, or personal libraries.</td></tr>
+    <tr><td><strong>Calconic / ConvertCalculator / Calculoid</strong></td><td>Paid B2B embeds: pricing quotes, lead-gen forms with checkout</td><td>Sales-tool DNA, per-impression pricing, drag-and-drop form builders. Zero consumer joy, zero community. They proved businesses pay monthly for embedded calcs.</td></tr>
+    <tr><td><strong>Google Sheets</strong></td><td>Default gravity for any shared numbers</td><td>The real competitor. Beaten not on power but on <em>experience</em>: instant, mobile-friendly, forkable, beautiful share links vs. view-only spreadsheet sprawl.</td></tr>
+    <tr><td><strong>LLM chat</strong></td><td>Ad-hoc, disposable calculation</td><td>Eats Product A (scratchpad), can't be Product B (living, trusted, interactive community artifact). Also a potential distribution channel — see §12.</td></tr>
+  </table>
+
+  <div class="callout">
+    <div class="label">The whitespace</div>
+    <p style="margin:0"><strong>Nobody owns the community-made calculator.</strong> The fan-made DPS calc, the forked FIRE model, the brewing calculator a subreddit swears by. Desmos won't (education), Omni can't (closed supply), Soulver won't (local-only), Calconic won't (B2B). InstaCalc has the engine, the share-in-one-click DNA, the gallery seed, and twenty years of domain trust. The position to claim: <em class="term">"GitHub for calculators"</em> in mechanics, <em class="term">"the home for your numbers"</em> in feeling.</p>
+  </div>
+
+  <p>A useful historical rhyme: <strong>Glitch/CodePen for code snippets, Figma Community for design files, GitHub for repos.</strong> In each case a utility became a durable network the moment artifacts got identity (authorship), lineage (forks), and a social surface (profiles, counts, discovery). Calculators are late to this pattern, which is the opportunity — the pattern itself is proven.</p>
+</section>
+
+<!-- ================= 7. STRATEGY ================= -->
+<section>
+  <h2><span class="num">07</span>The strategy: own the maker</h2>
+
+  <h3>Positioning</h3>
+  <p>Retire (internally, at least) the framing of "a better calculator." The strategic identity:</p>
+  <div class="pullquote" style="font-style:normal"><strong>InstaCalc is where calculations live.</strong> Make a calc in seconds, share it with a link, fork anyone else's, and keep your whole calc life in one place — free, instant, no login to view or try.</div>
+
+  <p>Three commitments fall out of this and should be treated as constitutional:</p>
+  <ol>
+    <li><strong>Viewing, sharing, and forking are free forever.</strong> The loop is sacred; never tax it.</li>
+    <li><strong>A shared calc must be the best possible artifact of its kind</strong> — faster, prettier, and more usable on a phone than a Google Sheets link, every single time.</li>
+    <li><strong>Makers get the glory.</strong> Attribution, counts, and profiles exist to make creators look good to their communities. Their reputation is the product's distribution.</li>
+  </ol>
+
+  <h3>Product priorities (in dependency order)</h3>
+
+  <h4>Tier 1 — Make the network possible (the missing chassis)</h4>
+  <ul>
+    <li><strong>Fork.</strong> A prominent "Fork this calc" on every public calc: one click → your own editable copy, with visible lineage ("forked from …", "34 forks"). This is the single highest-leverage feature in this document — it converts every popular calc into a maker-acquisition machine.</li>
+    <li><strong>Maker profiles.</strong> Username, avatar, bio, list of public calcs, total views/forks. Shareable ("all my calcs: instacalc.com/@tom").</li>
+    <li><strong>The Library (home screen).</strong> Your calcs: pinned, foldered, searchable, recently edited. This is the literal "manage your calc life" feature. Extension and iOS open here.</li>
+    <li><strong>Great unfurls.</strong> Open Graph / rich previews so a calc pasted into Discord, Reddit, Slack, or iMessage shows its title, author, and a live-looking preview. For gaming distribution, the Discord unfurl is not cosmetic — it <em>is</em> the ad.</li>
+  </ul>
+
+  <h4>Tier 2 — Make the wedge unbeatable (gaming-grade features that help everyone)</h4>
+  <ul>
+    <li><strong>Version notes &amp; pinning.</strong> "Updated for patch 2.4" as a first-class label; viewers see freshness at a glance; old versions remain linkable. (Extends existing revision history.)</li>
+    <li><strong>Data tables.</strong> Paste or import CSV (item stats, XP tables) and reference it from formulas. Kills the last reason theorycrafters need Sheets.</li>
+    <li><strong>Polished interactive mode.</strong> Sliders/dropdowns (shipped) plus a clean "app view" for consumers of the calc — inputs on top, results big, maker's notes below — so a calc feels like a purpose-built tool, not a worksheet.</li>
+    <li><strong>Embed v2.</strong> One-line responsive embed that looks native on independent wikis and blogs, with a subtle "Made with InstaCalc — fork it" footer (the free tier's growth engine; removable in Pro).</li>
+  </ul>
+
+  <h4>Tier 3 — Discovery and compounding</h4>
+  <ul>
+    <li><strong>Gallery v2.</strong> Category landing pages (gaming, finance, cooking, education…) ranked by usage, each engineered as an SEO page; "trending this week"; per-game hubs once density justifies them ("InstaCalc for OSRS").</li>
+    <li><strong>Follow / notify.</strong> Follow a calc or a maker; get notified when it updates. This converts patch-day updates into return visits for the whole audience of a calc, not just its maker.</li>
+    <li><strong>AI-assisted creation.</strong> "Describe your calculator" → a draft InstaCalc appears, editable. Collapses the maker learning curve to zero and is the honest, defensible use of AI here (see §12).</li>
+  </ul>
+
+  <h3>Why this wins (the moat, stated plainly)</h3>
+  <p>Engines can be copied; <strong>corpora and communities cannot.</strong> After eighteen months of this strategy, the moat is: thousands of community-maintained calcs interlinked by forks, ranked by real usage, embedded across wikis and blogs, authored by people whose reputations live on their InstaCalc profiles. A competitor can clone the calculator in a quarter; they cannot clone the graph.</p>
+</section>
+
+<!-- ================= 8. GROWTH LOOPS ================= -->
+<section>
+  <h2><span class="num">08</span>Growth loops</h2>
+
+  <p>Four loops, each measurable, each powered by a different segment. The first is the flagship.</p>
+
+  <h3>Loop 1 — The Fork Loop (gaming-powered, the flagship)</h3>
+  <div class="loop">
+    <div class="step"><b>Maker builds</b>a calc for their game community</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Community shares</b>Discord / Reddit / wiki; rich unfurl sells the click</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Players use it</b>instant, no login, works on phones</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Some fork it</b>their build, their server rates, their game</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Forkers become makers</b>with profiles, audiences… and new calcs</div>
+  </div>
+  <p><strong>Measure:</strong> viewers → forkers conversion; forks per top-100 calc; new makers per month attributable to a fork. <strong>Accelerant:</strong> the patch clock — every game update re-fires the loop for free.</p>
+
+  <h3>Loop 2 — The Embed Loop (creator-powered)</h3>
+  <p>Blogger embeds a calc → readers interact → footer link ("fork it") converts a slice of readers into users → some of those embed on <em>their</em> sites. Every embed is also a permanent backlink feeding Loop 4. <strong>Measure:</strong> active embeds; clicks-through per embed; embed → signup rate.</p>
+
+  <h3>Loop 3 — The Patch Loop (retention as growth)</h3>
+  <p>Game patches → maker updates calc with version note → followers notified → audience returns en masse → renewed sharing ("updated for 2.4!") restarts Loop 1. This is the loop no general-purpose competitor can copy, because it lives in the domain, not the product. <strong>Measure:</strong> return-visit spike around major patches of the top 5 games in the corpus.</p>
+
+  <h3>Loop 4 — The SEO Loop (Omni's playbook, UGC supply)</h3>
+  <p>Users create calcs → category and calc pages get indexed → searchers land ("ROI calculator", "OSRS herblore calculator") → best landers fork or make their own → more supply, more pages. Omni proved "X calculator" queries are a traffic ocean; InstaCalc's supply cost is zero because users write the calcs. <strong>Requires:</strong> crawlable calc pages with real titles/descriptions, category hubs, and quality curation so the index shows the corpus's best face. <strong>Measure:</strong> indexed pages, organic landings, organic → maker conversion.</p>
+
+  <div class="callout">
+    <div class="label">Sequencing note</div>
+    <p style="margin:0">Loops 1–3 need Tier 1 features (fork, profiles, unfurls, follow). Loop 4 needs only Gallery v2 plus crawlability and compounds slowly — start it early, expect it to pay off in quarters, not weeks. Do not spend a dollar on paid acquisition until at least one loop demonstrably turns.</p>
+  </div>
+
+  <h3>Seeding the wedge (the cold-start work)</h3>
+  <ol>
+    <li><strong>Pick three games</strong> with active economies, frequent patches, and spreadsheet-heavy communities (e.g., one MMO, one gacha/live-service game, one idle/factory game).</li>
+    <li><strong>Build or commission 3–5 exemplary calcs per game</strong> — polished, accurate, patch-current — partnering with a known community theorycrafter per game (pay them; make them founding creators with day-one profiles).</li>
+    <li><strong>Launch inside the community</strong>, not on Product Hunt: the game's subreddit, Discord, and wiki. The pitch is the calc, never the platform.</li>
+    <li><strong>Watch the fork rate.</strong> If players fork and personalize, the wedge is real — pour on. If they use-but-never-fork, interview and fix before scaling to more games.</li>
+  </ol>
+</section>
+
+<!-- ================= 9. MONETIZATION ================= -->
+<section>
+  <h2><span class="num">09</span>Monetization: who pays, for what, and when</h2>
+
+  <p>Principle: <strong>charge for privacy, power, and polish — never for participation.</strong> The moment a viewer hits a paywall or a fork costs money, the loops die. Fortunately the willingness-to-pay maps cleanly onto features that <em>don't</em> touch the loops:</p>
+
+  <table>
+    <tr><th style="width:18%">Tier</th><th style="width:14%">Price</th><th style="width:34%">What's in it</th><th>Who buys, and why</th></tr>
+    <tr>
+      <td><strong>Free</strong></td><td>$0</td>
+      <td>Unlimited public calcs, sharing, forking, viewing, embeds (with footer), basic library</td>
+      <td>Everyone. The network. Non-negotiable generosity.</td>
+    </tr>
+    <tr>
+      <td><strong>Pro</strong></td><td>~$6/mo or ~$48/yr</td>
+      <td>Private calcs, unlimited folders, deep version history, data-table import, calc image/PDF export, priority in gallery, profile flair</td>
+      <td>Daily-numbers people (privacy for finances) and serious theorycrafters (data tables, history, pride).</td>
+    </tr>
+    <tr>
+      <td><strong>Creator / Site</strong></td><td>~$15–29/mo</td>
+      <td>Unbranded embeds, embed styling/themes, embed analytics, custom subpath or domain, multiple embeds</td>
+      <td>Bloggers, niche-site owners, educators, small businesses — the market Calconic/ConvertCalculator already proved at similar prices, with a worse product.</td>
+    </tr>
+    <tr>
+      <td><strong>Later: Teams</strong></td><td>TBD</td>
+      <td>Shared workspaces, permissions</td>
+      <td>Only if organic pull appears (agencies, finance teams). Do not build speculatively.</td>
+    </tr>
+  </table>
+
+  <h3>Notes and guardrails</h3>
+  <ul>
+    <li><strong>Anonymous drive-by pages can carry one tasteful ad or a self-promo slot</strong> (Omni's model) — but never on a logged-in maker's page or inside embeds. Revenue from Product A must not degrade Product B.</li>
+    <li><strong>Lifetime deal at launch of Pro</strong> (e.g., $99) converts twenty years of goodwill into immediate capital and testimonials; indie-tool audiences respond well to it.</li>
+    <li><strong>Gaming pays in pride more than cash</strong> — expect Pro conversion there to come from flair, data tables, and history, not privacy. The finance/daily cohort is the privacy buyer. Both funnels, one tier.</li>
+    <li><strong>Order of operations:</strong> ship Tier 1 network features <em>before</em> Pro. Monetizing before the library/identity layer exists would price a product that isn't finished yet. Target: Pro live within ~2 quarters, after the survey (§10) confirms what the "very disappointed" cohort values most.</li>
+    <li><strong>Reality check on scale:</strong> 1,000 Pro subscribers ≈ $48–72k/yr — a healthy indie business that fully funds the strategy; 10,000 ≈ a real company. Neither requires beating anyone; both require the loops to turn.</li>
+  </ul>
+</section>
+
+<!-- ================= 10. PMF ENGINE ================= -->
+<section>
+  <h2><span class="num">10</span>The PMF engine: survey, interviews, metrics, cadence</h2>
+
+  <p>Strategy is hypothesis; the engine is how it gets corrected monthly. Four instruments, all cheap, all runnable by one person:</p>
+
+  <h3>1 — Instrument the funnel (week 1)</h3>
+  <p>Minimum viable analytics (privacy-friendly is fine — self-hosted or aggregate):</p>
+  <ul>
+    <li>Events: calc created · calc named/saved · calc shared · shared calc viewed · calc forked · return visit to own calc · embed loaded.</li>
+    <li>Cohorts: weekly signup/creation cohorts × D7/D30/D90 "returned to an owned calc."</li>
+    <li>The dashboard is five numbers: <strong>WRCO</strong> (north star), new makers/week, forks/week, D30 maker retention, share-view → fork rate.</li>
+  </ul>
+
+  <h3>2 — The Ellis survey (week 2–3)</h3>
+  <ul>
+    <li>Target: everyone who used InstaCalc ≥2× in the past two weeks (in-app prompt + email list).</li>
+    <li>Core question: <em>"How would you feel if you could no longer use InstaCalc?"</em> (Very disappointed / Somewhat / Not). Follow-ups: <em>"What type of person do you think benefits most?" · "What's the main benefit you get?" · "How can we improve it for you?"</em></li>
+    <li>Read it the Superhuman way: segment the <strong>very-disappointed</strong> answers by use case (expect gaming and daily-numbers to dominate); harvest their exact words for positioning; then mine the <strong>somewhat-disappointed who cite the core benefit</strong> for the gap list — what's missing is the roadmap. Expect "organization," "privacy," "data," and "audience" to top it if this document's thesis is right; if something else tops it, believe the survey, not the document.</li>
+  </ul>
+
+  <h3>3 — Twenty interviews (weeks 2–6)</h3>
+  <p>Ten gaming-calc makers, five daily visitors, five churned sharers (shared once, never returned). Thirty minutes each. The questions that matter: <em>What did you use before? What almost stopped you? Show me your calcs — walk me through your last session. What would make this your only tool? What would you pay for — and what would offend you to be charged for?</em> The gaming makers double as founding-creator recruits for the seeding plan (§8).</p>
+
+  <h3>4 — The monthly cadence</h3>
+  <ul>
+    <li>Re-run the survey quarterly; track the very-disappointed % per segment toward the 40% line.</li>
+    <li>Roadmap allocation, Superhuman-style: <strong>~half</strong> of effort doubling down on what very-disappointed users love (speed, sharing, the wedge), <strong>~half</strong> closing the top gaps holding back the somewhat-disappointed.</li>
+    <li>One-line monthly memo: WRCO, its growth rate, best-performing loop, biggest surprise. If WRCO grows ~10%+ monthly for two consecutive quarters with flattening cohorts, PMF is arriving; scale the wedge to more games and turn on Loop 4 hard.</li>
+  </ul>
+</section>
+
+<!-- ================= 11. 90-DAY PLAN ================= -->
+<section>
+  <h2><span class="num">11</span>90-day plan and 12-month milestones</h2>
+
+  <h3>Days 1–30 — Measure and meet</h3>
+  <ul>
+    <li>Ship analytics events + cohort dashboard (the five numbers).</li>
+    <li>Run the Ellis survey; begin the twenty interviews (gaming makers first).</li>
+    <li>Ship <strong>rich unfurls</strong> (small effort, immediate distribution payoff) and make public calc pages fully crawlable with real titles.</li>
+    <li>Pick the three seed games; recruit one founding theorycrafter per game.</li>
+  </ul>
+
+  <h3>Days 31–60 — Ship the chassis</h3>
+  <ul>
+    <li>Ship <strong>Fork</strong> with visible lineage and counts.</li>
+    <li>Ship <strong>maker profiles</strong> (@handles, calc list, view/fork totals).</li>
+    <li>Ship <strong>Library v1</strong> — pinned calcs + folders + search on a personal home screen; point extension/iOS at it.</li>
+    <li>Founding creators build the 10–15 seed calcs, patch-current, on their new profiles.</li>
+  </ul>
+
+  <h3>Days 61–90 — Light the wedge</h3>
+  <ul>
+    <li>Community launches in the three games (subreddit + Discord + wiki embed each). Pitch the calc, not the platform.</li>
+    <li>Ship <strong>version notes</strong> ("updated for patch X") and <strong>follow/notify</strong> for calcs.</li>
+    <li>Gallery v2: gaming category hub, trending list, per-calc SEO pages.</li>
+    <li>Read the dials: share-view → fork rate, new makers from forks, D30 of the new cohort. Decide: pour on (more games) or fix (interview the non-forkers).</li>
+  </ul>
+
+  <h3>12-month milestones (targets to calibrate, not worship)</h3>
+  <table>
+    <tr><th>Milestone</th><th style="width:22%">Target</th><th>Meaning</th></tr>
+    <tr><td>Ellis very-disappointed, gaming-maker segment</td><td>≥ 40%</td><td>Segment PMF confirmed</td></tr>
+    <tr><td>WRCO growth</td><td>~10%/mo for 2 quarters</td><td>The library job is compounding</td></tr>
+    <tr><td>Fork loop</td><td>Top-20 calcs average ≥ 10 forks; ≥ 25% of new makers arrive via a fork</td><td>The network is forming</td></tr>
+    <tr><td>Wedge breadth</td><td>8–10 games with an active maintained hub</td><td>Repeatable playbook, not a one-off</td></tr>
+    <tr><td>Revenue</td><td>Pro live; 300–1,000 subscribers</td><td>The devoted can finally pay; strategy self-funds</td></tr>
+    <tr><td>SEO loop</td><td>Organic search = a top-3 source of new makers</td><td>Loop 4 turning; growth decouples from launches</td></tr>
+  </table>
+</section>
+
+<!-- ================= 12. RISKS ================= -->
+<section>
+  <h2><span class="num">12</span>Risks, AI, and what <em>not</em> to do</h2>
+
+  <h3>Risk register</h3>
+  <table>
+    <tr><th style="width:26%">Risk</th><th style="width:37%">Reality</th><th>Mitigation</th></tr>
+    <tr>
+      <td><strong>LLMs eat calculation</strong></td>
+      <td>True for Product A (disposable math). Not true for Product B: a maintained, interactive, community-trusted artifact is a social object, not an answer.</td>
+      <td>Build B, not A. Use AI as a creation accelerant ("describe your calc → draft appears") and court AI answer engines as referrers — an assistant that says "try this interactive calc" is a new distribution channel, and only products with <em>linkable artifacts</em> can receive it.</td>
+    </tr>
+    <tr>
+      <td><strong>Spreadsheet gravity</strong></td>
+      <td>Sheets is free, familiar, and already where communities work.</td>
+      <td>Don't fight on power; win on the consumer experience of the <em>shared artifact</em> (mobile, instant, forkable, beautiful) and on data-table import so power users don't have to choose.</td>
+    </tr>
+    <tr>
+      <td><strong>Solo-founder bandwidth</strong></td>
+      <td>The plan must run on one person plus community.</td>
+      <td>Everything above is community-leveraged: makers create supply, communities distribute, founding creators moderate their hubs. No sales, no ads, no ops-heavy features. Cut scope before cutting the loop.</td>
+    </tr>
+    <tr>
+      <td><strong>Cold-start / empty-network feel</strong></td>
+      <td>Profiles and forks look sad at low volume.</td>
+      <td>Seed density in three games before breadth; per-game hubs make small numbers feel big ("the OSRS corner is alive" beats "the site is quiet").</td>
+    </tr>
+    <tr>
+      <td><strong>UGC quality &amp; misinformation</strong></td>
+      <td>Wrong calcs erode the trust the brand runs on.</td>
+      <td>Curated gallery front page; usage-ranked discovery; version freshness labels; report link. Curation is editorial work — budget for it.</td>
+    </tr>
+    <tr>
+      <td><strong>A well-funded copycat</strong></td>
+      <td>The engine is cloneable in a quarter.</td>
+      <td>The corpus, the fork graph, the embedded footprint, and the maker reputations are not. Speed to network is the defense — which is why Tier 1 ships before monetization.</td>
+    </tr>
+  </table>
+
+  <h3>What <em>not</em> to do</h3>
+  <ul>
+    <li><strong>Don't chase the B2B embed market head-on.</strong> Calconic and friends fight on sales features (lead capture, checkout). That war costs a sales motion InstaCalc shouldn't build. Take the creator slice with a better free product; let businesses self-serve into the Creator tier.</li>
+    <li><strong>Don't compete with Desmos for education</strong> — procurement, standards alignment, and classroom management are a different company.</li>
+    <li><strong>Don't keep adding engine depth as the growth plan.</strong> Calculus support is lovely, but the marginal function wins no new segment; the missing chassis (fork, profiles, library, discovery) wins three.</li>
+    <li><strong>Don't launch "the platform."</strong> Launch calcs, inside communities, one game at a time. Platforms are recognized in retrospect.</li>
+    <li><strong>Don't paywall anything a loop touches.</strong> Ever.</li>
+  </ul>
+
+  <div class="callout">
+    <div class="label">Closing</div>
+    <p style="margin:0">InstaCalc's PMF is not hypothetical — it is <strong>latent</strong>. The daily users have already voted; the gaming makers have already built; the phrase "calc life" already exists in the wild. The work of the next two quarters is to give that behavior a chassis — fork, identity, library, discovery — measure it honestly with the Ellis survey and cohort curves, and let the patch clock and the fork graph do what paid marketing never could. <em>Think in numbers. Share a link. Keep your calc life here.</em></p>
+  </div>
+</section>
+
+</body>
+</html>
