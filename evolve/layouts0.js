@@ -7,7 +7,7 @@
 
   define({
     id: 'combo', name: 'The Studio', app: 'the best of all 20', wire: 'split', rec: true,
-    note: '★ Recommended combo — Google’s instant editor center-stage, Notion’s workspace rail, YouTube’s up-next, a McMaster-dense gallery below, Linear’s ⌘K. Create and browse never fight for the screen.',
+    note: '★ Recommended combo — the full notebook editor IS the landing page (zero clicks to calculating), with Notion’s workspace rail, YouTube’s up-next, a McMaster-dense gallery below, Linear’s ⌘K. Create and browse never fight for the screen.',
     css: `
 .l-combo{font-size:13.5px}
 .l-combo .c-k{flex:1;max-width:520px;margin:0 auto;border-radius:8px;cursor:text}

@@ -9,7 +9,7 @@
   /* ============ 1. GOOGLE — one box, zero chrome ============ */
   define({
     id: 'google', name: 'One Box', app: 'Google', wire: 'center',
-    note: 'The homepage IS the calculator. One input, instant answer card, gallery demoted to trending links.',
+    note: 'The cautionary tale: a one-line answer box is Google’s turf, and it hides the multi-line notebook that makes InstaCalc different. Kept as a foil — the keeper is “zero clicks to calculating”, not the single box.',
     css: `
 .l-google{display:flex;flex-direction:column}
 .l-google .g-top{display:flex;justify-content:flex-end;align-items:center;gap:18px;padding:14px 22px;font-size:13px}
