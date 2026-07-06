@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InstaCalc /evolve — Workspace user flows</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --color-bg: #0d0d0d; --color-header: #141414; --color-surface: #0d0d0d;
+    --color-surface-hover: #1a1a1a; --color-border: #222222;
+    --color-text-main: #e0e0e0; --color-text-muted: #777777;
+    --color-accent: #ffffff; --color-accent-blue: #3b82f6; --color-success: #00ff88;
+    --editor-bg: #000000; --tint-blue: rgba(59,130,246,.14); --tint-success: rgba(0,255,136,.10);
+    --shadow: 0 10px 34px rgba(0,0,0,.45);
+  }
+  body.light-theme {
+    --color-bg: #ffffff; --color-header: #f9f9f9; --color-surface: #ffffff;
+    --color-surface-hover: #f5f5f5; --color-border: #eaeaea;
+    --color-text-main: #171717; --color-text-muted: #666666;
+    --color-accent: #000000; --color-accent-blue: #2563eb; --color-success: #10b981;
+    --editor-bg: #ffffff; --tint-blue: rgba(37,99,235,.08); --tint-success: rgba(16,185,129,.10);
+    --shadow: 0 10px 34px rgba(0,0,0,.12);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--color-bg); color: var(--color-text-main);
+    font-family: 'Inter', -apple-system, sans-serif; -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--color-accent-blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .wrap { max-width: 1300px; margin: 0 auto; padding: 44px 32px 90px; }
+  .crumb { font-size: 13px; color: var(--color-text-muted); margin-bottom: 26px; }
+  .crumb b { color: var(--color-text-main); font-weight: 800; letter-spacing: -.02em; }
+  .crumb b span { color: var(--color-accent-blue); }
+  h1 { font-size: 34px; font-weight: 800; letter-spacing: -.025em; }
+  .sub { color: var(--color-text-muted); font-size: 15px; line-height: 1.6; max-width: 76ch; margin-top: 10px; }
+  .sub b { color: var(--color-text-main); font-weight: 600; }
+
+  .flow { margin-top: 72px; }
+  .fhead { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+  .fnum { font: 700 12px 'JetBrains Mono', monospace; color: var(--color-accent-blue); letter-spacing: .08em; }
+  .fhead h2 { font-size: 20px; font-weight: 700; letter-spacing: -.015em; }
+  .fstory { color: var(--color-text-muted); font-size: 13.5px; line-height: 1.55; max-width: 84ch; margin-bottom: 24px; }
+  .fstory b { color: var(--color-text-main); font-weight: 600; }
+
+  .steps { display: flex; gap: 14px; align-items: flex-start; }
+  .step { width: 272px; flex: none; }
+  .arr { align-self: center; margin-top: -58px; color: var(--color-text-muted); font-size: 15px; flex: none; opacity: .7; }
+  .cap { margin-top: 12px; padding: 0 2px; }
+  .cap b { display: block; font-size: 12.5px; font-weight: 650; }
+  .cap b i { font: 700 10px 'JetBrains Mono', monospace; color: var(--color-accent-blue); font-style: normal; margin-right: 7px; }
+  .cap span { display: block; color: var(--color-text-muted); font-size: 11.5px; line-height: 1.55; margin-top: 4px; }
+  .cap kbd { font: 10px 'JetBrains Mono', monospace; border: 1px solid var(--color-border); border-radius: 3px; padding: 0 4px; color: var(--color-text-muted); }
+
+  /* ------- mini screen ------- */
+  .scr { width: 272px; height: 186px; border: 1px solid var(--color-border); border-radius: 10px; overflow: hidden; background: var(--color-bg); display: flex; flex-direction: column; position: relative; box-shadow: 0 2px 14px rgba(0,0,0,.25); }
+  .tb { height: 23px; flex: none; background: var(--color-header); border-bottom: 1px solid var(--color-border); display: flex; align-items: center; gap: 7px; padding: 0 9px; font-size: 8px; }
+  .tb .br { font-weight: 800; letter-spacing: -.02em; font-size: 8.5px; }
+  .tb .br span { color: var(--color-accent-blue); }
+  .tb .pill { flex: 1; max-width: 110px; margin: 0 auto; background: var(--editor-bg); border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-text-muted); font-size: 6.8px; padding: 2.5px 6px; display: flex; gap: 4px; }
+  .tb .pill kbd { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 6px; border: 1px solid var(--color-border); border-radius: 2px; padding: 0 2px; }
+  .tb .av { width: 11px; height: 11px; border-radius: 50%; background: var(--color-surface-hover); border: 1px solid var(--color-border); font-size: 6px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+  .tb .bt { font-size: 6.8px; border: 1px solid var(--color-border); background: var(--color-surface-hover); border-radius: 4px; padding: 2px 6px; font-weight: 600; }
+  .tb .bt.pr { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+  .cols { flex: 1; display: flex; min-height: 0; }
+  .sb { width: 76px; flex: none; background: var(--color-header); border-right: 1px solid var(--color-border); padding: 6px 5px; font-size: 7.4px; color: var(--color-text-muted); overflow: hidden; }
+  .sb .h { font-size: 5.6px; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; margin: 7px 0 2px; padding-left: 5px; }
+  .sb .h:first-child { margin-top: 0; }
+  .sb .it { padding: 2.6px 5px; border-radius: 3.5px; display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+  .sb .it b { margin-left: auto; font: 500 6px 'JetBrains Mono', monospace; color: var(--color-text-muted); }
+  .sb .it.on { background: var(--color-surface-hover); color: var(--color-text-main); box-shadow: inset 1.5px 0 0 var(--color-accent-blue); font-weight: 600; }
+  .sb .it.drop { outline: 1.5px dashed var(--color-accent-blue); outline-offset: -1.5px; color: var(--color-text-main); background: var(--tint-blue); }
+  .mn { flex: 1; min-width: 0; padding: 9px 11px; font-size: 8px; position: relative; }
+
+  /* editor bits */
+  .doct { display: flex; align-items: center; gap: 5px; font-size: 9.5px; font-weight: 700; letter-spacing: -.01em; }
+  .doct .caret { color: var(--color-accent-blue); font-weight: 400; animation: none; }
+  .doct .bt, .mn .bt { font-size: 6.6px; border: 1px solid var(--color-border); background: var(--color-surface-hover); border-radius: 4px; padding: 2px 6px; font-weight: 600; color: var(--color-text-main); }
+  .doct .bt.pr { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+  .doct .sp { margin-left: auto; display: flex; gap: 4px; }
+  .docm { color: var(--color-text-muted); font-size: 6.6px; margin: 3px 0 7px; }
+  .docm .ok { color: var(--color-success); }
+  .ed { background: var(--editor-bg); border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace; font-size: 7.4px; line-height: 13.5px; }
+  .ed.focus { border-color: var(--color-accent-blue); }
+  .el { display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; }
+  .el .ex { overflow: hidden; text-overflow: ellipsis; }
+  .el .ex i { color: var(--color-accent-blue); font-style: normal; }
+  .el .ex u { color: var(--color-text-muted); text-decoration: none; }
+  .el .ex.cm { color: var(--color-text-muted); font-style: italic; }
+  .el .rs { color: var(--color-success); opacity: .55; font-weight: 500; }
+  .el .rs.em { opacity: 1; font-weight: 700; }
+  .caret { display: inline-block; width: 1px; }
+  .caret::after { content: '▍'; color: var(--color-accent-blue); font-size: inherit; }
+
+  .callout { background: var(--color-surface-hover); border: 1px solid var(--color-border); border-radius: 5px; padding: 5px 7px; font-size: 6.8px; color: var(--color-text-muted); margin-bottom: 7px; line-height: 1.5; }
+  .callout b { color: var(--color-text-main); }
+
+  /* gallery table */
+  .gt { width: 100%; border-collapse: collapse; font-size: 7.2px; }
+  .gt th { text-align: left; color: var(--color-text-muted); font-size: 5.8px; text-transform: uppercase; letter-spacing: .07em; border-bottom: 1px solid var(--color-border); padding: 2px 4px 3px; }
+  .gt td { border-bottom: 1px solid var(--color-border); padding: 3.4px 4px; white-space: nowrap; }
+  .gt td.mut, .gt td b + span { color: var(--color-text-muted); }
+  .gt td .gr { color: var(--color-success); font-family: 'JetBrains Mono', monospace; font-size: 6.8px; }
+  .gt tr.hov td { background: var(--color-surface-hover); }
+  .mtit { font-size: 9px; font-weight: 700; margin-bottom: 6px; }
+  .mtit small { color: var(--color-text-muted); font-weight: 400; font-size: 6.8px; margin-left: 5px; }
+
+  /* overlays */
+  .dim { position: absolute; inset: 0; background: rgba(0,0,0,.5); border-radius: 0 0 9px 9px; }
+  body.light-theme .dim { background: rgba(120,120,120,.25); }
+  .pop { position: absolute; background: var(--color-header); border: 1px solid var(--color-border); border-radius: 7px; box-shadow: var(--shadow); font-size: 7px; z-index: 3; }
+  .pop .ph { padding: 5px 8px; border-bottom: 1px solid var(--color-border); font-weight: 700; font-size: 7.4px; display: flex; gap: 5px; align-items: center; }
+  .pop .pr2 { display: flex; justify-content: space-between; gap: 10px; padding: 4px 8px; color: var(--color-text-muted); align-items: center; }
+  .pop .pr2 b { color: var(--color-text-main); font-weight: 600; }
+  .pop .link { font-family: 'JetBrains Mono', monospace; font-size: 6.4px; background: var(--editor-bg); border: 1px solid var(--color-border); border-radius: 4px; padding: 3px 6px; margin: 4px 8px; color: var(--color-text-main); display: flex; justify-content: space-between; gap: 6px; }
+  .pop .link i { color: var(--color-success); font-style: normal; }
+  .tgl { width: 15px; height: 8px; border-radius: 5px; background: var(--color-success); position: relative; display: inline-block; }
+  .tgl::after { content: ''; position: absolute; right: 1px; top: 1px; width: 6px; height: 6px; border-radius: 50%; background: #000; }
+  .toast { position: absolute; left: 50%; transform: translateX(-50%); bottom: 7px; background: var(--color-header); border: 1px solid var(--color-border); color: var(--color-text-main); border-radius: 5px; font-size: 6.8px; padding: 3.5px 8px; box-shadow: var(--shadow); z-index: 4; }
+  .toast i { color: var(--color-success); font-style: normal; }
+
+  .kbar { position: absolute; left: 50%; top: 26px; transform: translateX(-50%); width: 170px; background: var(--color-header); border: 1px solid var(--color-border); border-radius: 7px; box-shadow: var(--shadow); z-index: 4; font-size: 7.2px; }
+  .kbar .ki { padding: 6px 8px; border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); display: flex; gap: 4px; }
+  .kbar .ki b { color: var(--color-text-main); font-weight: 500; }
+  .kbar .kh { font-size: 5.6px; text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); padding: 4px 8px 1px; }
+  .kbar .kr { display: flex; gap: 5px; padding: 3.4px 8px; color: var(--color-text-main); align-items: center; }
+  .kbar .kr.on { background: var(--tint-blue); }
+  .kbar .kr kbd { margin-left: auto; font: 5.8px 'JetBrains Mono', monospace; color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: 2px; padding: 0 2.5px; }
+  .kbar .kr .mut { color: var(--color-text-muted); }
+
+  .banner { background: var(--tint-blue); border: 1px solid var(--color-accent-blue); border-radius: 5px; color: var(--color-text-main); font-size: 6.8px; padding: 4px 7px; margin-bottom: 6px; }
+  .banner.gr { background: var(--tint-success); border-color: var(--color-success); }
+  .menu { position: absolute; background: var(--color-header); border: 1px solid var(--color-border); border-radius: 6px; box-shadow: var(--shadow); font-size: 7px; z-index: 3; padding: 3px; }
+  .menu .mi { padding: 3px 8px; border-radius: 4px; white-space: nowrap; color: var(--color-text-main); }
+  .menu .mi.on { background: var(--tint-blue); }
+  .menu .mi.mut { color: var(--color-text-muted); }
+
+  .spark { display: flex; gap: 1.5px; align-items: flex-end; height: 14px; }
+  .spark i { width: 4px; background: var(--color-success); opacity: .8; border-radius: 1px; }
+
+  .rescard { background: var(--color-header); border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; }
+  .rescard .t { font-size: 7.6px; font-weight: 700; }
+  .rescard .m { color: var(--color-text-muted); font-size: 6.4px; margin-top: 1px; }
+  .bignum { font: 700 11px 'JetBrains Mono', monospace; color: var(--color-success); }
+
+  /* interaction highlight */
+  .hot { box-shadow: 0 0 0 1.5px var(--color-accent-blue), 0 0 10px var(--tint-blue) !important; border-radius: 5px; }
+  .hand { position: absolute; font-size: 11px; z-index: 5; filter: drop-shadow(0 2px 3px rgba(0,0,0,.5)); }
+
+  .foot { margin-top: 80px; border-top: 1px solid var(--color-border); padding-top: 18px; color: var(--color-text-muted); font-size: 12.5px; line-height: 1.7; }
+  .foot kbd { font: 11px 'JetBrains Mono', monospace; border: 1px solid var(--color-border); border-radius: 3px; padding: 0 5px; }
+
+  @media (max-width: 1240px) { .steps { flex-wrap: wrap; } .arr { display: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb"><b>Insta<span>Calc</span></b> &nbsp;·&nbsp; <a href="index.html?l=combo">/evolve</a> · Workspace flows</div>
+  <h1>Workspace user flows</h1>
+  <p class="sub">Five journeys through the Workspace UX — the create/organize model behind <b>The Studio</b>. Each strip shows real screens in the current theme; the <b style="color:var(--color-accent-blue)">blue ring</b> marks the one thing the user does in that step. The through-line: <b>the editor is always one keystroke away, and everything you find can become something you own.</b></p>
+  <div id="flows"></div>
+  <div class="foot">
+    Conventions across every flow: <kbd>⌘K</kbd> jumps anywhere · <kbd>C</kbd> new calc · the URL is always the share link · remixes keep attribution automatically. &nbsp;→&nbsp; <a href="index.html?l=combo">Back to the layout gallery</a>
+  </div>
+</div>
+
+<script>
+(function () {
+  /* ---------- tiny screen builders ---------- */
+  const SB_BASE = (on, extra) => `
+<div class="sb">
+  <div class="h">Workspace</div>
+  <div class="it ${on === 'home' ? 'on' : ''}">🏠 Home</div>
+  <div class="it ${on === 'my' ? 'on' : ''}">🧮 My calcs <b>${extra === 'my13' ? '13' : '12'}</b></div>
+  <div class="it ${on === 'star' ? 'on' : ''}">⭐ Starred ${extra === 'star' ? '<b>+1</b>' : ''}</div>
+  <div class="h">Collections</div>
+  <div class="it ${on === 'events' ? 'on' : ''}">🎉 Events</div>
+  <div class="it ${on === 'house' ? 'on' : ''} ${extra === 'dropHouse' ? 'drop' : ''}">🏠 House hunt</div>
+  <div class="h">Explore</div>
+  <div class="it ${on === 'gal' ? 'on' : ''}">🗂 Gallery</div>
+</div>`;
+
+  const TB = (o = {}) => `
+<div class="tb">
+  <span class="br">Insta<span>Calc</span></span>
+  <span class="pill ${o.hotK ? 'hot' : ''}">🔍 Search — or type math… <kbd>⌘K</kbd></span>
+  ${o.btn || ''}
+  <span class="av">K</span>
+</div>`;
+
+  const scr = (main, o = {}) => `
+<div class="scr">
+  ${o.tb !== false ? TB(o) : (o.tbCustom || '')}
+  <div class="cols">
+    ${o.sb === false ? '' : SB_BASE(o.on || 'home', o.sbx)}
+    <div class="mn">${main}</div>
+  </div>
+  ${o.overlay || ''}
+</div>`;
+
+  const el = (ex, rs, o = {}) => `<div class="el"><span class="ex ${o.cm ? 'cm' : ''}">${ex}</span><span class="rs ${o.em ? 'em' : ''}">${rs}</span></div>`;
+
+  const step = (n, title, desc, screen) => `
+<div class="step">${screen}<div class="cap"><b><i>${String(n).padStart(2, '0')}</i>${title}</b><span>${desc}</span></div></div>`;
+
+  const ARR = '<div class="arr">⟶</div>';
+
+  /* ---------- flow definitions ---------- */
+  const flows = [];
+
+  /* FLOW 1 — zero to shared calc */
+  flows.push({
+    id: 'f1', num: 'FLOW 01', title: 'Zero to shared calc',
+    story: 'The front door is the editor itself — no landing page, no signup wall. A new visitor is <b>calculating within five seconds</b> and holding a shareable link within sixty.',
+    steps: [
+      step(1, 'Land in the editor', 'No marketing page between you and math. A seeded example shows the notebook model; first keystroke replaces it.',
+        scr(`
+<div class="doct">📄 Untitled calc <span class="sp"><span class="bt">↗ Share</span></span></div>
+<div class="docm">draft · autosaves · press <b style="color:var(--color-text-main)">?</b> for syntax</div>
+<div class="callout">💡 <b>Type any math.</b> Name a value with <b>=</b> and reuse it on the next line — results update live.</div>
+<div class="ed focus hot">
+  ${el('guests = <i>30</i>', '30')}
+  ${el('<span class="caret"></span>', '')}
+</div>`, { on: 'my' })),
+      step(2, 'The model grows line by line', 'Named values chain into formulas. Inputs render dim, computed answers bright — the eye lands on what matters.',
+        scr(`
+<div class="doct">📄 Untitled calc <span class="sp"><span class="bt">↗ Share</span></span></div>
+<div class="docm">draft · autosaved <span class="ok">just now</span></div>
+<div class="ed focus">
+  ${el('guests = <i>30</i>', '30')}
+  ${el('costPerPerson = <i>18</i>', '18')}
+  ${el('food <u>=</u> guests <u>*</u> costPerPerson', '540', { em: 1 })}
+  ${el('venue = <i>250</i>', '250')}
+  ${el('total <u>=</u> food <u>+</u> venue<span class="caret"></span>', '790', { em: 1 })}
+</div>`, { on: 'my' })),
+      step(3, 'Name it — it files itself', 'Title + icon, and the calc is already in My Calcs. No save button exists anywhere in the product.',
+        scr(`
+<div class="doct hot" style="width:fit-content;padding:1px 4px">🎉 Party Budget<span class="caret"></span></div>
+<div class="docm">My calcs / Party Budget · autosaved <span class="ok">✓</span></div>
+<div class="ed">
+  ${el('guests = <i>30</i>', '30')}
+  ${el('costPerPerson = <i>18</i>', '18')}
+  ${el('food <u>=</u> guests <u>*</u> costPerPerson', '540', { em: 1 })}
+  ${el('venue = <i>250</i>', '250')}
+  ${el('total <u>=</u> food <u>+</u> venue', '790', { em: 1 })}
+</div>`, { on: 'my', sbx: 'my13' })),
+      step(4, 'Share = copy the URL', 'The whole calc lives in the link. One toggle for view vs. edit; recipients can always remix their own copy.',
+        scr(`
+<div class="doct">🎉 Party Budget <span class="sp"><span class="bt pr hot">↗ Share</span></span></div>
+<div class="docm">My calcs / Party Budget · autosaved <span class="ok">✓</span></div>
+<div class="ed" style="opacity:.45">
+  ${el('guests = <i>30</i>', '30')}
+  ${el('costPerPerson = <i>18</i>', '18')}
+  ${el('food <u>=</u> guests <u>*</u> costPerPerson', '540', { em: 1 })}
+</div>`, { on: 'my', sbx: 'my13', overlay: `
+<div class="pop" style="right:8px;top:44px;width:128px">
+  <div class="ph">↗ Share “Party Budget”</div>
+  <div class="pr2"><b>Public link</b><span class="tgl"></span></div>
+  <div class="pr2">Anyone with link<b>can view ▾</b></div>
+  <div class="link">instacalc.com/x9k2f <i>✓</i></div>
+</div>
+<div class="toast"><i>✓</i> Link copied to clipboard</div>` })),
+    ],
+  });
+
+  /* FLOW 2 — gallery → remix → yours */
+  flows.push({
+    id: 'f2', num: 'FLOW 02', title: 'Gallery → remix → yours',
+    story: 'Browsing is never a dead end. Anything in the gallery can be <b>peeked without leaving the list</b>, then remixed into your workspace with attribution kept — find → own in four clicks.',
+    steps: [
+      step(1, 'Browse the gallery in place', 'The gallery is a database view inside the workspace, not a separate site. Dense rows, live-result previews, instant filter.',
+        scr(`
+<div class="mtit">🗂 Gallery <small>1,642 calcs · Finance ▾ · by uses</small></div>
+<table class="gt">
+  <tr><th>Calc</th><th>Author</th><th>Uses</th><th>Answer</th></tr>
+  <tr class="hov hot"><td><b>Mortgage Payoff Planner</b></td><td class="mut">sarah_m</td><td class="mut">24.1k</td><td><span class="gr">$1,962/mo</span></td></tr>
+  <tr><td><b>Compound Interest</b></td><td class="mut">mathfan42</td><td class="mut">31.2k</td><td><span class="gr">$117,606</span></td></tr>
+  <tr><td><b>Loan Comparison</b></td><td class="mut">sarah_m</td><td class="mut">11.1k</td><td><span class="gr">$213k saved</span></td></tr>
+  <tr><td><b>Retirement Projector</b></td><td class="mut">futureme</td><td class="mut">22.4k</td><td><span class="gr">$1.9M</span></td></tr>
+</table>`, { on: 'gal' })),
+      step(2, 'Peek before you commit', 'Space opens a side peek — the real calc, live, without losing your scroll position in the list.',
+        scr(`
+<div class="mtit" style="opacity:.4">🗂 Gallery <small>1,642 calcs</small></div>
+<table class="gt" style="opacity:.4">
+  <tr><td><b>Mortgage Payoff Planner</b></td><td class="mut">sarah_m</td></tr>
+  <tr><td><b>Compound Interest</b></td><td class="mut">mathfan42</td></tr>
+</table>`, { on: 'gal', overlay: `
+<div class="pop" style="right:6px;top:30px;bottom:8px;width:118px;padding-bottom:4px">
+  <div class="ph">📐 Mortgage Payoff</div>
+  <div style="padding:4px 8px;font-family:'JetBrains Mono',monospace;font-size:6.4px;line-height:11.5px">
+    ${el('loan = <i>320,000</i>', '320k')}
+    ${el('rate = <i>6.2</i>%', '0.062')}
+    ${el('payment / mo', '$1,962', { em: 1 })}
+  </div>
+  <div class="pr2"><span>sarah_m · 24.1k uses</span></div>
+  <div style="padding:2px 8px;display:flex;gap:4px"><span class="bt pr hot" style="font-size:6.6px;border:1px solid var(--color-accent);background:var(--color-accent);color:var(--color-bg);border-radius:4px;padding:2px 7px;font-weight:700">⑂ Remix</span><span class="bt">Open</span></div>
+</div>` })),
+      step(3, 'Remix — now it’s yours', 'A private copy lands in My Calcs with lineage kept. Edit anything; the original and its author stay credited.',
+        scr(`
+<div class="doct">📐 Mortgage Payoff <span style="font-weight:400;color:var(--color-text-muted);font-size:6.6px">(remix)</span></div>
+<div class="banner">⑂ Remixed from <b>sarah_m/mortgage-payoff</b> — attribution travels with every share.</div>
+<div class="ed focus">
+  ${el('loan = <i>320,000</i>', '320,000')}
+  ${el('rate = <i>6.2</i>%', '0.062')}
+  ${el('<span class="hot" style="border-radius:2px">extraPayment = <i>200</i><span class="caret"></span></span>', '200')}
+  ${el('payoff', '22.1 yrs', { em: 1 })}
+</div>`, { on: 'my', sbx: 'my13' })),
+      step(4, 'File it where it belongs', 'Drag to a collection — or ⌘K “move”. Collections are the shelf between “mine” and “everything”.',
+        scr(`
+<div class="doct" style="opacity:.5">📐 Mortgage Payoff</div>
+<div class="ed" style="opacity:.5">
+  ${el('loan = <i>320,000</i>', '320,000')}
+  ${el('extraPayment = <i>200</i>', '200')}
+  ${el('payoff', '22.1 yrs', { em: 1 })}
+</div>`, { on: 'my', sbx: 'dropHouse', overlay: `
+<div class="menu" style="left:96px;top:78px">
+  <div class="mi mut">Move to…</div>
+  <div class="mi">🎉 Events</div>
+  <div class="mi on hot">🏠 House hunt</div>
+  <div class="mi mut">＋ New collection</div>
+</div>` })),
+    ],
+  });
+
+  /* FLOW 3 — ⌘K */
+  flows.push({
+    id: 'f3', num: 'FLOW 03', title: '⌘K is the front door',
+    story: 'One shortcut reaches everything — your calcs, the whole gallery, every command. Heavy users <b>never touch the sidebar</b>; it exists for the days you’re browsing, not the days you know where you’re going.',
+    steps: [
+      step(1, 'Summon from anywhere', 'Recents first (you probably want what you touched last), commands below, gallery search behind the same box.',
+        scr(`
+<div class="mtit" style="opacity:.35">🏠 Home</div>
+<div class="rescard" style="opacity:.35"><div class="t">🎉 Party Budget</div><div class="m">edited 2h ago</div></div>`,
+        { on: 'home', hotK: true, overlay: `
+<div class="dim"></div>
+<div class="kbar hot">
+  <div class="ki">⌘K <b>Type a calc, command, or math…</b><span class="caret"></span></div>
+  <div class="kh">Recent</div>
+  <div class="kr">🎉 Party Budget <kbd>↵</kbd></div>
+  <div class="kr">✈️ Japan trip</div>
+  <div class="kh">Actions</div>
+  <div class="kr">🧮 New calc <kbd>C</kbd></div>
+  <div class="kr">🗂 Browse gallery <kbd>G G</kbd></div>
+</div>` })),
+      step(2, 'Type — everything filters', 'Your calcs, gallery hits, and a create-escape-hatch share one ranked list. Math typed here just evaluates inline.',
+        scr(`
+<div class="mtit" style="opacity:.35">🏠 Home</div>`,
+        { on: 'home', overlay: `
+<div class="dim"></div>
+<div class="kbar">
+  <div class="ki">⌘K <b>mort</b><span class="caret"></span></div>
+  <div class="kh">My calcs</div>
+  <div class="kr on hot">📐 Mortgage Payoff (remix) <kbd>↵</kbd></div>
+  <div class="kh">Gallery · 12 more</div>
+  <div class="kr">📐 Mortgage vs Rent <span class="mut">· 8.2k uses</span></div>
+  <div class="kr">📐 Loan Comparison <span class="mut">· 11.1k uses</span></div>
+  <div class="kh">Create</div>
+  <div class="kr">＋ New calc “mort…” <kbd>⌘↵</kbd></div>
+</div>` })),
+      step(3, 'Enter — you’re editing', 'Palette closes, cursor is already in the calc. Total cost of navigation: three keys, zero mouse.',
+        scr(`
+<div class="doct">📐 Mortgage Payoff <span style="font-weight:400;color:var(--color-text-muted);font-size:6.6px">(remix)</span></div>
+<div class="docm">House hunt / Mortgage Payoff · autosaved <span class="ok">✓</span></div>
+<div class="ed focus hot">
+  ${el('loan = <i>320,000</i>', '320,000')}
+  ${el('rate = <i>6.2</i>%', '0.062')}
+  ${el('extraPayment = <i>200</i><span class="caret"></span>', '200')}
+  ${el('payoff', '22.1 yrs', { em: 1 })}
+</div>`, { on: 'house' })),
+    ],
+  });
+
+  /* FLOW 4 — coming back */
+  flows.push({
+    id: 'f4', num: 'FLOW 04', title: 'Coming back',
+    story: 'Return visits open on <b>your</b> work, not a feed. And collections aren’t folders — every calc surfaces its headline answer, so a collection reads as a <b>dashboard of live numbers</b>.',
+    steps: [
+      step(1, 'Home = resume', 'The last thing you touched is the biggest thing on screen. One click and you’re back mid-thought.',
+        scr(`
+<div class="mtit">Good afternoon</div>
+<div class="rescard hot"><div class="t">🎉 Party Budget</div><div class="m">edited 2h ago · total <span style="color:var(--color-success);font-weight:700">$910</span> · ↵ to resume</div></div>
+<div style="display:flex;gap:5px">
+  <div class="rescard" style="flex:1;margin:0"><div class="t" style="font-size:6.8px">📐 Mortgage</div><div class="m">1d ago</div></div>
+  <div class="rescard" style="flex:1;margin:0"><div class="t" style="font-size:6.8px">✈️ Japan trip</div><div class="m">3d ago</div></div>
+</div>`, { on: 'home' })),
+      step(2, 'Collections are dashboards', 'Each calc in “House hunt” shows its live headline number. The collection answers the actual question: can we afford this?',
+        scr(`
+<div class="mtit">🏠 House hunt <small>3 calcs · live</small></div>
+<div class="rescard"><div style="display:flex;justify-content:space-between;align-items:baseline"><div class="t">📐 Mortgage Payoff</div><span class="bignum">$1,962/mo</span></div></div>
+<div class="rescard"><div style="display:flex;justify-content:space-between;align-items:baseline"><div class="t">🏦 Down Payment Saver</div><span class="bignum">14 mo</span></div></div>
+<div class="rescard"><div style="display:flex;justify-content:space-between;align-items:baseline"><div class="t">⚡ Solar ROI</div><span class="bignum">10.3 yr</span></div></div>`,
+        { on: 'house' })),
+      step(3, 'Star what you live in', 'Daily drivers get pinned to Starred — the workspace shapes itself around usage, not filing discipline.',
+        scr(`
+<div class="mtit">🏠 House hunt <small>3 calcs</small></div>
+<div class="rescard"><div style="display:flex;justify-content:space-between;align-items:center"><div class="t">📐 Mortgage Payoff</div><span class="hot" style="padding:1px 4px;border-radius:3px">⭐</span></div><div class="m">starred — pinned to sidebar</div></div>
+<div class="rescard" style="opacity:.55"><div class="t">🏦 Down Payment Saver</div></div>`,
+        { on: 'house', sbx: 'star' })),
+    ],
+  });
+
+  /* FLOW 5 — the remix loop */
+  flows.push({
+    id: 'f5', num: 'FLOW 05', title: 'The remix loop',
+    story: 'Sharing isn’t an export — it’s how the gallery grows. A shared link is live for the recipient, <b>editing prompts a remix</b>, and every remix feeds attribution (and pride) back to the author.',
+    steps: [
+      step(1, 'A recipient opens your link', 'No account, no app — the calc, live and touchable, with quiet provenance up top.',
+        scr(`
+<div class="banner">🎉 <b>kazad</b> shared “Party Budget” — play with the numbers, it’s live.</div>
+<div class="ed">
+  ${el('guests = <i>30</i>', '30')}
+  ${el('costPerPerson = <i>18</i>', '18')}
+  ${el('food <u>=</u> guests <u>*</u> costPerPerson', '540', { em: 1 })}
+  ${el('total <u>=</u> food <u>+</u> venue <u>+</u> music', '910', { em: 1 })}
+  ${el('perGuest <u>=</u> total <u>/</u> guests', '30.33', { em: 1 })}
+</div>`, { sb: false, tbCustom: `
+<div class="tb"><span class="br">Insta<span>Calc</span></span><span style="color:var(--color-text-muted);font-size:6.6px;margin-left:2px">/ kazad / party-budget</span><span class="bt" style="margin-left:auto">⑂ Remix</span><span class="bt pr">Sign up</span></div>` })),
+      step(2, 'Their first edit → remix prompt', 'They can tweak freely; keeping changes takes one click and spawns their own attributed copy.',
+        scr(`
+<div class="ed">
+  ${el('guests = <i>45</i><span class="caret"></span>', '45')}
+  ${el('costPerPerson = <i>18</i>', '18')}
+  ${el('food <u>=</u> guests <u>*</u> costPerPerson', '810', { em: 1 })}
+  ${el('total <u>=</u> food <u>+</u> venue <u>+</u> music', '1,180', { em: 1 })}
+</div>`, { sb: false, tbCustom: `
+<div class="tb"><span class="br">Insta<span>Calc</span></span><span style="color:var(--color-text-muted);font-size:6.6px;margin-left:2px">/ kazad / party-budget</span><span class="bt" style="margin-left:auto">⑂ Remix</span><span class="bt pr">Sign up</span></div>`, overlay: `
+<div class="pop" style="left:50%;transform:translateX(-50%);top:64px;width:140px">
+  <div class="ph">Nice — you changed guests to 45</div>
+  <div class="pr2"><span>Keep your version?</span></div>
+  <div style="padding:2px 8px 6px;display:flex;gap:4px"><span class="hot" style="font-size:6.8px;background:var(--color-accent);color:var(--color-bg);border-radius:4px;padding:2.5px 8px;font-weight:700">⑂ Remix to save</span><span class="bt">Discard</span></div>
+</div>` })),
+      step(3, 'Lineage, not copies', 'Their workspace shows where it came from; your calc shows where it went. Provenance is a feature, not metadata.',
+        scr(`
+<div class="doct">🎉 Party Budget <span style="font-weight:400;color:var(--color-text-muted);font-size:6.6px">(remix)</span></div>
+<div class="banner">⑂ remixed from <b>kazad/party-budget</b> · 1 of 313 remixes</div>
+<div class="ed">
+  ${el('guests = <i>45</i>', '45')}
+  ${el('total <u>=</u> food <u>+</u> venue <u>+</u> music', '1,180', { em: 1 })}
+  ${el('perGuest <u>=</u> total <u>/</u> guests', '26.22', { em: 1 })}
+</div>`, { on: 'my' })),
+      step(4, 'The author sees it grow', 'Remixes and uses come home to your dashboard — the feedback that keeps people publishing to the gallery.',
+        scr(`
+<div class="mtit">Good afternoon</div>
+<div class="rescard hot"><div style="display:flex;justify-content:space-between;align-items:center"><div><div class="t">🎉 Party Budget</div><div class="m">313 remixes · <span style="color:var(--color-success)">+3 today</span> · 18.6k uses</div></div>
+<div class="spark"><i style="height:4px"></i><i style="height:6px"></i><i style="height:5px"></i><i style="height:9px"></i><i style="height:8px"></i><i style="height:12px"></i><i style="height:14px"></i></div></div></div>
+<div class="rescard"><div class="t" style="font-size:6.8px">📐 Mortgage (remix)</div><div class="m">edited 1d ago</div></div>`,
+        { on: 'home' })),
+    ],
+  });
+
+  /* ---------- render ---------- */
+  document.getElementById('flows').innerHTML = flows.map(f => `
+<section class="flow" id="${f.id}">
+  <div class="fhead"><span class="fnum">${f.num}</span><h2>${f.title}</h2></div>
+  <p class="fstory">${f.story}</p>
+  <div class="steps">${f.steps.join(ARR)}</div>
+</section>`).join('');
+
+  /* theme: same convention as the rest of jshell */
+  const q = new URLSearchParams(location.search);
+  const t = q.get('theme') || localStorage.getItem('jshell_theme') || 'dark';
+  document.body.classList.toggle('light-theme', t === 'light');
+})();
+</script>
+</body>
+</html>
