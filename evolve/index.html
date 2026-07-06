@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InstaCalc /evolve — UI Layout Gallery</title>
+<style>
+  /* ---------- reset / base ---------- */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #111; color: #111;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; cursor: pointer; }
+  a { cursor: pointer; }
+  img { max-width: 100%; }
+
+  #stage { height: 100vh; overflow: hidden; }
+  .L { height: 100vh; overflow-y: auto; overflow-x: hidden; }
+
+  /* ---------- shared live-calc component ---------- */
+  .ic-calc {
+    display: flex;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 14px;
+  }
+  .ic-calc textarea {
+    flex: 1; min-width: 0;
+    border: 0; outline: 0; resize: none;
+    background: transparent; color: inherit;
+    font: inherit; line-height: 28px;
+    white-space: pre; overflow: auto;
+  }
+  .ic-out {
+    min-width: 96px; text-align: right;
+    line-height: 28px; white-space: pre;
+    overflow: hidden; user-select: none;
+    color: var(--icr, #16a34a); font-weight: 600;
+  }
+  .ic-out .err { color: #e5484d; font-weight: 400; opacity: .8; }
+
+  /* mini static preview used in gallery cards */
+  .ic-thumb { overflow: hidden; }
+  .ic-mini { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.7; }
+  .ic-mini .ml { display: flex; justify-content: space-between; gap: 12px; }
+  .ic-mini .ml span { opacity: .75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ic-mini .ml b { color: var(--icr, #16a34a); font-weight: 600; white-space: nowrap; }
+
+  /* ---------- switcher bar ---------- */
+  #switcher {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    z-index: 9000; display: flex; align-items: center; gap: 4px;
+    background: rgba(17,19,24,.92); backdrop-filter: blur(12px);
+    color: #e7e9ee; border: 1px solid rgba(255,255,255,.14);
+    border-radius: 999px; padding: 6px 10px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.45);
+    font-size: 13px; user-select: none;
+  }
+  #switcher button {
+    background: none; border: 0; color: #e7e9ee;
+    padding: 6px 9px; border-radius: 999px; font-size: 13px; line-height: 1;
+  }
+  #switcher button:hover { background: rgba(255,255,255,.12); }
+  #switcher .sw-name { padding: 0 6px; white-space: nowrap; }
+  #switcher .sw-name b { font-weight: 650; }
+  #switcher .sw-name i { font-style: normal; color: #9aa3b2; margin-left: 7px; }
+  #switcher .sw-count { color: #9aa3b2; font-variant-numeric: tabular-nums; padding: 0 4px; }
+  #switcher .sw-grid { border-left: 1px solid rgba(255,255,255,.15); margin-left: 4px; padding-left: 12px; }
+  body.no-chrome #switcher { display: none; }
+
+  /* ---------- overview overlay ---------- */
+  #overview {
+    position: fixed; inset: 0; z-index: 9500; overflow-y: auto;
+    background: rgba(10,12,16,.96); backdrop-filter: blur(8px);
+    color: #e7e9ee; display: none; padding: 48px 40px 80px;
+  }
+  #overview.open { display: block; }
+  #overview .ov-head { max-width: 1180px; margin: 0 auto 8px; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  #overview h1 { font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+  #overview h1 span { color: #5b8def; }
+  #overview .ov-sub { color: #9aa3b2; font-size: 14px; }
+  #overview .ov-close { margin-left: auto; background: rgba(255,255,255,.1); border: 0; color: #fff; border-radius: 8px; padding: 8px 14px; }
+  #overview .ov-grid {
+    max-width: 1180px; margin: 22px auto 0;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px;
+  }
+  .ov-card {
+    background: #171a21; border: 1px solid #262b36; border-radius: 12px;
+    padding: 14px; cursor: pointer; transition: border-color .12s, transform .12s;
+  }
+  .ov-card:hover { border-color: #5b8def; transform: translateY(-2px); }
+  .ov-card.active { border-color: #5b8def; box-shadow: 0 0 0 1px #5b8def; }
+  .ov-card .ov-n { font-weight: 650; font-size: 14px; margin-top: 10px; }
+  .ov-card .ov-n small { color: #8b93a5; font-weight: 400; margin-left: 6px; }
+  .ov-card .ov-d { color: #9aa3b2; font-size: 12px; line-height: 1.45; margin-top: 4px; }
+  .ov-card .ov-k { color: #6b7385; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; margin-top: 8px; }
+
+  /* wireframe schematics */
+  .wire { height: 84px; border-radius: 7px; background: #0e1116; border: 1px solid #262b36; padding: 6px; display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
+  .wire .w-bar { height: 9px; border-radius: 2px; background: #3a4252; flex: none; }
+  .wire .w-row { display: flex; gap: 4px; flex: 1; min-height: 0; }
+  .wire .w-rail { width: 22%; border-radius: 2px; background: #2a3140; }
+  .wire .w-main { flex: 1; border-radius: 2px; background: #1c212b; position: relative; }
+  .wire .w-main.grid { background: repeating-linear-gradient(90deg,#1c212b 0 22%,#0e1116 22% 25%); }
+  .wire .w-main.feed { background: repeating-linear-gradient(180deg,#1c212b 0 26%,#0e1116 26% 34%); }
+  .wire .w-center { width: 46%; margin: auto; height: 60%; border-radius: 3px; background: #1c212b; border: 1px solid #333c4d; }
+  .wire .w-full { flex: 1; border-radius: 3px; background: linear-gradient(160deg,#1c212b,#12151c); border: 1px solid #333c4d; }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <style id="layout-css"></style>
+
+  <div id="switcher">
+    <button id="sw-prev" title="Previous layout (←)">‹</button>
+    <span class="sw-name"><b id="sw-title">—</b><i id="sw-app">—</i></span>
+    <span class="sw-count" id="sw-count">1/20</span>
+    <button id="sw-next" title="Next layout (→)">›</button>
+    <button class="sw-grid" id="sw-open" title="All layouts (G)">⊞ All layouts</button>
+  </div>
+
+  <div id="overview">
+    <div class="ov-head">
+      <h1>InstaCalc <span>/evolve</span></h1>
+      <div class="ov-sub">20 homepage + calc-navigation concepts, each borrowing the bones of a familiar app. Same product — live calcs, gallery, search — different skeleton. Use ← → to flip, G for this grid.</div>
+      <button class="ov-close" id="ov-close">Close ✕</button>
+    </div>
+    <div class="ov-grid" id="ov-grid"></div>
+  </div>
+
+  <script src="shared.js"></script>
+  <script src="layouts1.js"></script>
+  <script src="layouts2.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
