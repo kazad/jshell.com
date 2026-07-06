@@ -1,0 +1,4 @@
+# Cloudflare Pages rewrites
+# Pretty URLs for the bill splitter: jshell.com/split/tahoe-trip serves the app,
+# which reads the id from the path.
+/split/:id /split/ 200

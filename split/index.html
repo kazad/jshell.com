@@ -295,8 +295,20 @@ function parseHash() {
     return { id: sanitizeId(h.slice(0, bang)), data };
 }
 
+// Path-style URLs (/split/tahoe-trip) — served via a rewrite rule to this page.
+function idFromPath() {
+    const m = location.pathname.match(/\/split\/([^\/]+?)\/?$/);
+    if (m && m[1] !== 'index.html') return sanitizeId(decodeURIComponent(m[1]));
+    return null;
+}
+function basePath() {
+    return idFromPath() ? location.pathname.replace(/[^\/]+\/?$/, '') : location.pathname;
+}
+
 function route() {
-    const { id, data } = parseHash();
+    const parsed = parseHash();
+    const id = parsed.id || idFromPath();
+    const data = parsed.data;
     if (!id) { state = null; renderLanding(); return; }
 
     const local = loadSplit(id);
@@ -304,7 +316,7 @@ function route() {
         // Imported share link: newer copy wins.
         state = (!local || (data.updated || 0) >= (local.updated || 0)) ? data : local;
         save();
-        history.replaceState(null, '', '#' + id);
+        history.replaceState(null, '', idFromPath() === id ? location.pathname : '#' + id);
     } else {
         state = local || blankSplit(id);
         save();
@@ -315,7 +327,12 @@ function route() {
 
 function shareLink() {
     const enc = 'z' + LZString.compressToEncodedURIComponent(JSON.stringify(state));
-    return location.origin + location.pathname + '#' + state.id + '!' + enc;
+    return location.origin + basePath() + '#' + state.id + '!' + enc;
+}
+
+function canonicalUrl(id) {
+    if (idFromPath() === id) return location.origin + location.pathname;
+    return location.origin + basePath().replace(/index\.html$/, '') + '#' + id;
 }
 
 /* ---------------- currency ---------------- */
@@ -419,7 +436,7 @@ function copy(text, msg) {
 }
 
 function displayUrl(id) {
-    return location.host + location.pathname.replace(/index\.html$/, '') + '#' + id;
+    return canonicalUrl(id).replace(/^https?:\/\//, '');
 }
 
 function currencyOptions(sel) {
@@ -512,7 +529,7 @@ function renderApp() {
 
     $('#app').innerHTML = `
         <div class="topbar">
-            <a href="#" style="color:var(--muted)">← all splits</a>
+            <a href="${idFromPath() ? './' : '#'}" style="color:var(--muted)">← all splits</a>
             <span class="brand"><b>split</b></span>
         </div>
 
@@ -628,7 +645,7 @@ function renderApp() {
 
 function bindApp(paidBy, among) {
     $('#titleInput').addEventListener('change', ev => { state.title = ev.target.value.trim() || prettify(state.id); save(); renderApp(); });
-    $('#copyUrl').addEventListener('click', () => copy(location.origin + location.pathname + '#' + state.id, 'URL copied'));
+    $('#copyUrl').addEventListener('click', () => copy(canonicalUrl(state.id), 'URL copied'));
     $('#shareBtn').addEventListener('click', () => copy(shareLink(), 'Share link copied'));
     $('#baseCurrency').addEventListener('change', ev => { state.currency = ev.target.value; save(); renderApp(); });
 
