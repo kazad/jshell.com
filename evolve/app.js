@@ -8,6 +8,16 @@
 
   if (q.get('chrome') === '0') document.body.classList.add('no-chrome');
 
+  /* theme: same convention as the rest of jshell (localStorage jshell_theme), ?theme= overrides */
+  const applyTheme = t => document.body.classList.toggle('light-theme', t === 'light');
+  const savedTheme = q.get('theme') || localStorage.getItem('jshell_theme') || 'dark';
+  applyTheme(savedTheme);
+  function toggleTheme() {
+    const next = document.body.classList.contains('light-theme') ? 'dark' : 'light';
+    localStorage.setItem('jshell_theme', next);
+    applyTheme(next);
+  }
+
   let idx = Math.max(0, IC.LAYOUTS.findIndex(l => l.id === q.get('l')));
 
   function wireHTML(kind) {
@@ -67,6 +77,7 @@
 
   document.getElementById('sw-prev').addEventListener('click', () => show(idx - 1));
   document.getElementById('sw-next').addEventListener('click', () => show(idx + 1));
+  document.getElementById('sw-theme').addEventListener('click', toggleTheme);
   document.getElementById('sw-open').addEventListener('click', () => overview.classList.add('open'));
   document.getElementById('ov-close').addEventListener('click', () => overview.classList.remove('open'));
 
@@ -75,6 +86,7 @@
     if (e.key === 'ArrowRight') show(idx + 1);
     else if (e.key === 'ArrowLeft') show(idx - 1);
     else if (e.key.toLowerCase() === 'g') overview.classList.toggle('open');
+    else if (e.key.toLowerCase() === 't') toggleTheme();
     else if (e.key === 'Escape') overview.classList.remove('open');
   });
 

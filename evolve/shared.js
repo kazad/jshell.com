@@ -147,9 +147,9 @@ perGuest = total / guests`;
     return `<div class="ic-mini">${rows}</div>`;
   };
 
-  /* card-art thumbnail: tinted panel with mini preview inside */
+  /* card-art thumbnail: theme-neutral panel with mini preview inside */
   IC.thumb = function (calc, cls) {
-    return `<div class="ic-thumb ${cls || ''}" style="background:hsl(${calc.hue},42%,${cls === 'dark' ? '16%' : '94%'});--icr:hsl(${calc.hue},55%,${cls === 'dark' ? '62%' : '34%'})">${IC.mini(calc)}</div>`;
+    return `<div class="ic-thumb ${cls || ''}">${IC.mini(calc)}</div>`;
   };
 
   /* layout registry */
