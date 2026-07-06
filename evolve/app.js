@@ -70,7 +70,7 @@
   IC.LAYOUTS.forEach((L, i) => {
     const card = document.createElement('div');
     card.className = 'ov-card';
-    card.innerHTML = `${wireHTML(L.wire)}<div class="ov-n">${i + 1}. ${L.name}<small>· ${L.app}</small></div><div class="ov-d">${L.note}</div><div class="ov-k">${L.wire} structure</div>`;
+    card.innerHTML = `${wireHTML(L.wire)}${L.rec ? '<div class="ov-rec">★ Recommended</div>' : ''}<div class="ov-n">${i + 1}. ${L.name}<small>· ${L.app}</small></div><div class="ov-d">${L.note}</div><div class="ov-k">${L.wire} structure</div>`;
     card.addEventListener('click', () => { overview.classList.remove('open'); show(i); });
     ovGrid.appendChild(card);
   });

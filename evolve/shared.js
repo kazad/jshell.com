@@ -102,6 +102,7 @@ perGuest = total / guests`;
       let expr = t, name = null;
       const m = t.match(/^([a-zA-Z_$][\w$]*)\s*=(?!=)\s*(.+)$/);
       if (m) { name = m[1]; expr = m[2]; }
+      const em = /[a-zA-Z_]|[+\-*/^(]/.test(expr.replace(/[$,%\s]/g, '').replace(/^-/, ''));
       expr = expr
         .replace(/(\d+(?:\.\d+)?)\s*%/g, '($1/100)')
         .replace(/[$,]/g, '')
@@ -114,28 +115,49 @@ perGuest = total / guests`;
           Math.sqrt, Math.abs, Math.round, Math.floor, Math.ceil, Math.min, Math.max, Math.pow, Math.log, Math.PI, Math.E);
         if (typeof v !== 'number' || !isFinite(v)) throw new Error('nan');
         if (name) scope[name] = v;
-        return { txt: IC.fmt(v), cls: 'r' };
+        return { txt: IC.fmt(v), cls: 'r', em };
       } catch (e) {
         return { txt: '· · ·', cls: 'err' };
       }
     });
   };
 
-  /* live editor component: textarea + aligned result column */
+  /* syntax highlight: comments muted-italic, numbers blue, operators muted */
+  const hlLine = raw => {
+    if (/^\s*(#|\/\/)/.test(raw)) return '<span class="tk-c">' + IC.esc(raw) + '</span>';
+    let out = '';
+    const re = /(\d[\d,]*\.?\d*%?)|([A-Za-z_$][\w$]*)|([+\-*/^()=])|([\s\S])/g;
+    let m;
+    while ((m = re.exec(raw))) {
+      if (m[1]) out += '<span class="tk-n">' + IC.esc(m[1]) + '</span>';
+      else if (m[2]) out += IC.esc(m[2]);
+      else if (m[3]) out += '<span class="tk-o">' + IC.esc(m[3]) + '</span>';
+      else out += IC.esc(m[4]);
+    }
+    return out;
+  };
+  IC.hl = text => text.split('\n').map(hlLine).join('\n');
+
+  /* live editor component: highlighted overlay + textarea + aligned result column */
   IC.editor = function (cls, text) {
-    return `<div class="ic-calc ${cls || ''}"><textarea spellcheck="false">${IC.esc(text || IC.DEMO)}</textarea><div class="ic-out"></div></div>`;
+    return `<div class="ic-calc ${cls || ''}"><div class="ic-edit"><pre class="ic-hl" aria-hidden="true"></pre><textarea spellcheck="false">${IC.esc(text || IC.DEMO)}</textarea></div><div class="ic-out"></div></div>`;
   };
 
   IC.bind = function (root) {
     root.querySelectorAll('.ic-calc').forEach(c => {
-      const ta = c.querySelector('textarea'), out = c.querySelector('.ic-out');
+      const ta = c.querySelector('textarea'), out = c.querySelector('.ic-out'), hl = c.querySelector('.ic-hl');
       if (!ta || !out) return;
       const run = () => {
+        if (hl) hl.innerHTML = IC.hl(ta.value) + '\n';
         out.innerHTML = IC.evalText(ta.value)
-          .map(r => `<div class="${r.cls}">${IC.esc(r.txt)} </div>`).join('');
+          .map(r => `<div class="${r.cls}${r.em ? ' em' : ''}">${IC.esc(r.txt)} </div>`).join('');
       };
-      ta.addEventListener('input', run);
-      ta.addEventListener('scroll', () => { out.scrollTop = ta.scrollTop; });
+      const sync = () => {
+        out.scrollTop = ta.scrollTop;
+        if (hl) { hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; }
+      };
+      ta.addEventListener('input', () => { run(); sync(); });
+      ta.addEventListener('scroll', sync);
       run();
     });
   };
