@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InstaCalc /evolve — Nav system & view modes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --color-bg: #0d0d0d; --color-header: #141414; --color-surface: #0d0d0d;
+    --color-surface-hover: #1a1a1a; --color-border: #222222;
+    --color-text-main: #e0e0e0; --color-text-muted: #777777;
+    --color-accent: #ffffff; --color-accent-blue: #3b82f6; --color-success: #00ff88;
+    --editor-bg: #000000; --tint-blue: rgba(59,130,246,.14); --tint-success: rgba(0,255,136,.10);
+    --shadow: 0 10px 34px rgba(0,0,0,.45);
+  }
+  body.light-theme {
+    --color-bg: #ffffff; --color-header: #f9f9f9; --color-surface: #ffffff;
+    --color-surface-hover: #f5f5f5; --color-border: #eaeaea;
+    --color-text-main: #171717; --color-text-muted: #666666;
+    --color-accent: #000000; --color-accent-blue: #2563eb; --color-success: #10b981;
+    --editor-bg: #ffffff; --tint-blue: rgba(37,99,235,.08); --tint-success: rgba(16,185,129,.10);
+    --shadow: 0 10px 34px rgba(0,0,0,.12);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--color-bg); color: var(--color-text-main); font-family: 'Inter', -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: var(--color-accent-blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .wrap { max-width: 1300px; margin: 0 auto; padding: 44px 32px 90px; }
+  .crumb { font-size: 13px; color: var(--color-text-muted); margin-bottom: 26px; }
+  .crumb b { color: var(--color-text-main); font-weight: 800; letter-spacing: -.02em; }
+  .crumb b span { color: var(--color-accent-blue); }
+  h1 { font-size: 34px; font-weight: 800; letter-spacing: -.025em; }
+  .sub { color: var(--color-text-muted); font-size: 15px; line-height: 1.6; max-width: 78ch; margin-top: 10px; }
+  .sub b { color: var(--color-text-main); font-weight: 600; }
+
+  .sec { margin-top: 72px; }
+  .shead { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+  .snum { font: 700 12px 'JetBrains Mono', monospace; color: var(--color-accent-blue); letter-spacing: .08em; }
+  .shead h2 { font-size: 20px; font-weight: 700; letter-spacing: -.015em; }
+  .sstory { color: var(--color-text-muted); font-size: 13.5px; line-height: 1.55; max-width: 86ch; margin-bottom: 24px; }
+  .sstory b { color: var(--color-text-main); font-weight: 600; }
+  .row { display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
+  .cell { }
+  .cap { margin-top: 12px; padding: 0 2px; max-width: 300px; }
+  .cap b { display: block; font-size: 12.5px; font-weight: 650; }
+  .cap b i { font: 700 10px 'JetBrains Mono', monospace; color: var(--color-accent-blue); font-style: normal; margin-right: 7px; }
+  .cap span { display: block; color: var(--color-text-muted); font-size: 11.5px; line-height: 1.55; margin-top: 4px; }
+  .cap kbd, .sstory kbd, .legend kbd { font: 10px 'JetBrains Mono', monospace; border: 1px solid var(--color-border); border-radius: 3px; padding: 0 4px; color: var(--color-text-muted); }
+
+  /* ------- mini screen (same language as flows.html) ------- */
+  .scr { width: 272px; height: 186px; border: 1px solid var(--color-border); border-radius: 10px; overflow: hidden; background: var(--color-bg); display: flex; flex-direction: column; position: relative; box-shadow: 0 2px 14px rgba(0,0,0,.25); font-size: 8px; }
+  .scr.lg { width: 300px; height: 212px; }
+  .scr.xl { width: 560px; height: 250px; }
+  .tb { height: 23px; flex: none; background: var(--color-header); border-bottom: 1px solid var(--color-border); display: flex; align-items: center; gap: 7px; padding: 0 9px; font-size: 8px; }
+  .tb .br { font-weight: 800; letter-spacing: -.02em; font-size: 8.5px; }
+  .tb .br span { color: var(--color-accent-blue); }
+  .tb .crumbx { color: var(--color-text-muted); font-size: 6.8px; }
+  .tb .pill { flex: 1; max-width: 120px; margin: 0 auto; background: var(--editor-bg); border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-text-muted); font-size: 6.8px; padding: 2.5px 6px; display: flex; gap: 4px; }
+  .tb .pill kbd { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 6px; border: 1px solid var(--color-border); border-radius: 2px; padding: 0 2px; }
+  .tb .av { width: 11px; height: 11px; border-radius: 50%; background: var(--color-surface-hover); border: 1px solid var(--color-border); font-size: 6px; display: flex; align-items: center; justify-content: center; font-weight: 700; flex: none; }
+  .tb .bt { font-size: 6.8px; border: 1px solid var(--color-border); background: var(--color-surface-hover); border-radius: 4px; padding: 2px 6px; font-weight: 600; white-space: nowrap; }
+  .tb .bt.pr { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+  .cols { flex: 1; display: flex; min-height: 0; }
+  .sb { width: 76px; flex: none; background: var(--color-header); border-right: 1px solid var(--color-border); padding: 6px 5px; font-size: 7.4px; color: var(--color-text-muted); overflow: hidden; }
+  .sb.icons { width: 24px; padding: 6px 4px; text-align: center; }
+  .sb.icons .it { padding: 3px 0; justify-content: center; }
+  .sb .h { font-size: 5.6px; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; margin: 7px 0 2px; padding-left: 5px; }
+  .sb .h:first-child { margin-top: 0; }
+  .sb .it { padding: 2.6px 5px; border-radius: 3.5px; display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+  .sb .it b { margin-left: auto; font: 500 6px 'JetBrains Mono', monospace; color: var(--color-text-muted); }
+  .sb .it.on { background: var(--color-surface-hover); color: var(--color-text-main); box-shadow: inset 1.5px 0 0 var(--color-accent-blue); font-weight: 600; }
+  .sb .it .gr { color: var(--color-success); font-family: 'JetBrains Mono', monospace; }
+  .mn { flex: 1; min-width: 0; padding: 9px 11px; font-size: 8px; position: relative; }
+
+  .doct { display: flex; align-items: center; gap: 5px; font-size: 9.5px; font-weight: 700; letter-spacing: -.01em; }
+  .doct .sp { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+  .doct .bt { font-size: 6.6px; border: 1px solid var(--color-border); background: var(--color-surface-hover); border-radius: 4px; padding: 2px 6px; font-weight: 600; color: var(--color-text-main); }
+  .doct .bt.pr { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+  .docm { color: var(--color-text-muted); font-size: 6.6px; margin: 3px 0 7px; }
+  .ed { background: var(--editor-bg); border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace; font-size: 7.4px; line-height: 13.5px; }
+  .el { display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; }
+  .el .ex { overflow: hidden; text-overflow: ellipsis; }
+  .el .ex i { color: var(--color-accent-blue); font-style: normal; }
+  .el .ex u { color: var(--color-text-muted); text-decoration: none; }
+  .el .ex.cm { color: var(--color-text-muted); font-style: italic; }
+  .el .rs { color: var(--color-success); opacity: .55; font-weight: 500; }
+  .el .rs.em { opacity: 1; font-weight: 700; }
+
+  .gt { width: 100%; border-collapse: collapse; font-size: 7.2px; }
+  .gt th { text-align: left; color: var(--color-text-muted); font-size: 5.8px; text-transform: uppercase; letter-spacing: .07em; border-bottom: 1px solid var(--color-border); padding: 2px 4px 3px; }
+  .gt td { border-bottom: 1px solid var(--color-border); padding: 3.4px 4px; white-space: nowrap; }
+  .gt td.mut { color: var(--color-text-muted); }
+  .gt td .gr { color: var(--color-success); font-family: 'JetBrains Mono', monospace; font-size: 6.8px; }
+  .gt tr.hov td { background: var(--color-surface-hover); }
+  .mtit { font-size: 9px; font-weight: 700; margin-bottom: 6px; }
+  .mtit small { color: var(--color-text-muted); font-weight: 400; font-size: 6.8px; margin-left: 5px; }
+  .pop { position: absolute; background: var(--color-header); border: 1px solid var(--color-border); border-radius: 7px; box-shadow: var(--shadow); font-size: 7px; z-index: 3; }
+  .pop .ph2 { padding: 5px 8px; border-bottom: 1px solid var(--color-border); font-weight: 700; font-size: 7.4px; }
+
+  /* segmented mode switcher */
+  .seg { display: inline-flex; background: var(--editor-bg); border: 1px solid var(--color-border); border-radius: 5px; padding: 1.5px; font-size: 6.4px; font-weight: 600; color: var(--color-text-muted); }
+  .seg span { padding: 2px 6px; border-radius: 3.5px; }
+  .seg span.on { background: var(--color-surface-hover); color: var(--color-text-main); box-shadow: 0 0 0 1px var(--color-border); }
+
+  /* form mode */
+  .frm { display: flex; flex-direction: column; gap: 6px; }
+  .fld { display: flex; align-items: center; gap: 8px; font-size: 7.2px; }
+  .fld label { width: 64px; color: var(--color-text-muted); flex: none; }
+  .fld .val { font: 700 7.4px 'JetBrains Mono', monospace; width: 30px; text-align: right; }
+  .track { flex: 1; height: 3px; border-radius: 2px; background: var(--color-border); position: relative; }
+  .track i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--color-accent-blue); }
+  .track u { position: absolute; top: -3px; width: 9px; height: 9px; border-radius: 50%; background: #fff; border: 1.5px solid var(--color-accent-blue); }
+  .fld input2 { flex: 1; }
+  .box { background: var(--editor-bg); border: 1px solid var(--color-border); border-radius: 4px; padding: 2.5px 6px; font: 7.2px 'JetBrains Mono', monospace; }
+  .answers { display: flex; gap: 8px; margin-top: 3px; }
+  .ans { flex: 1; background: var(--color-header); border: 1px solid var(--color-border); border-radius: 6px; padding: 5px 8px; }
+  .ans .l { color: var(--color-text-muted); font-size: 6px; text-transform: uppercase; letter-spacing: .07em; }
+  .ans .v { font: 700 11px 'JetBrains Mono', monospace; color: var(--color-success); margin-top: 1px; }
+
+  /* widget mode */
+  .wframe { background: var(--color-header); border: 1px dashed var(--color-border); border-radius: 8px; padding: 14px; height: 100%; display: flex; align-items: center; justify-content: center; }
+  .widget { width: 168px; background: var(--editor-bg); border: 1px solid var(--color-border); border-radius: 9px; padding: 9px 11px; box-shadow: var(--shadow); }
+  .widget .wt { font-size: 8px; font-weight: 700; display: flex; justify-content: space-between; }
+  .widget .wt span { color: var(--color-text-muted); font-weight: 400; font-size: 6px; }
+  .widget .stp { display: flex; align-items: center; gap: 6px; margin: 6px 0; font-size: 7px; color: var(--color-text-muted); }
+  .widget .stp .bx { border: 1px solid var(--color-border); border-radius: 4px; padding: 1.5px 6px; font: 700 7.4px 'JetBrains Mono', monospace; color: var(--color-text-main); display: flex; gap: 7px; }
+  .widget .stp .bx u { text-decoration: none; color: var(--color-text-muted); }
+  .widget .wv { font: 700 15px 'JetBrains Mono', monospace; color: var(--color-success); }
+  .widget .wl { color: var(--color-text-muted); font-size: 5.8px; margin-top: 4px; }
+  .widget .wl b { color: var(--color-accent-blue); }
+
+  /* sheet mode */
+  .sht { width: 100%; border-collapse: collapse; font: 7px 'JetBrains Mono', monospace; }
+  .sht td, .sht th { border: 1px solid var(--color-border); padding: 2.6px 5px; }
+  .sht th { background: var(--color-header); color: var(--color-text-muted); font-weight: 500; font-size: 5.8px; font-family: 'Inter', sans-serif; }
+  .sht td.rn { background: var(--color-header); color: var(--color-text-muted); text-align: center; width: 12px; }
+  .sht td.rr { text-align: right; color: var(--color-success); font-weight: 700; }
+  .sht td.lb { color: var(--color-text-muted); font-family: 'Inter', sans-serif; }
+
+  /* anatomy pins */
+  .pin { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: var(--color-accent-blue); color: #fff; font: 700 8.5px 'JetBrains Mono', monospace; display: flex; align-items: center; justify-content: center; z-index: 6; box-shadow: 0 0 0 2.5px var(--color-bg), 0 2px 8px rgba(0,0,0,.5); }
+  .legend { flex: 1; min-width: 300px; max-width: 420px; }
+  .legend .li { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--color-border); font-size: 12px; line-height: 1.5; }
+  .legend .li:first-child { padding-top: 0; }
+  .legend .li .n { width: 17px; height: 17px; border-radius: 50%; background: var(--color-accent-blue); color: #fff; font: 700 9.5px 'JetBrains Mono', monospace; display: flex; align-items: center; justify-content: center; flex: none; margin-top: 1px; }
+  .legend .li b { font-weight: 650; }
+  .legend .li span { color: var(--color-text-muted); }
+
+  /* url anatomy */
+  .urlbox { background: var(--editor-bg); border: 1px solid var(--color-border); border-radius: 12px; padding: 22px 26px; max-width: 760px; }
+  .url { font: 500 17px 'JetBrains Mono', monospace; letter-spacing: -.01em; display: flex; flex-wrap: wrap; align-items: baseline; }
+  .url .p0 { color: var(--color-text-muted); }
+  .url .p1 { color: var(--color-text-main); background: var(--tint-blue); border-radius: 5px; padding: 1px 4px; }
+  .url .p2 { color: var(--color-success); background: var(--tint-success); border-radius: 5px; padding: 1px 4px; }
+  .url .p3 { color: var(--color-accent-blue); background: var(--color-surface-hover); border-radius: 5px; padding: 1px 4px; }
+  .urlleg { display: flex; gap: 26px; margin-top: 16px; flex-wrap: wrap; }
+  .urlleg div { font-size: 11.5px; color: var(--color-text-muted); line-height: 1.5; max-width: 200px; }
+  .urlleg b { display: block; color: var(--color-text-main); font-size: 12px; }
+  .urlleg .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2.5px; margin-right: 6px; vertical-align: -1px; }
+
+  .hot { box-shadow: 0 0 0 1.5px var(--color-accent-blue), 0 0 10px var(--tint-blue) !important; border-radius: 5px; }
+  .foot { margin-top: 80px; border-top: 1px solid var(--color-border); padding-top: 18px; color: var(--color-text-muted); font-size: 12.5px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb"><b>Insta<span>Calc</span></b> &nbsp;·&nbsp; <a href="index.html?l=combo">/evolve</a> · <a href="flows.html">flows</a> · nav system & view modes</div>
+  <h1>Navigation system &amp; view modes</h1>
+  <p class="sub">The layer under the layouts: what stays fixed everywhere (<b>the global frame</b>), what adapts to context (<b>the rail</b>), how a calc opens from anywhere (<b>peek → split → full</b>), and how one calc wears different faces for different audiences (<b>view modes</b>). The rule behind all of it: <b>one model, many lenses — never two primary objects on screen.</b></p>
+
+  <!-- S1 — anatomy -->
+  <section class="sec" id="s1">
+    <div class="shead"><span class="snum">SYS 01</span><h2>Anatomy of the global frame</h2></div>
+    <p class="sstory">Every screen in the product is this frame. Nothing else is ever global — no second toolbar, no floating menus. If a control isn’t one of these six, it lives inside the stage.</p>
+    <div class="row">
+      <div class="cell" style="position:relative">
+        <div class="scr xl">
+          <div class="tb">
+            <span class="br">Insta<span>Calc</span></span>
+            <span class="crumbx">/ Events / Party Budget</span>
+            <span class="pill">🔍 Search — or type math… <kbd>⌘K</kbd></span>
+            <span class="bt">⑂ Remix</span><span class="bt pr">＋ New calc</span><span class="av">K</span>
+          </div>
+          <div class="cols">
+            <div class="sb">
+              <div class="h">Workspace</div>
+              <div class="it">🏠 Home</div><div class="it on">🧮 My calcs <b>12</b></div><div class="it">⭐ Starred</div>
+              <div class="h">Collections</div>
+              <div class="it">🎉 Events</div><div class="it">🏠 House hunt</div>
+              <div class="h">Explore</div><div class="it">🗂 Gallery</div>
+            </div>
+            <div class="mn">
+              <div class="doct">🎉 Party Budget <span class="sp"><span class="seg"><span class="on">Notebook</span><span>Sheet</span><span>Form</span><span>Widget</span></span></span></div>
+              <div class="docm">autosaved ✓ · public link</div>
+              <div class="ed">
+                <div class="el"><span class="ex">guests = <i>30</i></span><span class="rs">30</span></div>
+                <div class="el"><span class="ex">costPerPerson = <i>18</i></span><span class="rs">18</span></div>
+                <div class="el"><span class="ex">food <u>=</u> guests <u>*</u> costPerPerson</span><span class="rs em">540</span></div>
+                <div class="el"><span class="ex">total <u>=</u> food <u>+</u> venue <u>+</u> music</span><span class="rs em">910</span></div>
+              </div>
+            </div>
+          </div>
+          <span class="pin" style="left:6px;top:5px">1</span>
+          <span class="pin" style="left:262px;top:5px">2</span>
+          <span class="pin" style="right:64px;top:5px">3</span>
+          <span class="pin" style="right:2px;top:5px">4</span>
+          <span class="pin" style="left:69px;top:88px">5</span>
+          <span class="pin" style="left:300px;top:120px">6</span>
+        </div>
+      </div>
+      <div class="legend">
+        <div class="li"><span class="n">1</span><div><b>Brand = Home.</b> <span>Always returns to your workspace. No separate “home” tab.</span></div></div>
+        <div class="li"><span class="n">2</span><div><b>The omnibox.</b> <span>Search, commands, or raw math — <kbd>⌘K</kbd> from anywhere. It’s the whole nav for keyboard people.</span></div></div>
+        <div class="li"><span class="n">3</span><div><b>Create, always.</b> <span>Remix (make this mine) and New calc (<kbd>C</kbd>) never leave the frame — creation is one action away on every screen.</span></div></div>
+        <div class="li"><span class="n">4</span><div><b>You.</b> <span>Account, theme, settings. The only menu in the product.</span></div></div>
+        <div class="li"><span class="n">5</span><div><b>The contextual rail.</b> <span>Same slot, different tool — workspace tree at home, calc outline while editing, filters in the gallery. (SYS 02.)</span></div></div>
+        <div class="li"><span class="n">6</span><div><b>The stage.</b> <span>Exactly one primary object — a calc, a collection, or the gallery. Never two things competing for the same screen.</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- S2 — rail contexts -->
+  <section class="sec" id="s2">
+    <div class="shead"><span class="snum">SYS 02</span><h2>One rail, three contexts</h2></div>
+    <p class="sstory">The left rail is a slot, not a fixed menu. It always answers the same question — <b>“what’s around the thing I’m looking at?”</b> — so its contents follow the stage.</p>
+    <div class="row">
+      <div class="cell">
+        <div class="scr">
+          <div class="tb"><span class="br">Insta<span>Calc</span></span><span class="pill">🔍 <kbd>⌘K</kbd></span><span class="av">K</span></div>
+          <div class="cols">
+            <div class="sb hot">
+              <div class="h">Workspace</div>
+              <div class="it on">🏠 Home</div><div class="it">🧮 My calcs <b>12</b></div><div class="it">⭐ Starred</div>
+              <div class="h">Collections</div><div class="it">🎉 Events</div><div class="it">🏠 House hunt</div>
+              <div class="h">Explore</div><div class="it">🗂 Gallery</div>
+            </div>
+            <div class="mn"><div class="mtit">Good afternoon</div><div class="docm">Pick up where you left off…</div></div>
+          </div>
+        </div>
+        <div class="cap"><b><i>A</i>At home: your stuff</b><span>Workspace tree — calcs, collections, gallery door. The filing cabinet.</span></div>
+      </div>
+      <div class="cell">
+        <div class="scr">
+          <div class="tb"><span class="br">Insta<span>Calc</span></span><span class="crumbx">/ Party Budget</span><span class="pill">🔍 <kbd>⌘K</kbd></span><span class="av">K</span></div>
+          <div class="cols">
+            <div class="sb hot">
+              <div class="h">This calc</div>
+              <div class="it">🎉 Party Budget</div>
+              <div class="h">Lines</div>
+              <div class="it">𝑓 guests <b class="gr">30</b></div>
+              <div class="it">𝑓 costPerPerson <b class="gr">18</b></div>
+              <div class="it on">𝑓 total <b class="gr">910</b></div>
+              <div class="it">𝑓 perGuest <b class="gr">30.33</b></div>
+              <div class="h">Used by</div>
+              <div class="it">⑂ 312 remixes</div>
+            </div>
+            <div class="mn">
+              <div class="doct">🎉 Party Budget</div>
+              <div class="docm">line 7 selected</div>
+              <div class="ed">
+                <div class="el"><span class="ex">venue = <i>250</i></span><span class="rs">250</span></div>
+                <div class="el"><span class="ex hot" style="border-radius:2px">total <u>=</u> food <u>+</u> venue <u>+</u> music</span><span class="rs em">910</span></div>
+                <div class="el"><span class="ex">perGuest <u>=</u> total <u>/</u> guests</span><span class="rs em">30.33</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><b><i>B</i>In a calc: the outline</b><span>Every line with its live value — click to jump, exactly like a doc’s table of contents. Big models stay navigable.</span></div>
+      </div>
+      <div class="cell">
+        <div class="scr">
+          <div class="tb"><span class="br">Insta<span>Calc</span></span><span class="crumbx">/ Gallery</span><span class="pill">🔍 <kbd>⌘K</kbd></span><span class="av">K</span></div>
+          <div class="cols">
+            <div class="sb hot">
+              <div class="h">Filter</div>
+              <div class="it on">💰 Finance <b>412</b></div>
+              <div class="it">💪 Health <b>187</b></div>
+              <div class="it">✈️ Travel <b>88</b></div>
+              <div class="h">Sort</div>
+              <div class="it on">📈 Most used</div>
+              <div class="it">🆕 Newest</div>
+              <div class="h">Only</div>
+              <div class="it">⑂ Forkable</div>
+            </div>
+            <div class="mn">
+              <div class="mtit">🗂 Gallery <small>Finance · 412</small></div>
+              <table class="gt">
+                <tr><td><b>Mortgage Payoff</b></td><td class="mut">24.1k</td><td><span class="gr">$1,962</span></td></tr>
+                <tr><td><b>Compound Interest</b></td><td class="mut">31.2k</td><td><span class="gr">$117k</span></td></tr>
+                <tr><td><b>Loan Comparison</b></td><td class="mut">11.1k</td><td><span class="gr">$213k</span></td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><b><i>C</i>In the gallery: filters</b><span>Categories, sort, facets — McMaster density where it belongs, invisible everywhere else.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- S3 — focus dial -->
+  <section class="sec" id="s3">
+    <div class="shead"><span class="snum">SYS 03</span><h2>The focus dial</h2></div>
+    <p class="sstory">Navigation earns its keep when you’re lost, and gets out of the way when you’re working. <kbd>[</kbd> cycles the frame through three densities — the calc never moves or reflows, chrome just falls away around it.</p>
+    <div class="row">
+      <div class="cell">
+        <div class="scr">
+          <div class="tb"><span class="br">Insta<span>Calc</span></span><span class="pill">🔍 <kbd>⌘K</kbd></span><span class="bt pr">＋</span><span class="av">K</span></div>
+          <div class="cols">
+            <div class="sb">
+              <div class="h">Workspace</div>
+              <div class="it">🏠 Home</div><div class="it on">🧮 My calcs</div><div class="it">⭐ Starred</div>
+              <div class="h">Collections</div><div class="it">🎉 Events</div>
+            </div>
+            <div class="mn">
+              <div class="doct">🎉 Party Budget</div>
+              <div class="ed" style="margin-top:5px">
+                <div class="el"><span class="ex">guests = <i>30</i></span><span class="rs">30</span></div>
+                <div class="el"><span class="ex">total <u>=</u> food <u>+</u> venue</span><span class="rs em">910</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><b><i>1</i>Expanded — browsing days</b><span>Full rail with labels. For orienting, filing, exploring.</span></div>
+      </div>
+      <div class="cell">
+        <div class="scr">
+          <div class="tb"><span class="br">Insta<span>Calc</span></span><span class="pill">🔍 <kbd>⌘K</kbd></span><span class="bt pr">＋</span><span class="av">K</span></div>
+          <div class="cols">
+            <div class="sb icons hot">
+              <div class="it">🏠</div><div class="it on">🧮</div><div class="it">⭐</div><div class="it">🎉</div><div class="it">🗂</div>
+            </div>
+            <div class="mn">
+              <div class="doct">🎉 Party Budget</div>
+              <div class="ed" style="margin-top:5px">
+                <div class="el"><span class="ex">guests = <i>30</i></span><span class="rs">30</span></div>
+                <div class="el"><span class="ex">food <u>=</u> guests <u>*</u> costPerPerson</span><span class="rs em">540</span></div>
+                <div class="el"><span class="ex">total <u>=</u> food <u>+</u> venue <u>+</u> music</span><span class="rs em">910</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><b><i>2</i>Icons — working days</b><span>Rail collapses to a strip; hover peeks labels. The default once a calc is open.</span></div>
+      </div>
+      <div class="cell">
+        <div class="scr">
+          <div class="mn" style="padding:16px 20px">
+            <div class="doct" style="font-size:10.5px">🎉 Party Budget</div>
+            <div class="ed" style="margin-top:7px;font-size:8px;line-height:15px">
+              <div class="el"><span class="ex">guests = <i>30</i></span><span class="rs">30</span></div>
+              <div class="el"><span class="ex">costPerPerson = <i>18</i></span><span class="rs">18</span></div>
+              <div class="el"><span class="ex">food <u>=</u> guests <u>*</u> costPerPerson</span><span class="rs em">540</span></div>
+              <div class="el"><span class="ex">total <u>=</u> food <u>+</u> venue <u>+</u> music</span><span class="rs em">910</span></div>
+              <div class="el"><span class="ex">perGuest <u>=</u> total <u>/</u> guests</span><span class="rs em">30.33</span></div>
+            </div>
+          </div>
+          <div class="pop" style="left:50%;transform:translateX(-50%);bottom:6px;padding:2.5px 8px;font-size:6.4px;color:var(--color-text-muted)">zen — <b style="color:var(--color-text-main)">esc</b> to exit · <b style="color:var(--color-text-main)">⌘K</b> still works</div>
+        </div>
+        <div class="cap"><b><i>3</i>Zen — presenting &amp; embedding</b><span>No chrome at all. This is also exactly what a shared link or iframe shows — the share view IS zen mode.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- S4 — peek/split/full -->
+  <section class="sec" id="s4">
+    <div class="shead"><span class="snum">SYS 04</span><h2>Opening a calc from anywhere</h2></div>
+    <p class="sstory">Browsing and using sit on an <b>escalation ladder</b> — glance, compare, commit — so choosing to look at something never costs you the place you were standing.</p>
+    <div class="row">
+      <div class="cell">
+        <div class="scr">
+          <div class="tb"><span class="br">Insta<span>Calc</span></span><span class="crumbx">/ Gallery</span><span class="pill">🔍 <kbd>⌘K</kbd></span><span class="av">K</span></div>
+          <div class="cols">
+            <div class="sb"><div class="h">Filter</div><div class="it on">💰 Finance</div><div class="it">💪 Health</div></div>
+            <div class="mn">
+              <table class="gt" style="opacity:.45">
+                <tr class="hov"><td><b>Mortgage Payoff</b></td><td class="mut">24.1k</td></tr>
+                <tr><td><b>Compound Interest</b></td><td class="mut">31.2k</td></tr>
+                <tr><td><b>Loan Comparison</b></td><td class="mut">11.1k</td></tr>
+              </table>
+              <div class="pop hot" style="right:2px;top:2px;bottom:2px;width:104px">
+                <div class="ph2">📐 Mortgage Payoff</div>
+                <div style="padding:4px 7px;font-family:'JetBrains Mono',monospace;font-size:6.2px;line-height:11px">
+                  <div class="el"><span class="ex">loan = <i>320k</i></span><span class="rs">320k</span></div>
+                  <div class="el"><span class="ex">payment</span><span class="rs em">$1,962</span></div>
+                </div>
+                <div style="padding:0 7px;font-size:5.8px;color:var(--color-text-muted)">space to close · ↵ to open</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><b><i>1</i>Peek — glance</b><span><kbd>space</kbd> on any row. Live preview, list keeps your scroll. Cost of curiosity: zero.</span></div>
+      </div>
+      <div class="cell">
+        <div class="scr">
+          <div class="tb"><span class="br">Insta<span>Calc</span></span><span class="crumbx">/ Gallery + Party Budget</span><span class="pill">🔍 <kbd>⌘K</kbd></span><span class="av">K</span></div>
+          <div class="cols">
+            <div class="mn" style="border-right:1px solid var(--color-border);max-width:50%">
+              <div class="mtit" style="font-size:7.6px">🗂 Gallery</div>
+              <table class="gt">
+                <tr class="hov"><td><b>Mortgage Payoff</b></td></tr>
+                <tr><td><b>Compound Int.</b></td></tr>
+                <tr><td><b>Loan Compare</b></td></tr>
+              </table>
+            </div>
+            <div class="mn hot" style="margin:2px">
+              <div class="doct" style="font-size:8px">📐 Mortgage Payoff</div>
+              <div class="ed" style="margin-top:4px;font-size:6.6px;line-height:12px">
+                <div class="el"><span class="ex">loan = <i>320,000</i></span><span class="rs">320k</span></div>
+                <div class="el"><span class="ex">rate = <i>6.2</i>%</span><span class="rs">0.062</span></div>
+                <div class="el"><span class="ex">payment</span><span class="rs em">$1,962</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><b><i>2</i>Split — compare</b><span>Drag the peek open into a split: browse on the left, a fully editable calc on the right. How you shop for a starting point.</span></div>
+      </div>
+      <div class="cell">
+        <div class="scr">
+          <div class="tb"><span class="br">Insta<span>Calc</span></span><span class="crumbx hot" style="padding:1px 3px">‹ back to Gallery · / Mortgage Payoff</span><span class="pill">🔍 <kbd>⌘K</kbd></span><span class="av">K</span></div>
+          <div class="cols">
+            <div class="sb icons"><div class="it">🏠</div><div class="it">🧮</div><div class="it on">🗂</div></div>
+            <div class="mn">
+              <div class="doct">📐 Mortgage Payoff <span class="sp"><span class="bt">⑂ Remix</span><span class="bt pr">↗ Share</span></span></div>
+              <div class="ed" style="margin-top:5px">
+                <div class="el"><span class="ex">loan = <i>320,000</i></span><span class="rs">320,000</span></div>
+                <div class="el"><span class="ex">rate = <i>6.2</i>%</span><span class="rs">0.062</span></div>
+                <div class="el"><span class="ex">payment / mo</span><span class="rs em">$1,962</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><b><i>3</i>Full — commit</b><span><kbd>↵</kbd> promotes to the full stage; breadcrumb remembers the way back. Browser back always works — every state is a URL.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- S5 — view modes -->
+  <section class="sec" id="s5">
+    <div class="shead"><span class="snum">SYS 05</span><h2>View modes — one model, four lenses</h2></div>
+    <p class="sstory">The calc is the data; the view is a lens picked <b>per audience</b>. Authors live in Notebook, spreadsheet folks get Sheet, recipients who shouldn’t see formulas get Form, and the internet gets a Widget. Same URL, same live engine — only the lens changes.</p>
+    <div class="row">
+      <div class="cell">
+        <div class="scr lg">
+          <div class="tb"><span class="br">Insta<span>Calc</span></span><span class="crumbx">/ Party Budget</span><span class="pill">🔍 <kbd>⌘K</kbd></span><span class="av">K</span></div>
+          <div class="mn">
+            <div class="doct">🎉 Party Budget <span class="sp"><span class="seg hot"><span class="on">Notebook</span><span>Sheet</span><span>Form</span><span>Widget</span></span></span></div>
+            <div class="docm">the author’s view — every assumption visible</div>
+            <div class="ed">
+              <div class="el"><span class="ex cm"># Party budget 🎉</span><span class="rs"></span></div>
+              <div class="el"><span class="ex">guests = <i>30</i></span><span class="rs">30</span></div>
+              <div class="el"><span class="ex">costPerPerson = <i>18</i></span><span class="rs">18</span></div>
+              <div class="el"><span class="ex">food <u>=</u> guests <u>*</u> costPerPerson</span><span class="rs em">540</span></div>
+              <div class="el"><span class="ex">venue = <i>250</i> &nbsp;&nbsp;music = <i>120</i></span><span class="rs">…</span></div>
+              <div class="el"><span class="ex">total <u>=</u> food <u>+</u> venue <u>+</u> music</span><span class="rs em">910</span></div>
+              <div class="el"><span class="ex">perGuest <u>=</u> total <u>/</u> guests</span><span class="rs em">30.33</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><b><i>N</i>Notebook — for authors</b><span>The default. Reasoning reads top to bottom; the math IS the document.</span></div>
+      </div>
+      <div class="cell">
+        <div class="scr lg">
+          <div class="tb"><span class="br">Insta<span>Calc</span></span><span class="crumbx">/ Party Budget</span><span class="pill">🔍 <kbd>⌘K</kbd></span><span class="av">K</span></div>
+          <div class="mn">
+            <div class="doct">🎉 Party Budget <span class="sp"><span class="seg"><span>Notebook</span><span class="on">Sheet</span><span>Form</span><span>Widget</span></span></span></div>
+            <div class="docm">for spreadsheet natives — same lines, familiar grid</div>
+            <table class="sht">
+              <tr><th></th><th>label</th><th>formula</th><th>result</th></tr>
+              <tr><td class="rn">1</td><td class="lb">guests</td><td>guests = 30</td><td class="rr">30</td></tr>
+              <tr><td class="rn">2</td><td class="lb">cost/person</td><td>costPerPerson = 18</td><td class="rr">18</td></tr>
+              <tr><td class="rn">3</td><td class="lb">food</td><td>guests * costPerPerson</td><td class="rr">540</td></tr>
+              <tr><td class="rn">4</td><td class="lb">total</td><td>food + venue + music</td><td class="rr">910</td></tr>
+              <tr><td class="rn">5</td><td class="lb">per guest</td><td>total / guests</td><td class="rr">30.33</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="cap"><b><i>S</i>Sheet — for spreadsheet refugees</b><span>Rows, columns, a formula bar. Excel muscle memory, InstaCalc engine.</span></div>
+      </div>
+      <div class="cell">
+        <div class="scr lg">
+          <div class="tb"><span class="br">Insta<span>Calc</span></span><span class="crumbx">/ Party Budget</span><span class="pill">🔍 <kbd>⌘K</kbd></span><span class="av">K</span></div>
+          <div class="mn">
+            <div class="doct">🎉 Party Budget <span class="sp"><span class="seg"><span>Notebook</span><span>Sheet</span><span class="on">Form</span><span>Widget</span></span></span></div>
+            <div class="docm">for recipients — inputs become controls, formulas hide</div>
+            <div class="frm">
+              <div class="fld"><label>Guests</label><div class="track"><i style="width:38%"></i><u style="left:36%"></u></div><span class="val">30</span></div>
+              <div class="fld"><label>Cost / person</label><span class="box">$ 18</span><label style="width:auto;margin-left:8px">Venue</label><span class="box">$ 250</span></div>
+              <div class="answers">
+                <div class="ans"><div class="l">Total</div><div class="v">$910</div></div>
+                <div class="ans"><div class="l">Per guest</div><div class="v">$30.33</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><b><i>F</i>Form — for the person you sent it to</b><span>Author marks lines as inputs; everything else becomes headline answers. Zero syntax exposure.</span></div>
+      </div>
+      <div class="cell">
+        <div class="scr lg">
+          <div class="tb"><span class="br">Insta<span>Calc</span></span><span class="crumbx">someblog.com/planning-a-party</span><span class="av" style="margin-left:auto">✍️</span></div>
+          <div class="mn" style="padding:6px">
+            <div class="wframe">
+              <div class="widget hot">
+                <div class="wt">🎉 Party Budget <span>live</span></div>
+                <div class="stp">guests <span class="bx"><u>−</u> 30 <u>＋</u></span></div>
+                <div class="wv">$910</div>
+                <div class="wl">total · per guest $30.33 · made with <b>InstaCalc</b> ⑂</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><b><i>W</i>Widget — for everywhere else</b><span>An iframe that stays live. One input, one number, attribution link — every embed is a door back to the gallery.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- S6 — url anatomy -->
+  <section class="sec" id="s6">
+    <div class="shead"><span class="snum">SYS 06</span><h2>The URL is the state</h2></div>
+    <p class="sstory">No hidden app state: identity, your edits, and the lens all live in the address bar. Copying the URL <b>always</b> reproduces exactly what you’re looking at — which is why Share is just “copy”.</p>
+    <div class="urlbox">
+      <div class="url"><span class="p0">instacalc.com/</span><span class="p1">kazad/party-budget</span><span class="p0">#</span><span class="p2">guests=45</span><span class="p0">&amp;</span><span class="p3">view=form</span></div>
+      <div class="urlleg">
+        <div><b><span class="sw" style="background:var(--color-accent-blue)"></span>Identity</b>Author + calc name. Stable forever; remixes get their own.</div>
+        <div><b><span class="sw" style="background:var(--color-success)"></span>Your state</b>Values you changed, in the hash — private until you share the link, never hitting a server.</div>
+        <div><b><span class="sw" style="background:var(--color-text-muted)"></span>The lens</b>notebook · sheet · form · widget — the same calc, dressed for its audience.</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    Companion pages: <a href="index.html?l=combo">the layout gallery</a> · <a href="flows.html">workspace user flows</a>. The system rule, once more: one model, many lenses — and every state is a link.
+  </div>
+</div>
+
+<script>
+  const q = new URLSearchParams(location.search);
+  const t = q.get('theme') || localStorage.getItem('jshell_theme') || 'dark';
+  document.body.classList.toggle('light-theme', t === 'light');
+</script>
+</body>
+</html>
