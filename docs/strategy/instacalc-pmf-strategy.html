@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>InstaCalc: The Road to Product–Market Fit (v2)</title>
+<title>InstaCalc: The Road to Product–Market Fit (v3)</title>
 <style>
   @page {
     size: letter;
@@ -34,7 +34,7 @@
     font-size: 34pt; line-height: 1.12; margin: 0 0 6mm 0; font-weight: normal;
     color: #10243e;
   }
-  .cover .subtitle { font-size: 13pt; color: #4a5a6e; max-width: 130mm; line-height: 1.5; }
+  .cover .subtitle { font-size: 13pt; color: #4a5a6e; max-width: 132mm; line-height: 1.5; }
   .cover .meta {
     font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #6b7a8d;
     border-top: 1px solid #d7dee6; padding-top: 5mm;
@@ -126,6 +126,22 @@
   }
   .hyp.d { background: #1f5aa8; }
 
+  .copy {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    background: #10243e; color: #eef3f8; border-radius: 4px;
+    padding: 4mm 6mm; margin: 3mm 0; page-break-inside: avoid;
+  }
+  .copy .h { font-size: 13pt; font-weight: bold; margin-bottom: 1.5mm; color: #fff; }
+  .copy .s { font-size: 9.5pt; color: #b9c6d4; line-height: 1.5; }
+  .copy .cta {
+    display: inline-block; margin-top: 2.5mm; background: #0e7a5f; color: #fff;
+    font-size: 8.5pt; font-weight: bold; padding: 1.5mm 4mm; border-radius: 3px;
+  }
+  .copy .tag {
+    font-size: 7.5pt; letter-spacing: 1.5px; text-transform: uppercase; color: #7d93a8;
+    margin-bottom: 2mm; font-weight: bold;
+  }
+
   .loop {
     display: flex; align-items: stretch; gap: 0; margin: 5mm 0; page-break-inside: avoid;
     font-family: Helvetica, Arial, sans-serif;
@@ -145,7 +161,7 @@
   .toc ol { list-style: none; padding: 0; counter-reset: toc; }
   .toc li {
     counter-increment: toc; display: flex; align-items: baseline;
-    padding: 2mm 0; border-bottom: 1px dotted #c8d2dc; font-size: 10pt;
+    padding: 1.7mm 0; border-bottom: 1px dotted #c8d2dc; font-size: 10pt;
   }
   .toc li::before {
     content: counter(toc, decimal-leading-zero);
@@ -159,16 +175,16 @@
 <!-- ================= COVER ================= -->
 <div class="cover">
   <div>
-    <div class="kicker">Strategy Deep Dive · v2 (Adversarial Revision) · Confidential Working Document</div>
+    <div class="kicker">Strategy Deep Dive · v3 (Marketing Revision) · Confidential Working Document</div>
     <h1>InstaCalc:<br>The Road to Product–Market&nbsp;Fit</h1>
-    <p class="subtitle">Why the daily users are the signal, seven testable hypotheses about what they actually come back for, what they love enough to double — and a strategy that has been argued against before being argued for.</p>
+    <p class="subtitle">Why the daily users are the signal, seven testable hypotheses about what they come back for, a strategy that survived its own red team — now translated into positioning, message, and channels.</p>
     <div class="thesis">
       <div class="label">Core Thesis, Held Loosely</div>
-      <p>InstaCalc's drive-by traffic is a funnel, not a product. The product is whichever job makes a small cohort return <strong>daily</strong> — and the honest truth is we don't yet know precisely which job that is. This document names <strong>seven candidate daily jobs and the behavioral fingerprint that identifies each one</strong>, isolates the qualities users most plausibly love, stress-tests the "own the maker" strategy against its strongest objections, and converts every major bet into a <strong>hypothesis with a test, a threshold, and a kill criterion.</strong></p>
+      <p>InstaCalc's drive-by traffic is a funnel, not a product. The product is whichever job makes a small cohort return <strong>daily</strong> — and we don't yet know precisely which job that is. This document names <strong>seven candidate daily jobs and the behavioral fingerprint that identifies each one</strong>, isolates what users love, stress-tests the "own the maker" strategy against its strongest objections, converts every major bet into a <strong>hypothesis with a test and a kill criterion</strong> — and, new in v3, applies marketing discipline: <strong>a position the market can repeat, copy written in the users' own words, and channels where the calc itself is the ad.</strong></p>
     </div>
   </div>
   <div class="meta">
-    Prepared July 2026 · Revision 2 · instacalc.com · “Think in numbers. Share a link.”
+    Prepared July 2026 · Revision 3 · instacalc.com · “Think in numbers. Share a link.”
   </div>
 </div>
 
@@ -187,7 +203,10 @@
     <li><span>The strategy: own the maker</span> <span class="sub">— positioning, product, sequencing revised</span></li>
     <li><span>Red team: the strongest objections</span> <span class="sub">— six attacks, six conclusions</span></li>
     <li><span>Growth loops</span> <span class="sub">— fork, embed, patch; SEO demoted</span></li>
-    <li><span>Monetization</span> <span class="sub">— who pays, for what, and one real tension</span></li>
+    <li><span>Positioning, category, and brand</span> <span class="sub">— what the world should think InstaCalc is</span></li>
+    <li><span>Message and copy</span> <span class="sub">— the message house, per-tribe heroes, objection answers</span></li>
+    <li><span>Channels, funnel, and the launch drumbeat</span> <span class="sub">— AARRR, product-led spine, a calendar of moments</span></li>
+    <li><span>Monetization</span> <span class="sub">— who pays, for what, plus pricing psychology</span></li>
     <li><span>The hypothesis register &amp; 90-day test plan</span> <span class="sub">— every bet with a kill criterion</span></li>
     <li><span>Risks and what <em>not</em> to do</span></li>
   </ol>
@@ -197,32 +216,32 @@
 <section>
   <h2><span class="num">01</span>Executive summary</h2>
 
-  <p>InstaCalc has been alive for nearly twenty years and has the one asset most products chasing product–market fit would kill for: <strong>a cohort that returns daily without being asked to.</strong> They build gaming calculators. They keep budgets, quotes, and life-math in it. They describe their usage as "managing their calc life." Version 1 of this document treated those facts as a settled diagnosis and prescribed a strategy. This revision does something more useful: <strong>it treats them as evidence in an open investigation, attacks its own conclusions, and converts every bet into a test.</strong></p>
+  <p>InstaCalc has been alive for nearly twenty years and has the one asset most products chasing product–market fit would kill for: <strong>a cohort that returns daily without being asked to.</strong> They build gaming calculators. They keep budgets, quotes, and life-math in it. They describe their usage as "managing their calc life." This document treats those facts as evidence in an open investigation: it attacks its own conclusions, converts every bet into a test — and now closes the loop by turning the strategy into marketing that can actually run.</p>
 
   <h3>What we know, what we assume, what we must find out</h3>
   <ul>
-    <li><strong>We know</strong> the core interaction is loved by somebody: instant results as you type, variables that cascade, a share link in one click with no login. We know daily users exist and that a public corpus (1,000+ calcs, including gaming) grew organically.</li>
-    <li><strong>We assume</strong> — plausibly but without proof — that gaming theorycrafters are the wedge, that makers want profiles and forks, and that "calc life management" means a library product. Each assumption gets a test and a kill criterion in §13.</li>
-    <li><strong>We must find out why the daily users actually come back.</strong> "Daily use" is seven different possible jobs — a living dashboard of owned calcs, a default scratchpad habit, a template re-run ritual, a work tool, a gaming daily loop, a thinking medium, a running log — and <em>each implies a different product</em>. The good news: each job leaves a distinct fingerprint in usage logs, so two weeks of instrumentation plus one intercept question can tell us which tribe is biggest. That diagnosis, not this document, is the real strategy (§5).</li>
+    <li><strong>We know</strong> the core interaction is loved by somebody: instant results as you type, variables that cascade, a share link in one click with no login. Daily users exist; a public corpus (1,000+ calcs, including gaming) grew organically.</li>
+    <li><strong>We assume</strong> — plausibly but without proof — that gaming theorycrafters are the wedge, that makers want profiles and forks, and that "calc life management" means a library product. Each assumption gets a test and a kill criterion in §16.</li>
+    <li><strong>We must find out why the daily users actually come back.</strong> "Daily use" is seven different possible jobs — living dashboard, default scratchpad, template re-runner, work tool, gaming daily loop, thinking medium, running log — and <em>each implies a different product and a different message</em>. Each job leaves a distinct fingerprint in usage logs, so two weeks of instrumentation plus one intercept question can tell us which tribe is biggest (§5). That diagnosis, not this document, is the real strategy.</li>
   </ul>
 
   <h3>The corrected LLM claim</h3>
-  <p>Version 1 said LLMs are "eating the scratchpad job." That was half right. <strong>LLMs eat one-shot answers and the search funnel</strong> ("15% tip on $84" never reaches a website anymore). <strong>They do not eat the iterative what-if loop</strong> — change one number, watch ten downstream results move, change it again — because chat has latency, no visible model state, and untrusted arithmetic. You can't easily go back and forth. The iterative scratchpad is therefore not a dying segment but <strong>a defensible strength and a marketing angle</strong>: InstaCalc is the back-and-forth surface a chatbot can't be. What LLMs do take is discovery — which is why distribution must come from communities, embeds, and shared links rather than search (§8, §11).</p>
+  <p><strong>LLMs eat one-shot answers and the search funnel</strong> ("15% tip on $84" never reaches a website anymore). <strong>They do not eat the iterative what-if loop</strong> — change one number, watch ten downstream results move, change it again — because chat has latency, no visible model state, and untrusted arithmetic. You can't easily go back and forth. The iterative scratchpad is a defensible strength and, in v3, a marketing line: <em class="term">the what-if surface a chatbot can't be.</em> What LLMs do take is discovery — so distribution must come from communities, embeds, and shared links rather than search (§8, §14).</p>
 
-  <h3>The strategy, post-red-team</h3>
-  <p>"Own the maker" survives adversarial review, but humbled and re-sequenced:</p>
+  <h3>The strategy, post-red-team, with its marketing translation</h3>
   <ol>
-    <li><strong>Diagnose the daily users first (weeks 1–4).</strong> Instrument seven fingerprints, run the Sean Ellis survey, ask daily users one question at open: "What did you come to do today?" Build for the biggest lovable tribe — don't average the tribes.</li>
-    <li><strong>Double what is loved before adding what is absent.</strong> The love-objects are almost certainly some mix of <em>instant-ness, aliveness, zero ceremony, and legibility</em> (§6). Every roadmap item must protect these; several should amplify them (global hotkey, live sliders everywhere, "update-in-place" dailies). A growth strategy that dilutes the love kills the patient to cure him.</li>
-    <li><strong>Ship Fork — it's utility, not social.</strong> One click from any public calc to your own editable copy, with visible lineage. Highest leverage feature; low risk even if the network thesis is wrong, because forking is useful to a single user.</li>
-    <li><strong>Demote gaming from "the wedge" to "the first experiment."</strong> The evidence for gaming-as-wedge is a gallery category and founder observation — real but thin. Seed three game communities with founding creators, measure views and forks for 30 days, and let the fork rate decide (kill criterion in §13). If it fires, pour on; if not, gaming was distribution, not identity — and the daily-job diagnosis picks the wedge instead.</li>
-    <li><strong>Social features only if pulled.</strong> Profiles ship as attribution pages (a byline, not a feed). Follows and notifications wait for demonstrated fork demand. A quiet tool that bolts on community risks an empty mall and — worse — alienating the people who love it precisely because it's theirs and it's calm.</li>
-    <li><strong>Monetize power and organization, not participation</strong> — with one adjustment from red-teaming: don't make <em>privacy</em> the headline Pro feature, or the most devoted users will take the corpus private. Charge for folders, data tables, deep history, clean embeds; keep a generous private allowance free (§12).</li>
+    <li><strong>Diagnose the daily users first (weeks 1–4).</strong> Instrument seven fingerprints, run the Sean Ellis survey, ask daily users one question at open. Build — and message — for the biggest lovable tribe; don't average the tribes.</li>
+    <li><strong>Double what is loved before adding what is absent.</strong> The love-objects are some mix of <em>instant-ness, aliveness, zero ceremony, legibility</em> (§6). They are simultaneously the product roadmap and the copy platform.</li>
+    <li><strong>Ship Fork — utility, not social.</strong> One click from any public calc to your own editable copy, with lineage. Highest-leverage feature; valuable even if the network thesis fails.</li>
+    <li><strong>Gaming is the first experiment, not the wedge.</strong> Seed three game communities, measure forks for 30 days, let the kill criterion decide (§16, H4).</li>
+    <li><strong>Social features only if pulled.</strong> Bylines yes; feeds, follows, karma — only after fork demand is proven (H3).</li>
+    <li><strong>Monetize power and organization, not participation</strong> — and not privacy as the headline, or the devoted will take the corpus private (§15).</li>
+    <li><strong>Market in their words, through the artifact (new in v3).</strong> Position InstaCalc in a frame people can repeat — <em class="term">"like a doc, but for calculations"</em> — keep the tagline that already works, write per-tribe homepage heroes from survey verbatims, and put the marketing budget into making every shared calc more impressive, because <strong>the shared calc is the ad</strong>. Replace one big launch with a drumbeat of moments: the Fork release, three per-game hub launches, a founder-letter lifetime deal, an annual "Calc of the Year." Message-market fit gets its own hypothesis (H9) with the same discipline as everything else (§12–§14, §16).</li>
   </ol>
 
   <div class="callout">
-    <div class="label">North-star metric (unchanged) and the decision cadence (new)</div>
-    <p style="margin:0"><strong>Weekly Returning Calc Owners (WRCO)</strong> — people who open or edit a calc they created or forked in a given week. New in v2: a hypothesis register (§13) where every major bet — gaming wedge, fork demand, daily-job identity, willingness to pay, AI referral — carries a metric threshold and an explicit kill-or-scale decision, most within 90 days. The strategy is allowed to be wrong; it is not allowed to be unfalsifiable.</p>
+    <div class="label">North-star metric and decision cadence</div>
+    <p style="margin:0"><strong>Weekly Returning Calc Owners (WRCO)</strong> — people who open or edit a calc they created or forked in a given week. Activation north metric for marketing: <strong>time-to-first-calc</strong> (the "aha" must arrive in seconds). The hypothesis register (§16) gives every major bet — gaming wedge, fork demand, daily-job identity, willingness to pay, message fit, content loop, AI referral — a threshold and an explicit kill-or-scale decision, most within 90 days. The strategy is allowed to be wrong; it is not allowed to be unfalsifiable.</p>
   </div>
 </section>
 
@@ -236,8 +255,8 @@
     <li><strong>Longevity and trust.</strong> Covered by TechCrunch in 2006; still alive, still fast. A twenty-year-old domain with organic links is an asset most startups cannot buy.</li>
     <li><strong>An existing UGC corpus.</strong> A gallery of 1,000+ public calcs across business, cooking, <strong>gaming</strong>, and education. The supply side of a marketplace already exists in embryo.</li>
     <li><strong>Surface area for habit.</strong> Chrome extension (Cmd+I), iOS app with sync, offline mode, command bar, presentation mode, sliders and dropdowns, revision history. Much of the "daily driver" product is already built — it is under-narrated, not missing.</li>
-    <li><strong>The BetterExplained halo.</strong> A large audience that already trusts the author on "math, explained intuitively." InstaCalc is the interactive twin of that promise, and the cross-pollination channel is essentially free.</li>
-    <li><strong>Recent product energy pointed the right way.</strong> Calculus support, previous-row references, dashboard, revision history — the community discussion themes show a tool being sharpened for people who <em>keep</em> calcs, not just people who compute once.</li>
+    <li><strong>The BetterExplained halo.</strong> A large audience that already trusts the author on "math, explained intuitively." InstaCalc is the interactive twin of that promise — and, as §14 argues, the most underused marketing channel in the whole picture.</li>
+    <li><strong>Recent product energy pointed the right way.</strong> Calculus support, previous-row references, dashboard, revision history — a tool being sharpened for people who <em>keep</em> calcs, not just people who compute once.</li>
   </ul>
 
   <h3>Signals — the evidence hiding in plain sight</h3>
@@ -245,7 +264,7 @@
     <tr><th style="width:32%">Observation</th><th>What it means — and what it doesn't yet prove</th></tr>
     <tr>
       <td><strong>People build gaming calcs</strong></td>
-      <td>A community with intense, recurring math needs self-selected InstaCalc without being marketed to — the strongest kind of PMF lead. <em>Not yet proven:</em> that this is central theorycrafting rather than casual side-calcs, or that the segment will fork and spread. That's Hypothesis H4 (§13), not a fact.</td>
+      <td>A community with intense, recurring math needs self-selected InstaCalc without being marketed to — the strongest kind of PMF lead. <em>Not yet proven:</em> that this is central theorycrafting rather than casual side-calcs, or that the segment will fork and spread. That's Hypothesis H4 (§16), not a fact.</td>
     </tr>
     <tr>
       <td><strong>Some people visit daily</strong></td>
@@ -253,7 +272,7 @@
     </tr>
     <tr>
       <td><strong>They "manage their calc life" in it</strong></td>
-      <td>Users invented a job description the product doesn't officially offer — no real home screen, folders, or identity. They do this job <em>despite</em> the product. Build it and the job gets easier and stickier — <em>if</em> the daily job is library-shaped (H2 tests this).</td>
+      <td>Users invented a job description the product doesn't officially offer — no real home screen, folders, or identity. They do this job <em>despite</em> the product. Build it and the job gets easier and stickier — <em>if</em> the daily job is library-shaped (H2 tests this). Marketing note: "calc life" is customer language; §12 adopts it.</td>
     </tr>
   </table>
 
@@ -278,12 +297,12 @@
   <h3>Three tests, in order of rigor</h3>
   <ol>
     <li><strong>The retention test (the real one).</strong> Plot cohort retention: of the people who create a calc in week 0, what fraction are back doing anything meaningful in weeks 4, 8, 12? PMF is the curve <em>flattening at a healthy level</em> rather than decaying to zero. The daily users say a flat asymptote exists — the job is to find out how high it is and for whom.</li>
-    <li><strong>The Sean Ellis test (the leading indicator).</strong> Ask users who've used the product at least twice in the last two weeks: <em>"How would you feel if you could no longer use InstaCalc?"</em> If ≥40% answer "very disappointed," the segment has PMF. Below 40%, the gap analysis (§13) tells you what to build. Cheap, fast, and the backbone of Superhuman's public PMF engine.</li>
+    <li><strong>The Sean Ellis test (the leading indicator).</strong> Ask users who've used the product at least twice in the last two weeks: <em>"How would you feel if you could no longer use InstaCalc?"</em> If ≥40% answer "very disappointed," the segment has PMF. Below 40%, the gap analysis (§16) tells you what to build. Cheap, fast, and the backbone of Superhuman's public PMF engine.</li>
     <li><strong>The pull test.</strong> Do users do unpaid work for the product — write guides, request features in public, build things you didn't anticipate? Gaming calc makers building for their communities is exactly this. Pull exists; it is narrow.</li>
   </ol>
 
   <h3>The crucial reframe: PMF is per-segment, per-job</h3>
-  <p>A horizontal tool never has "PMF" in general — it has PMF <em>with someone, for some job</em>. Slack had it with small tech teams before enterprises; Notion with personal-wiki nerds before companies. The question is never "does InstaCalc have PMF?" but <strong>"which segment already exhibits fit-shaped behavior, for which job — and can the product double down without losing what they love?"</strong> The second clause is new in v2 and it is load-bearing: §10 examines the real possibility that growth features could damage the very qualities that make the daily users daily.</p>
+  <p>A horizontal tool never has "PMF" in general — it has PMF <em>with someone, for some job</em>. Slack had it with small tech teams before enterprises; Notion with personal-wiki nerds before companies. The question is never "does InstaCalc have PMF?" but <strong>"which segment already exhibits fit-shaped behavior, for which job — and can the product double down without losing what they love?"</strong> §10 examines the real possibility that growth features could damage the very qualities that make the daily users daily. Marketing corollary: message-market fit is also per-segment — one homepage cannot speak to seven tribes at once (§13).</p>
 
   <div class="callout">
     <div class="label">Definition adopted for this document</div>
@@ -307,12 +326,11 @@
     <tr><td><strong>Strategic role</strong></td><td class="hl">Top of funnel AND the core of what's loved. Keep sacred, keep free, make faster.</td><td class="hl">The compounding layer. Build, measure, monetize.</td></tr>
   </table>
 
-  <h3>The LLM question, answered precisely (v2 correction)</h3>
-  <p>Version 1 wrote off Product A too quickly. The accurate picture has three parts:</p>
+  <h3>The LLM question, answered precisely</h3>
   <ul>
     <li><strong>What LLMs take: one-shot answers and discovery.</strong> "15% tip on $84," "230 km in miles" — no iteration, answered in the chat box or omnibox the user is already in. This was the bulk of anonymous drive-by calculator traffic, and it also erodes the referral path: people who would have searched "compound interest calculator" now ask an assistant and never see a tool. The <em>funnel</em> shrinks even where the tool is better.</li>
-    <li><strong>What LLMs can't take: the back-and-forth.</strong> The core InstaCalc loop — tweak a variable, watch every downstream number recalculate instantly, tweak again — is structurally bad in chat: re-prompt latency, model state smeared across scroll history instead of visible as an editable structure, and probabilistic arithmetic that users rightly don't fully trust for real stakes. <strong>You can't easily go back and forth with a chatbot.</strong> For exploratory math — quotes, scenarios, "can I afford this" — chat is not a substitute; it is a worse tool. This is a durable strength and should be said out loud in positioning: <em class="term">the what-if surface a chatbot can't be.</em></li>
-    <li><strong>The watch item: generated ephemeral widgets.</strong> Chat surfaces increasingly spawn small interactive artifacts inline. That's the version of the threat that could eventually touch the iterative loop. But it produces <em>disposable</em> artifacts — unversioned, unowned, unshared, unmaintained. The defense is Product B: kept, named, linked, community-trusted calcs. And the flip side is an opportunity: assistants can't <em>be</em> the interactive surface, but they can <em>link to one</em> — which only works for products whose artifacts are URLs. That is InstaCalc's whole DNA (§8, H8 in §13).</li>
+    <li><strong>What LLMs can't take: the back-and-forth.</strong> The core InstaCalc loop — tweak a variable, watch every downstream number recalculate instantly, tweak again — is structurally bad in chat: re-prompt latency, model state smeared across scroll history instead of visible as an editable structure, and probabilistic arithmetic that users rightly don't fully trust for real stakes. <strong>You can't easily go back and forth with a chatbot.</strong> For exploratory math — quotes, scenarios, "can I afford this" — chat is not a substitute; it is a worse tool. Positioning line: <em class="term">the what-if surface a chatbot can't be.</em></li>
+    <li><strong>The watch item: generated ephemeral widgets.</strong> Chat surfaces increasingly spawn small interactive artifacts inline. That could eventually touch the iterative loop — but it produces <em>disposable</em> artifacts: unversioned, unowned, unshared, unmaintained. The defense is Product B: kept, named, linked, community-trusted calcs. The flip side is an opportunity: assistants can't <em>be</em> the interactive surface, but they can <em>link to one</em> — which only works for products whose artifacts are URLs. That is InstaCalc's whole DNA (§8, H8 in §16).</li>
   </ul>
 
   <div class="pullquote">"Managing my calc life" is the user-invented name for Product B. When users name your product before you do, ship the product they named — after checking which product they actually meant (§5).</div>
@@ -386,7 +404,7 @@
 
   <div class="callout">
     <div class="label">Why this section is the real strategy</div>
-    <p style="margin:0">Every downstream decision branches on the diagnosis. <strong>If D1/D7 dominate</strong>, the product is the personal dashboard — widgets, deltas, quick-append — and monetization is privacy-and-organization. <strong>If D2 dominates</strong>, the product is omnipresence and speed — hotkeys, new-tab, instant history — and the library is secondary. <strong>If D3/D4 dominate</strong>, templates and Pro come first. <strong>If D5 shows up strongly</strong>, the gaming wedge gets independent confirmation before we've spent a dollar on it. <strong>If D6 dominates</strong>, positioning shifts from "calculator" to "thinking medium," which changes everything downstream. The tribes likely coexist; the strategy is to name the biggest lovable one and serve it unmistakably well — the others still benefit, because all seven leans share the same foundations (speed, autosave, home screen).</p>
+    <p style="margin:0">Every downstream decision branches on the diagnosis. <strong>If D1/D7 dominate</strong>, the product is the personal dashboard — widgets, deltas, quick-append — and monetization is privacy-and-organization. <strong>If D2 dominates</strong>, the product is omnipresence and speed — hotkeys, new-tab, instant history — and the library is secondary. <strong>If D3/D4 dominate</strong>, templates and Pro come first. <strong>If D5 shows up strongly</strong>, the gaming wedge gets independent confirmation before we've spent a dollar on it. <strong>If D6 dominates</strong>, positioning shifts from "calculator" to "thinking medium," which changes everything downstream. The tribes likely coexist; the strategy is to name the biggest lovable one and serve it unmistakably well — the others still benefit, because all seven leans share the same foundations (speed, autosave, home screen). The same branch table drives the homepage heroes in §13.</p>
   </div>
 </section>
 
@@ -425,7 +443,7 @@
   </table>
 
   <h3>The doubling principle</h3>
-  <p>Superhuman's insight, applied honestly: after the survey, take the users who would be <em>very disappointed</em> to lose InstaCalc, read their own words for the main benefit, and <strong>spend roughly half of all product effort making that benefit more extreme</strong> — the other half closing the gaps that hold back the sympathetic middle. For InstaCalc the likely translation: half of effort on speed, aliveness, and the daily-job winner from §5; half on the chassis (fork, home screen, discovery). And a standing rule from the red team (§10): <strong>any feature that would add ceremony, slow the first calc, or clutter the editor is rejected regardless of strategic appeal.</strong> The love is the moat; the network is the amplifier — never the reverse.</p>
+  <p>Superhuman's insight, applied honestly: after the survey, take the users who would be <em>very disappointed</em> to lose InstaCalc, read their own words for the main benefit, and <strong>spend roughly half of all product effort making that benefit more extreme</strong> — the other half closing the gaps that hold back the sympathetic middle. For InstaCalc the likely translation: half of effort on speed, aliveness, and the daily-job winner from §5; half on the chassis (fork, home screen, discovery). And a standing rule from the red team (§10): <strong>any feature that would add ceremony, slow the first calc, or clutter the editor is rejected regardless of strategic appeal.</strong> The love is the moat; the network is the amplifier — never the reverse. In v3 the love-objects do double duty: they are also the three message pillars of §13.</p>
 
   <div class="pullquote">People don't love InstaCalc because it has features. They love it because it's the one place where numbers keep up with their thoughts. Every strategic move either sharpens that or dulls it.</div>
 </section>
@@ -448,8 +466,8 @@
     <li><strong>Built-in retention:</strong> patches change numbers; changed numbers mean updates and return visits — a recurring engagement clock most products spend millions to simulate.</li>
     <li><strong>Feature fit already exists:</strong> sliders and dropdowns are precisely the "try your own gear score" interface; forking matches remix culture; identity matters to reputation-driven theorycrafters.</li>
   </ul>
-  <h4>The adversarial caveat (new in v2)</h4>
-  <p>The evidence is a gallery category and founder observation — enough to justify an experiment, not a bet-the-company wedge. Serious theorycrafting is data-heavy (large lookup tables) where Sheets is genuinely strong, and elite theorycrafters earn reputation from bespoke sites. The honest position: <strong>gaming is Hypothesis H4 with a 30-day test and a kill criterion (§13), not a conclusion.</strong> Note also that §5's D5 fingerprint gives an independent read: if gaming daily-loops are already a top tribe among daily users, confidence rises before we spend anything.</p>
+  <h4>The adversarial caveat</h4>
+  <p>The evidence is a gallery category and founder observation — enough to justify an experiment, not a bet-the-company wedge. Serious theorycrafting is data-heavy (large lookup tables) where Sheets is genuinely strong, and elite theorycrafters earn reputation from bespoke sites. The honest position: <strong>gaming is Hypothesis H4 with a 30-day test and a kill criterion (§16), not a conclusion.</strong> §5's D5 fingerprint gives an independent read: if gaming daily-loops are already a top tribe among daily users, confidence rises before we spend anything.</p>
 
   <h3>Segment 2 — Daily-numbers people <span style="font-weight:normal">(confidence: high that they exist; job mix unknown)</span></h3>
   <p>The people running their lives in InstaCalc: budgets, mortgage and FIRE scenarios, freelancer quotes, fitness macros, unit-heavy hobbies. Quieter than gamers, but they are the ones who visit <em>daily</em> — and §5 exists to find out which of the seven jobs they're doing. They are the natural first buyers of a Pro tier, because organization and depth are exactly what one pays for.</p>
@@ -483,17 +501,17 @@
 
   <div class="callout">
     <div class="label">The whitespace</div>
-    <p style="margin:0"><strong>Nobody owns the community-made calculator</strong> — the fan-made DPS calc, the forked FIRE model, the brewing calc a subreddit swears by. Desmos won't (education), Omni can't (closed supply), Soulver won't (local-only), Calconic won't (B2B), and LLMs produce answers and ephemera, not maintained artifacts. InstaCalc has the engine, the one-click-share DNA, the gallery seed, and twenty years of trust. The position: <em class="term">"GitHub for calculators"</em> in mechanics, <em class="term">"the home for your numbers"</em> in feeling — plus, new in v2: <em class="term">"the what-if surface a chatbot can't be"</em> in positioning against the AI tide.</p>
+    <p style="margin:0"><strong>Nobody owns the community-made calculator</strong> — the fan-made DPS calc, the forked FIRE model, the brewing calc a subreddit swears by. Desmos won't (education), Omni can't (closed supply), Soulver won't (local-only), Calconic won't (B2B), and LLMs produce answers and ephemera, not maintained artifacts. InstaCalc has the engine, the one-click-share DNA, the gallery seed, and twenty years of trust. The position: <em class="term">"GitHub for calculators"</em> in mechanics, <em class="term">"the home for your numbers"</em> in feeling, <em class="term">"the what-if surface a chatbot can't be"</em> against the AI tide. §12 turns these into a formal positioning statement.</p>
   </div>
 
-  <p>A useful historical rhyme: CodePen for code snippets, Figma Community for design files, GitHub for repos. In each case a utility became a durable network the moment artifacts got identity (authorship), lineage (forks), and a social surface (profiles, counts, discovery). Calculators are late to this pattern — that's the opportunity. The red team (§10) will test whether the pattern actually transfers.</p>
+  <p>A useful historical rhyme: CodePen for code snippets, Figma Community for design files, GitHub for repos. In each case a utility became a durable network the moment artifacts got identity (authorship), lineage (forks), and a social surface (profiles, counts, discovery). Calculators are late to this pattern — that's the opportunity. The red team (§10) tests whether the pattern actually transfers.</p>
 </section>
 
 <!-- ================= 9. STRATEGY ================= -->
 <section>
   <h2><span class="num">09</span>The strategy: own the maker</h2>
 
-  <h3>Positioning</h3>
+  <h3>Positioning (summary — full treatment in §12)</h3>
   <div class="pullquote" style="font-style:normal"><strong>InstaCalc is where calculations live.</strong> Make a calc in seconds, play with the numbers in real time, share it with a link, fork anyone else's, and keep your whole calc life in one place — free, instant, no login to view or try.</div>
 
   <p>Three constitutional commitments:</p>
@@ -503,9 +521,9 @@
     <li><strong>The blank calc stays sacred.</strong> Nothing may slow, clutter, or interrupt the core type-and-see experience — no matter how strategically appealing. (Added by the red team, §10, Attack 3.)</li>
   </ol>
 
-  <h3>Product priorities (re-sequenced in v2)</h3>
+  <h3>Product priorities</h3>
 
-  <h4>Tier 0 — Diagnose before building (weeks 1–4; §5 and §13)</h4>
+  <h4>Tier 0 — Diagnose before building (weeks 1–4; §5 and §16)</h4>
   <ul>
     <li>Instrument the seven fingerprints; run the Ellis survey; run the at-the-door intercept; interview the modal tribes. <strong>Tier 2 is written in pencil until this returns.</strong></li>
   </ul>
@@ -546,7 +564,7 @@
   <div class="attack">
     <div class="a-label">Attack 1 — "The gaming wedge is founder-romantic, not evidence-based."</div>
     <p>A gallery category and anecdotes prove casual gaming calcs exist, not that theorycrafters will adopt. Serious theorycrafting is data-heavy — thousand-row item tables, simulation, spreadsheet lookups — exactly where Sheets is strong and InstaCalc is weak. Elite theorycrafters build bespoke sites <em>because</em> the site is the reputation. You may seed three communities and get polite upvotes and no forks.</p>
-    <div class="verdict"><b>Conclusion:</b> Demoted from "the wedge" to "the first experiment." Spend 30 days and near-zero engineering (seed calcs + founding creators + measure) before any gaming-specific roadmap. Kill criterion lives in §13 (H4). Target the <em>casual-to-mid</em> theorycrafting layer (quick build checks, market margins, daily-efficiency math) where Sheets friction hurts most — not the simulation elite. Watch §5's D5 fingerprint for independent confirmation before spending.</div>
+    <div class="verdict"><b>Conclusion:</b> Demoted from "the wedge" to "the first experiment." Spend 30 days and near-zero engineering (seed calcs + founding creators + measure) before any gaming-specific roadmap. Kill criterion lives in §16 (H4). Target the <em>casual-to-mid</em> theorycrafting layer (quick build checks, market margins, daily-efficiency math) where Sheets friction hurts most — not the simulation elite. Watch §5's D5 fingerprint for independent confirmation before spending.</div>
   </div>
 
   <div class="attack">
@@ -570,13 +588,13 @@
   <div class="attack">
     <div class="a-label">Attack 5 — "Monetizing privacy starves the public corpus."</div>
     <p>The network strategy needs public calcs; the Pro tier charges for private ones. Your most devoted users — the likeliest subscribers — are then systematically pulled out of the commons. You'd be selling the network's food supply.</p>
-    <div class="verdict"><b>Conclusion:</b> Restructured pricing (§12): a generous free private allowance (private-by-obscurity links plus a handful of truly private calcs); Pro charges for <em>organization and power</em> — unlimited folders, deep history, data tables, clean embeds, exports — rather than privacy as the headline. Monitor the public:private ratio of new calcs as a standing health metric.</div>
+    <div class="verdict"><b>Conclusion:</b> Restructured pricing (§15): a generous free private allowance (private-by-obscurity links plus a handful of truly private calcs); Pro charges for <em>organization and power</em> — unlimited folders, deep history, data tables, clean embeds, exports — rather than privacy as the headline. Monitor the public:private ratio of new calcs as a standing health metric.</div>
   </div>
 
   <div class="attack">
     <div class="a-label">Attack 6 — "This plan is three companies' worth of work for one person."</div>
     <p>Diagnosis, chassis, love-doubling, community seeding, monetization, AI channels — a solo founder shipping all of it ships none of it well. The strategy's real enemy is WIP.</p>
-    <div class="verdict"><b>Conclusion:</b> Hard WIP limit encoded in the 90-day plan (§13): exactly <em>three</em> engineering deliverables in the first quarter (instrumentation, unfurls, fork) — everything else is measurement, conversation, and seeding, which communities and founding creators carry. Tier 2 and 3 are explicitly gated on evidence, which is also a scheduling device: the data decides what <em>not</em> to build.</div>
+    <div class="verdict"><b>Conclusion:</b> Hard WIP limit encoded in the 90-day plan (§16): exactly <em>three</em> engineering deliverables in the first quarter (instrumentation, unfurls, fork) — everything else is measurement, conversation, and seeding, which communities and founding creators carry. Tier 2 and 3 are explicitly gated on evidence, which is also a scheduling device: the data decides what <em>not</em> to build. The same discipline applies to §14's marketing: one channel bet per month, measured, kept or killed.</div>
   </div>
 
   <h3>What survived unchanged</h3>
@@ -617,13 +635,185 @@
     <li><strong>Pick three games</strong> with active economies, frequent patches, and spreadsheet-heavy communities (one MMO, one gacha/live-service, one idle/factory).</li>
     <li><strong>Recruit one founding theorycrafter per game</strong> (paid; day-one byline). Build 3–5 exemplary, patch-current calcs per game, targeting the casual-to-mid layer, not the simulation elite.</li>
     <li><strong>Launch inside the community</strong> — subreddit, Discord, wiki embed. The pitch is the calc, never the platform.</li>
-    <li><strong>Read the fork rate and decide</strong> per the H4 criterion (§13). Pour on, or conclude gaming is a channel rather than the wedge — both are useful answers.</li>
+    <li><strong>Read the fork rate and decide</strong> per the H4 criterion (§16). Pour on, or conclude gaming is a channel rather than the wedge — both are useful answers.</li>
   </ol>
 </section>
 
-<!-- ================= 12. MONETIZATION ================= -->
+<!-- ================= 12. POSITIONING & BRAND ================= -->
 <section>
-  <h2><span class="num">12</span>Monetization: who pays, for what, and one real tension</h2>
+  <h2><span class="num">12</span>Positioning, category, and brand</h2>
+
+  <p>Strategy decides what to build; positioning decides <strong>what the world thinks it is</strong> — and for a product with no ad budget, positioning is the highest-leverage marketing decision available, because it determines what users <em>say to each other</em> when they share a link. The method below is April Dunford's: start from what the product replaces, isolate what only it does, and only then choose the frame.</p>
+
+  <h3>The positioning exercise</h3>
+  <table>
+    <tr><th style="width:24%">Component</th><th>For InstaCalc</th></tr>
+    <tr><td><strong>Competitive alternatives</strong><br><span style="font-weight:normal">what people use instead</span></td><td>A Google Sheets link (view-only, clunky on phones) · the phone/OS calculator (no variables, no sharing) · LLM chat (answers, not living models) · a bespoke fan site (dies when the maintainer quits) · an Omni page (someone else's calc, not yours)</td></tr>
+    <tr><td><strong>Unique attributes</strong><br><span style="font-weight:normal">what only InstaCalc has</span></td><td>Results as you type · named variables that cascade · <strong>the calculation is itself a URL</strong> — shareable, forkable, embeddable, viewable with no login · legible enough to read like reasoning</td></tr>
+    <tr><td><strong>Value themes</strong></td><td>(1) Think faster — math at the speed of thought. (2) Share something people can actually <em>use</em> — the best artifact of its kind. (3) Keep numbers alive — a calc is a living model, not a one-off answer.</td></tr>
+    <tr><td><strong>Who cares most</strong></td><td>The §5 tribes — makers whose communities need the math, and daily-numbers people running their lives in it.</td></tr>
+    <tr><td><strong>Category frame</strong></td><td>See decision below — the frame is a choice, and most of the obvious ones are traps.</td></tr>
+  </table>
+
+  <h3>The category decision: which frame to claim</h3>
+  <table>
+    <tr><th style="width:22%">Candidate frame</th><th style="width:44%">What it buys / what it costs</th><th>Verdict</th></tr>
+    <tr><td>"Online calculator"</td><td>Huge familiarity and search volume — but a commodity frame: positions against the free phone calculator and the LLM answer box, the two fights InstaCalc shouldn't pick.</td><td class="hl">SEO doorway only — never the identity</td></tr>
+    <tr><td>"Calculator builder"</td><td>Describes the maker activity — but it's Calconic's B2B frame: sounds like work, smells like lead-gen forms.</td><td>Reject</td></tr>
+    <tr><td>"Notepad calculator"</td><td>Accurate for the editor — but it's Soulver's frame: local, personal, niche, and ignores the entire sharing/forking half of the product.</td><td>Reject</td></tr>
+    <tr><td><strong>"Like a doc, but for calculations"</strong></td><td>Anchors on the most universally understood shared-artifact model (Google Docs): instantly explains links, no-login viewing, live editing, and "make a copy" (fork). Familiar frame + one twist = repeatable.</td><td class="hl">Adopt — the explanatory frame</td></tr>
+    <tr><td><strong>"The home for your numbers"</strong></td><td>The emotional frame for the daily tribes — ownership, calm, "calc life." Doesn't explain mechanics; pairs with the frame above rather than replacing it.</td><td class="hl">Adopt — the emotional overlay</td></tr>
+  </table>
+
+  <div class="callout">
+    <div class="label">The onliness statement (the one-sentence position)</div>
+    <p style="margin:0"><strong>InstaCalc is the only calculator where the calculation itself is a live, shareable, forkable web page</strong> — as instant as typing, as shareable as a link, as remixable as a doc. For people who think in numbers and communities that run on them.</p>
+  </div>
+
+  <h3>Brand: promise, voice, architecture</h3>
+  <ul>
+    <li><strong>Brand promise:</strong> <em class="term">numbers that keep up with your thoughts.</em> Every surface — homepage, share page, error message — either keeps that promise or breaks it. (This is §6's love-objects restated as a vow.)</li>
+    <li><strong>Voice: the BetterExplained voice, inherited deliberately.</strong> Warm, plain-spoken, aha-driven, allergic to jargon. Rules: explain like a friend at a whiteboard; never say "powerful," "robust," or "seamless" — demonstrate instead; celebrate the <em>user's</em> cleverness, not the product's ("look what you can figure out," never "look what we built"); short sentences, real examples, no exclamation-point enthusiasm.</li>
+    <li><strong>Brand architecture: claim the halo.</strong> "From the maker of BetterExplained" belongs on the homepage and the About page. Twenty years of trust in <em>math, explained intuitively</em> transfers directly to <em>math, made playable</em> — and it costs nothing. The two properties should cross-link as siblings: the essay is the why, the calc is the hands-on.</li>
+    <li><strong>Speak the customers' language.</strong> They say <em>calc</em>, not "calculation model." They say <em>calc life</em>. Adopt both — product nouns, marketing copy, feature names ("your calcs," "fork this calc"). The Ellis-survey verbatims (§16, H1/H5) are not just data; they are the copy deck. Voice-of-customer beats invented slogans every time it's tested.</li>
+  </ul>
+
+  <div class="pullquote">A position is only real when a stranger can repeat it after one glance. "It's like a Google Doc, but it's a calculator — here's the link, change any number" is repeatable in a Discord message. That's the test.</div>
+</section>
+
+<!-- ================= 13. MESSAGE & COPY ================= -->
+<section>
+  <h2><span class="num">13</span>Message and copy</h2>
+
+  <h3>The message house</h3>
+  <p>One roof, three pillars, a foundation of proof. The pillars are §6's love-objects wearing their marketing clothes — product truth and copy platform are the same thing, which is what makes the message durable.</p>
+  <table>
+    <tr><th style="width:22%">Level</th><th>Content</th></tr>
+    <tr><td><strong>Roof</strong> (tagline)</td><td><strong>"Think in numbers. Share a link."</strong> — Keep it. It already encodes both products (scratchpad + shareable artifact), it's seven words, and it passes the repeatability test. Rare case where the existing tagline survives a strategy review; changing it would be motion, not progress.</td></tr>
+    <tr><td><strong>Pillar 1 — Instant</strong></td><td>Results as you type. No run button, no setup, no login. <em>Proof:</em> the homepage IS a working calc; time-to-first-answer measured in seconds.</td></tr>
+    <tr><td><strong>Pillar 2 — Alive</strong></td><td>Change one number, everything updates. Sliders, what-ifs, scenarios — a conversation with your numbers that a chatbot can't have. <em>Proof:</em> a slider in the hero demo; the fork-and-play loop.</td></tr>
+    <tr><td><strong>Pillar 3 — Yours to share</strong></td><td>Every calc is a link anyone can use, and fork, on any phone, forever. <em>Proof:</em> gallery of 1,000+ community calcs; view/fork counts; 20 years online.</td></tr>
+    <tr><td><strong>Foundation</strong> (proof points)</td><td>No login to try or view · works on any phone · free forever for viewing/sharing/forking · 20 years on the web · from the maker of BetterExplained · 1,000+ public calcs.</td></tr>
+  </table>
+
+  <h3>The homepage principle: the product demos itself</h3>
+  <p>InstaCalc's first marketing asset is not a paragraph — it is <strong>ten seconds of experience</strong>. The hero should be a live calc, pre-filled with something relatable (a savings goal with a slider), cursor blinking, already computing. Copy sits beside it, not in front of it. "Show, don't tell" isn't a slogan here; it's the conversion strategy, and it's measured: <strong>time-to-first-calc</strong> is the activation metric that all homepage changes answer to (H9).</p>
+
+  <h3>Hero copy: the master and the per-tribe variants</h3>
+  <p>One default hero, plus variants to A/B once §5 names the winning tribe (H9). Written now so the tests are ready the day the diagnosis lands:</p>
+
+  <div class="copy">
+    <div class="tag">Master / default</div>
+    <div class="h">Think in numbers. Share a link.</div>
+    <div class="s">InstaCalc is the calculator that works like a doc: type math in plain language, see answers as you type, and share a live link anyone can play with. No login. No setup. Free.</div>
+    <span class="cta">Try it — this box already works ↓</span>
+  </div>
+
+  <div class="copy">
+    <div class="tag">Variant · D1/D7 daily-numbers ("living dashboard")</div>
+    <div class="h">Your numbers, always current.</div>
+    <div class="s">Budget, savings, macros, side-project math — keep them as living calcs that update the moment life does. Open, tweak one number, see everything else follow.</div>
+    <span class="cta">Start your first calc →</span>
+  </div>
+
+  <div class="copy">
+    <div class="tag">Variant · D2 scratchpad ("speed of thought")</div>
+    <div class="h">Math at the speed of thought.</div>
+    <div class="s">Hit Cmd+I anywhere. Type "$4,200 × 8% over 6 years." Get the answer before you finish the sentence — with every step visible, unlike a chatbot's guess.</div>
+    <span class="cta">Get the extension →</span>
+  </div>
+
+  <div class="copy">
+    <div class="tag">Variant · D3 template re-runner</div>
+    <div class="h">Build it once. Quote in seconds.</div>
+    <div class="s">Turn your pricing math into a reusable calc: new inputs, instant results, a clean link or PDF for the client. No more copy-the-spreadsheet-and-pray.</div>
+    <span class="cta">Make your template →</span>
+  </div>
+
+  <div class="copy">
+    <div class="tag">Variant · D5 gaming communities</div>
+    <div class="h">The calc your guild will actually click.</div>
+    <div class="s">Forkable, phone-friendly build and profit calcs — updated for the latest patch, playable in one tap from Discord. No more view-only spreadsheets.</div>
+    <span class="cta">Fork a calc →</span>
+  </div>
+
+  <div class="copy">
+    <div class="tag">Variant · D6 thinking medium</div>
+    <div class="h">A place to think in numbers.</div>
+    <div class="s">Sketch a decision the way you'd sketch a diagram: name your assumptions, watch the consequences update live, and keep the reasoning readable forever.</div>
+    <span class="cta">Open a blank calc →</span>
+  </div>
+
+  <h3>Objection copy (the answers, written once, used everywhere)</h3>
+  <table>
+    <tr><th style="width:28%">Objection</th><th>The answer, in brand voice</th></tr>
+    <tr><td>"Why not a spreadsheet?"</td><td>"A spreadsheet is a warehouse; a calc is a whiteboard. No cell references, no view-only links, no pinch-zooming on your phone. Your math reads like sentences, and anyone you send it to can play with it in one tap."</td></tr>
+    <tr><td>"Can't AI do this?"</td><td>"Ask a chatbot for an answer. Open InstaCalc when you want a <em>conversation with your numbers</em> — slide the rate, watch the payment move, trust the arithmetic. Chat gives you a paragraph; a calc gives you a model you can poke."</td></tr>
+    <tr><td>"Will my calcs still be here in five years?"</td><td>"InstaCalc has been online since 2006 — your calcs have outlived three generations of startups already. And they're yours: export anytime."</td></tr>
+    <tr><td>"Is it really free?"</td><td>"Viewing, sharing, and forking are free forever — that's a promise, not a trial. Pro exists for people who want folders, history, and data tables, not for holding your math hostage."</td></tr>
+  </table>
+
+  <h3>Proof and social proof plan</h3>
+  <ul>
+    <li><strong>Harvest testimonials from the Ellis survey</strong> — the "very disappointed" verbatims, with permission, become the wall-of-love page and the quotes beside every CTA. Real words, real names or handles, no polish.</li>
+    <li><strong>Honest live counters:</strong> "12,431 calcs shared this month" beats "trusted by millions" — specific, verifiable, on-brand. Never inflate; the brand is plain-spoken or it is nothing.</li>
+    <li><strong>Maker spotlights:</strong> a monthly note on one maker and their calc ("how TheoryTom's drop-rate calc became his server's homepage"). Celebrating users is both proof and supply-side motivation — it markets the platform by never marketing the platform.</li>
+    <li><strong>Copy rules from the love-objects:</strong> never claim speed — demonstrate it (the page itself is the benchmark); write about <em>their</em> numbers, not our features; name features by the job ("Fork this calc," not "Duplicate as template"); every marketing page should contain at least one live, playable calc. Dogfood everywhere: the pricing page should literally be an InstaCalc embed.</li>
+  </ul>
+</section>
+
+<!-- ================= 14. CHANNELS & FUNNEL ================= -->
+<section>
+  <h2><span class="num">14</span>Channels, funnel, and the launch drumbeat</h2>
+
+  <h3>The funnel, mapped (AARRR)</h3>
+  <table>
+    <tr><th style="width:16%">Stage</th><th style="width:34%">Primary lever</th><th style="width:28%">Asset</th><th>Metric</th></tr>
+    <tr><td><strong>Acquisition</strong></td><td>Shared calc links in communities; embeds; BetterExplained audience</td><td>The unfurl; the share page; essay+calc pairs</td><td>New visitors by source; unfurl CTR</td></tr>
+    <tr><td><strong>Activation</strong></td><td>The self-demoing homepage; zero ceremony</td><td>Live hero calc; pre-filled fork state</td><td class="hl">Time-to-first-calc; visitor → first-calc %</td></tr>
+    <tr><td><strong>Retention</strong></td><td>The winning daily job (§5); patch clock; maker-delight email</td><td>Library home screen; "your calc hit 1,000 views"</td><td class="hl">WRCO; D30 maker retention</td></tr>
+    <tr><td><strong>Referral</strong></td><td>Every share IS a referral; fork lineage; embed footers</td><td>"Made with InstaCalc — fork it"</td><td>Forks &amp; signups per shared calc (the de-facto K-factor)</td></tr>
+    <tr><td><strong>Revenue</strong></td><td>Pro &amp; Creator tiers (§15), offered after value, never before</td><td>Founder-letter lifetime deal; pricing page (as a live calc)</td><td>Free → paid %; MRR</td></tr>
+  </table>
+
+  <h3>The product-led spine</h3>
+  <p>One rule organizes everything: <strong>the shared calc is the ad.</strong> Every dollar-equivalent of effort that could buy attention goes instead into making the shared artifact more impressive — faster on phones, prettier unfurls, one-tap forking. This is the only marketing strategy a solo founder can run indefinitely, and conveniently it is also the best one available: paid channels rent attention; a corpus of beloved artifacts owns it.</p>
+
+  <h3>Channel priorities, ranked</h3>
+  <ol>
+    <li><strong>Shared links + unfurls (the workhorse).</strong> Free, compounding, and improved by product work already planned. The Discord/Reddit unfurl is the single highest-ROI marketing surface in the company.</li>
+    <li><strong>Community seeding (the wedge experiment, §11).</strong> Three games, founding creators, calcs launched as gifts to the community — never as promotions. The pitch is the calc; the platform is discovered.</li>
+    <li><strong>The owned audience — BetterExplained (the sleeping giant).</strong> The most underused asset in this entire picture. The move: <em class="term">one essay, one calc</em> — every explainer ships with a forkable companion calc, and the existing essay archive gets retrofitted with embedded calcs over time. Each is evergreen distribution: the essays already rank, already circulate, and now carry a live InstaCalc in them. A monthly "number of the week" newsletter (one interesting calc, one insight) keeps the list warm at near-zero cost. This channel gets its own hypothesis (H10).</li>
+    <li><strong>Embeds (the slow compounder).</strong> Wikis and bloggers; "Made with InstaCalc" footers; measured by H7.</li>
+    <li><strong>App-store surfaces.</strong> Chrome Web Store and iOS App Store searches for "calculator" are <em>not</em> LLM-eroded — people looking for a tool there want a tool. Honest ASO: screenshots that show typing-and-seeing, reviews harvested from the survey's happiest respondents.</li>
+    <li><strong>AI referrers (the option bet).</strong> Machine-readable calc pages so assistants can cite "try the interactive version" (H8). Near-zero cost, asymmetric upside.</li>
+    <li><strong>SEO (opportunistic only).</strong> Crawlable pages and category hubs because they're nearly free — with no expectations attached (Red Team, Attack 4).</li>
+  </ol>
+
+  <h3>What not to buy</h3>
+  <p><strong>No paid ads</strong> (LTV unknown, loops unproven — buying traffic before PMF is renting a leaky bucket). <strong>No influencer campaigns</strong> (the founding-creator commissions are the honest version). <strong>No big-bang launch PR</strong> — a 20-year-old product "launching" reads false; a drumbeat of real moments reads true.</p>
+
+  <h3>The launch drumbeat (moments, not a launch)</h3>
+  <table>
+    <tr><th style="width:22%">Moment</th><th style="width:20%">When</th><th>The story that makes it shareable</th></tr>
+    <tr><td><strong>Fork release</strong></td><td>~Day 45</td><td>"The 20-year-old calculator just became forkable — GitHub for calcs." A genuine product-nerd story: Show HN, indie-hacker circles, the newsletter. Fork is the news; the strategy stays backstage.</td></tr>
+    <tr><td><strong>Per-game hub launches ×3</strong></td><td>Days 60–90</td><td>Inside each community, by its founding creator, as a gift: "I rebuilt our profit calcs so they work on your phone — fork away." Three separate moments, three separate audiences.</td></tr>
+    <tr><td><strong>Founder-letter lifetime deal</strong></td><td>~Day 90 (H6)</td><td>A plain-spoken letter to the list: twenty years, what's next, $99 lifetime for the people who want to fund it. Converts goodwill into capital, testimonials, and the H6 demand signal in one move.</td></tr>
+    <tr><td><strong>Essay + calc pairs</strong></td><td>Monthly, ongoing</td><td>Each BetterExplained-style explainer ships with its forkable calc — the evergreen drumbeat between the louder moments (H10).</td></tr>
+    <tr><td><strong>"Calc of the Year"</strong></td><td>Annual</td><td>A lightweight community award celebrating the best public calcs. Cheap, delightful, press-able — and it makes heroes of makers, which is the brand promise enacted.</td></tr>
+  </table>
+
+  <h3>Retention marketing (the quiet kind)</h3>
+  <ul>
+    <li><strong>The maker-delight email:</strong> "Your calc passed 1,000 views this week." The only notification a maker forwards to a friend. One per milestone, never batched into a drip campaign.</li>
+    <li><strong>Patch-day pings</strong> (gated on H3/H4): "The game updated — 340 people are waiting on your calc." Retention and supply in one message.</li>
+    <li><strong>Nothing else.</strong> No streaks, no re-engagement guilt trips, no "we miss you." The brand is calm; the emails are too. Every channel gets a UTM and a one-line monthly verdict: keep, fix, or kill — one channel bet per month, same WIP discipline as product (§10, Attack 6).</li>
+  </ul>
+</section>
+
+<!-- ================= 15. MONETIZATION ================= -->
+<section>
+  <h2><span class="num">15</span>Monetization: who pays, for what, and one real tension</h2>
 
   <p>Principle: <strong>charge for power and organization — never for participation, and not primarily for privacy</strong> (the red team's correction: pricing privacy as the headline would pull the most devoted users' calcs out of the public corpus the network needs).</p>
 
@@ -651,19 +841,28 @@
     </tr>
   </table>
 
+  <h3>Pricing psychology (applied, not abused)</h3>
+  <ul>
+    <li><strong>Anchor annual.</strong> Show $48/yr first ("two months free") with monthly as the alternative — annual majorities fund a solo product's runway and cut churn accounting to once a year.</li>
+    <li><strong>Round numbers, plainly stated.</strong> $6, not $5.99. Charm pricing signals retail persuasion; the InstaCalc brand is a friend explaining math, and friends use round numbers. The pricing page states what's free forever <em>above</em> what costs money — generosity first is both honest and the highest-converting order for a goodwill brand.</li>
+    <li><strong>The Creator tier is the decoy that isn't a trick:</strong> at $15–29 it makes Pro at $6 feel obviously reasonable, while genuinely serving a different buyer. Correct decoys are just honest segmentation.</li>
+    <li><strong>Lifetime deal as a founding moment, once.</strong> ~$99, framed as funding the next chapter, capped and dated. Scarcity that is real (one-time, at launch) builds trust; recurring "last chance" sales burn it. Buyers get a permanent "Founding Supporter" flair — status as a durable thank-you.</li>
+    <li><strong>Grandfather forever.</strong> Early subscribers keep their price for life, and this is said out loud on the pricing page. It converts fence-sitters ("price only goes up") and enacts the loyalty the brand claims.</li>
+  </ul>
+
   <h3>Guardrails</h3>
   <ul>
     <li><strong>Nothing a loop touches is ever paywalled</strong>: viewing, sharing, forking, the first calc, the blank calc.</li>
     <li><strong>No ads on maker pages or embeds.</strong> At most, one tasteful self-promo slot on anonymous drive-by pages.</li>
-    <li><strong>Test willingness to pay before building the tier</strong> (H6, §13): a pricing page with intent capture, or a founder-letter lifetime deal (~$99) to the mailing list — twenty years of goodwill converted into capital, testimonials, and a real demand signal.</li>
+    <li><strong>Test willingness to pay before building the tier</strong> (H6, §16): the founder-letter lifetime deal doubles as the demand test.</li>
     <li><strong>Watch the public:private ratio</strong> of new calcs monthly; if Pro shifts it hard private, rebalance the tier toward power features.</li>
     <li><strong>Scale check:</strong> 1,000 Pro subscribers ≈ $48–72k/yr — a healthy indie business that funds everything here; 10,000 ≈ a real company. Neither requires beating anyone; both require the loops to turn.</li>
   </ul>
 </section>
 
-<!-- ================= 13. HYPOTHESIS REGISTER ================= -->
+<!-- ================= 16. HYPOTHESIS REGISTER ================= -->
 <section>
-  <h2><span class="num">13</span>The hypothesis register &amp; 90-day test plan</h2>
+  <h2><span class="num">16</span>The hypothesis register &amp; 90-day test plan</h2>
 
   <p>Every major bet, with its test, threshold, and the decision each outcome forces. Thresholds are calibration points, not gospel — but a bet that misses badly gets killed, not renegotiated.</p>
 
@@ -708,12 +907,12 @@
       <td>The love-object is instant-ness/aliveness (not, e.g., organization or sharing)</td>
       <td>Code the VD verbatims from H1 by word-cluster</td>
       <td>A single cluster ≥50% of VD responses</td>
-      <td><strong>Pass:</strong> that cluster gets half of product effort (§6) and the marketing headline. <strong>Split verdict:</strong> love differs by tribe — market per-segment.</td>
+      <td><strong>Pass:</strong> that cluster gets half of product effort (§6) and the marketing headline. <strong>Split verdict:</strong> love differs by tribe — market per-segment (§13's variants exist for exactly this).</td>
     </tr>
     <tr>
       <td><span class="hyp">H6</span></td>
       <td>Devoted users will pay</td>
-      <td>Pricing page with intent capture, or founder-letter lifetime deal to the list</td>
+      <td>Founder-letter lifetime deal to the list (doubles as a launch moment, §14)</td>
       <td>≥2% of actives show purchase intent, or ~100 lifetime buys</td>
       <td><strong>Pass:</strong> build Pro scoped to what buyers cited. <strong>Miss:</strong> delay Pro; revenue via Creator embeds instead.</td>
     </tr>
@@ -731,27 +930,42 @@
       <td>Nonzero and growing quarter-over-quarter</td>
       <td><strong>Pass:</strong> deepen (an API/feed assistants can cite). <strong>Miss:</strong> costs ~nothing; leave it on.</td>
     </tr>
+    <tr>
+      <td><span class="hyp">H9</span></td>
+      <td>Message-market fit: the right hero copy measurably improves activation</td>
+      <td>A/B the §13 hero variants (master vs. winning-tribe variant) on the homepage, measured on <em>activation</em>, not clicks</td>
+      <td>Winning variant lifts visitor → first-calc by ≥20% relative</td>
+      <td><strong>Pass:</strong> that message leads homepage, store listings, and share pages. <strong>Miss:</strong> the master tagline stands; revisit after the §5 diagnosis sharpens.</td>
+    </tr>
+    <tr>
+      <td><span class="hyp">H10</span></td>
+      <td>The essay+calc content loop converts readers into makers</td>
+      <td>Publish 3 essay+calc pairs (BetterExplained channel); UTM + fork-source tracking, 90 days</td>
+      <td>Embedded calc engages ≥2% of essay readers; each pair yields a measurable cohort of new makers</td>
+      <td><strong>Pass:</strong> monthly cadence + retrofit the essay archive. <strong>Miss:</strong> essays stay brand-building; drop the retrofit project.</td>
+    </tr>
   </table>
 
-  <h3>The 90-day plan (three engineering deliverables, everything else is learning)</h3>
-  <h4>Days 1–30 — Diagnose</h4>
+  <h3>The 90-day plan (three engineering deliverables; everything else is learning and marketing)</h3>
+  <h4>Days 1–30 — Diagnose and position</h4>
   <ul>
-    <li>Ship <strong>instrumentation</strong> (deliverable 1): fingerprint events + the five-number dashboard (WRCO, new makers/wk, forks/wk, D30 maker retention, share-view→fork).</li>
+    <li>Ship <strong>instrumentation</strong> (deliverable 1): fingerprint events + the five-number dashboard (WRCO, new makers/wk, forks/wk, D30 maker retention, share-view→fork) + time-to-first-calc.</li>
     <li>Run the Ellis survey (H1, H5) and the at-the-door intercept (H2). Begin interviews with the modal tribes.</li>
-    <li>Ship <strong>rich unfurls + crawlable calc pages</strong> (deliverable 2) — small effort, immediate distribution payoff, feeds H8.</li>
-    <li>Recruit the three founding theorycrafters.</li>
+    <li>Ship <strong>rich unfurls + crawlable, machine-readable calc pages</strong> (deliverable 2) — small effort, immediate distribution payoff, feeds H8.</li>
+    <li><em>Marketing:</em> write the one-page positioning doc (§12) and the message house (§13); harvest first testimonials from survey verbatims; recruit the three founding theorycrafters.</li>
   </ul>
-  <h4>Days 31–60 — Build the keystone</h4>
+  <h4>Days 31–60 — Build the keystone, tell the story</h4>
   <ul>
     <li>Ship <strong>Fork with lineage + byline pages + Library v1</strong> (deliverable 3 — one coherent release).</li>
-    <li>Founding creators build seed calcs on their new bylines.</li>
-    <li>Read H1/H2/H5 results; write Tier 2 in ink.</li>
+    <li><em>Marketing:</em> the Fork release moment ("GitHub for calculators") to HN/newsletter; launch the H9 hero test with the self-demoing homepage; founding creators build seed calcs on their new bylines.</li>
+    <li>Read H1/H2/H5 results; write Tier 2 in ink; pick the per-tribe hero variant for H9's second round.</li>
   </ul>
-  <h4>Days 61–90 — Test the wedge and the wallet</h4>
+  <h4>Days 61–90 — Test the wedge, the wallet, and the content loop</h4>
   <ul>
-    <li>Community launches in the three games (H4 clock starts).</li>
-    <li>Pricing intent test (H6).</li>
-    <li>Day 90: sit down with the register. Every hypothesis has data or a date. Decide: which tribe, gaming in or out, Pro scope, Tier 3 gates.</li>
+    <li>Community launches in the three games (H4 clock starts) — each a marketing moment run by its founding creator.</li>
+    <li>Founder-letter lifetime deal (H6) to the list.</li>
+    <li>First essay+calc pair ships (H10 clock starts).</li>
+    <li>Day 90: sit down with the register. Every hypothesis has data or a date. Decide: which tribe, gaming in or out, Pro scope, Tier 3 gates, which message leads.</li>
   </ul>
 
   <h3>12-month milestones (if the bets pass)</h3>
@@ -761,13 +975,14 @@
     <tr><td>WRCO growth</td><td>~10%/mo for 2 consecutive quarters</td><td>The daily job is compounding</td></tr>
     <tr><td>Fork loop</td><td>Top-20 calcs avg ≥10 forks; ≥25% of new makers arrive via fork</td><td>The network is forming</td></tr>
     <tr><td>Wedge breadth</td><td>8–10 games with an actively maintained hub (if H4 passed)</td><td>Repeatable playbook, not a one-off</td></tr>
+    <tr><td>Message fit</td><td>A hero that lifts activation ≥20% over baseline (H9)</td><td>The story converts, not just the tool</td></tr>
     <tr><td>Revenue</td><td>Pro live; 300–1,000 subscribers</td><td>The devoted can finally pay; the strategy self-funds</td></tr>
   </table>
 </section>
 
-<!-- ================= 14. RISKS ================= -->
+<!-- ================= 17. RISKS ================= -->
 <section>
-  <h2><span class="num">14</span>Risks and what <em>not</em> to do</h2>
+  <h2><span class="num">17</span>Risks and what <em>not</em> to do</h2>
 
   <h3>Risk register</h3>
   <table class="breakable">
@@ -775,12 +990,17 @@
     <tr>
       <td><strong>LLMs erode the funnel</strong></td>
       <td>One-shot math and "X calculator" searches increasingly never reach a website. The iterative what-if loop and kept artifacts remain defensible (§4).</td>
-      <td>Distribution via communities, embeds, and shared links — channels AI can't intercept. Court assistants as referrers (H8). Position explicitly as the back-and-forth surface chat can't be.</td>
+      <td>Distribution via communities, embeds, and shared links — channels AI can't intercept. Court assistants as referrers (H8). Position explicitly as the back-and-forth surface chat can't be (§12).</td>
     </tr>
     <tr>
       <td><strong>Growth kills the love</strong></td>
       <td>The daily users chose calm, speed, and zero ceremony; strategy adds surfaces.</td>
       <td>Constitutional rule: the blank calc is sacred; network features live around calcs, never inside the editor. Guard-metrics in CI; re-survey after major releases; falling VD among dailies = rollback signal.</td>
+    </tr>
+    <tr>
+      <td><strong>Marketing breaks the brand</strong></td>
+      <td>A goodwill brand built over 20 years can be spent in one hype cycle: inflated counters, dark-pattern pricing, re-engagement spam.</td>
+      <td>The §12 voice rules and §14's "nothing else" list are commitments, not suggestions. Honest counters, real scarcity only, no guilt-trip emails. When in doubt: would BetterExplained say it?</td>
     </tr>
     <tr>
       <td><strong>Spreadsheet gravity</strong></td>
@@ -795,7 +1015,7 @@
     <tr>
       <td><strong>Solo-founder bandwidth</strong></td>
       <td>The plan must run on one person plus community.</td>
-      <td>Three engineering deliverables per quarter, hard limit. Founding creators carry seeding; the register decides what not to build. Cut scope before cutting the loop.</td>
+      <td>Three engineering deliverables per quarter and one channel bet per month, hard limits. Founding creators carry seeding; the register decides what not to build. Cut scope before cutting the loop.</td>
     </tr>
     <tr>
       <td><strong>UGC quality &amp; misinformation</strong></td>
@@ -811,11 +1031,12 @@
 
   <h3>What <em>not</em> to do</h3>
   <ul>
-    <li><strong>Don't average the tribes.</strong> Seven daily jobs exist; building a little for each produces a product for none. Diagnose, pick, commit.</li>
+    <li><strong>Don't average the tribes.</strong> Seven daily jobs exist; building — or messaging — a little for each produces a product for none. Diagnose, pick, commit.</li>
     <li><strong>Don't bolt on social before fork demand is proven.</strong> Bylines yes; feeds, follows, and karma no — until H3 says otherwise.</li>
+    <li><strong>Don't buy attention.</strong> No paid ads before the loops turn; no influencer blasts; no launch-week PR theater. The artifact is the ad.</li>
     <li><strong>Don't chase the B2B embed market head-on</strong> — Calconic's war needs a sales motion. Take the creator slice with a better free product.</li>
     <li><strong>Don't compete with Desmos for education</strong> — procurement and curriculum are a different company.</li>
-    <li><strong>Don't keep adding engine depth as the growth plan.</strong> The marginal function wins no new segment; the chassis and the love-doubling win several.</li>
+    <li><strong>Don't keep adding engine depth as the growth plan.</strong> The marginal function wins no new segment; the chassis, the love-doubling, and the message win several.</li>
     <li><strong>Don't bet on SEO.</strong> Take what's free; build for the channels AI can't intercept.</li>
     <li><strong>Don't launch "the platform."</strong> Launch calcs, inside communities, one at a time. Platforms are recognized in retrospect.</li>
     <li><strong>Don't paywall anything a loop touches.</strong> Ever.</li>
@@ -823,7 +1044,7 @@
 
   <div class="callout">
     <div class="label">Closing</div>
-    <p style="margin:0">The daily users have already voted with the most honest currency there is: their habits. The revision's discipline is to stop guessing what they voted <em>for</em>. Three weeks of fingerprints and one survey will name the job; the love-objects tell us what to double; the register keeps every bet honest with a kill criterion; and the red team's rules keep growth from trampling the quiet, instant, alive little tool that earned the habit in the first place. <em>Think in numbers. Share a link. Keep your calc life here — and find out exactly why they already do.</em></p>
+    <p style="margin:0">The daily users have already voted with the most honest currency there is: their habits. The discipline of this document is to stop guessing what they voted <em>for</em>. Three weeks of fingerprints and one survey name the job; the love-objects tell us what to double; the register keeps every bet honest with a kill criterion; the red team's rules keep growth from trampling the quiet, instant, alive little tool that earned the habit — and the marketing layer makes sure the story travels in the users' own words, through the artifacts they already share. <em>Think in numbers. Share a link. Keep your calc life here — and tell people exactly what they already tell each other.</em></p>
   </div>
 </section>
 
