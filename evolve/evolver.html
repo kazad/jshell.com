@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InstaCalc /evolve — The Evolver</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* ---- theme tokens (mirrors assets/tool.css) ---- */
+  :root {
+    --color-bg: #0d0d0d; --color-header: #141414; --color-surface: #0d0d0d;
+    --color-surface-hover: #1a1a1a; --color-border: #222222;
+    --color-text-main: #e0e0e0; --color-text-muted: #777777;
+    --color-accent: #ffffff; --color-accent-blue: #3b82f6; --color-success: #00ff88;
+    --editor-bg: #000000; --tint-blue: rgba(59,130,246,.14); --tint-success: rgba(0,255,136,.10);
+    --shadow: 0 10px 34px rgba(0,0,0,.45);
+  }
+  body.light-theme {
+    --color-bg: #ffffff; --color-header: #f9f9f9; --color-surface: #ffffff;
+    --color-surface-hover: #f5f5f5; --color-border: #eaeaea;
+    --color-text-main: #171717; --color-text-muted: #666666;
+    --color-accent: #000000; --color-accent-blue: #2563eb; --color-success: #10b981;
+    --editor-bg: #ffffff; --tint-blue: rgba(37,99,235,.08); --tint-success: rgba(16,185,129,.10);
+    --shadow: 0 10px 34px rgba(0,0,0,.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--color-bg); color: var(--color-text-main);
+    font-family: 'Inter', -apple-system, sans-serif; -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  button { font: inherit; cursor: pointer; }
+
+  /* =============== the header (baseline = today's tool-header) =============== */
+  .tool-header {
+    background: var(--color-header); border-bottom: 1px solid var(--color-border);
+    padding: 8px 16px; display: flex; align-items: center; gap: 14px; height: 45px; position: relative; z-index: 20;
+  }
+  .back-link { text-decoration: none; color: var(--color-text-muted); font-size: 12px; white-space: nowrap; }
+  .back-link:hover { color: var(--color-text-main); }
+  .hdr-sep { color: var(--color-border); }
+  .tool-title { font-weight: 800; font-size: 14px; letter-spacing: -.02em; white-space: nowrap; }
+  .hdr-byline { display: none; color: var(--color-text-muted); font-size: 11px; margin-left: 2px; white-space: nowrap; }
+  .hdr-byline .ok { color: var(--color-success); }
+  .btn {
+    background: var(--color-surface-hover); border: 1px solid var(--color-border);
+    color: var(--color-text-main); padding: 4px 12px; border-radius: 6px;
+    font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--color-text-muted); }
+  .btn.primary { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+  .btn b { font: 500 10.5px 'JetBrains Mono', monospace; color: var(--color-text-muted); }
+  .btn.primary b { color: inherit; opacity: .7; }
+  .hdr-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .hdr-social { display: none; }
+
+  /* omnibox (T3) */
+  .omni {
+    display: none; flex: 1; max-width: 480px; margin: 0 auto;
+    background: var(--editor-bg); border: 1px solid var(--color-border); border-radius: 7px;
+    color: var(--color-text-muted); font-size: 12.5px; padding: 6px 12px; align-items: center; gap: 8px; cursor: text;
+  }
+  .omni kbd { margin-left: auto; font: 10px 'JetBrains Mono', monospace; border: 1px solid var(--color-border); border-radius: 3px; padding: 0 5px; }
+  .omni:hover { border-color: var(--color-text-muted); }
+
+  /* evolved header states */
+  .hdr-basic { display: flex; gap: 14px; align-items: center; }
+  .on-social .hdr-basic, .on-social .hdr-only-basic { display: none !important; }
+  .on-social .hdr-social { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .on-social .hdr-byline { display: block; }
+  .on-omni .omni { display: flex; }
+
+  /* =============== app frame =============== */
+  .app { display: flex; height: calc(100vh - 45px); }
+
+  /* left workspace rail (T4) */
+  .rail {
+    width: 0; flex: none; overflow: hidden; background: var(--color-header);
+    border-right: 0 solid var(--color-border); transition: width .28s ease; white-space: nowrap;
+  }
+  .on-rail .rail { width: 212px; border-right-width: 1px; }
+  .rail-in { width: 212px; padding: 14px 10px; font-size: 13px; height: 100%; overflow-y: auto; }
+  .rail h4 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); padding: 14px 10px 5px; }
+  .rail h4:first-child { padding-top: 0; }
+  .rail a { display: flex; align-items: center; gap: 9px; padding: 5px 10px; border-radius: 6px; color: var(--color-text-muted); text-decoration: none; }
+  .rail a:hover { background: var(--color-surface-hover); color: var(--color-text-main); }
+  .rail a.on { background: var(--color-surface-hover); color: var(--color-text-main); font-weight: 600; box-shadow: inset 2px 0 0 var(--color-accent-blue); }
+  .rail a i { font-style: normal; margin-left: auto; font: 10.5px 'JetBrains Mono', monospace; color: var(--color-text-muted); }
+
+  /* main column */
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow-y: auto; }
+
+  /* view-mode bar (T7) */
+  .modebar { display: none; align-items: center; gap: 12px; padding: 10px 16px 0; }
+  .on-modes .modebar { display: flex; }
+  .seg { display: inline-flex; background: var(--editor-bg); border: 1px solid var(--color-border); border-radius: 7px; padding: 2px; font-size: 12px; font-weight: 600; color: var(--color-text-muted); }
+  .seg button { background: none; border: 0; color: inherit; padding: 4px 12px; border-radius: 5px; font-weight: 600; }
+  .seg button.on { background: var(--color-surface-hover); color: var(--color-text-main); box-shadow: 0 0 0 1px var(--color-border); }
+  .modebar .hint { color: var(--color-text-muted); font-size: 11.5px; }
+
+  /* =============== the stage =============== */
+  .stage { flex: 1; display: flex; flex-direction: column; min-height: 340px; padding: 0; }
+  .on-modes .stage, .on-gallery .stage { flex: none; height: 430px; }
+
+  /* --- notebook view (baseline = today's two panes) --- */
+  .nb { display: flex; flex: 1; min-height: 0; height: 100%; }
+  .pane { display: flex; flex-direction: column; min-width: 0; }
+  .pane.ed { flex: 1; border-right: 1px solid var(--color-border); }
+  .pane.res { width: 350px; flex: none; }
+  .pane-label {
+    padding: 4px 16px; font-size: 10px; font-weight: 800; color: var(--color-text-muted);
+    background: var(--color-bg); border-bottom: 1px solid var(--color-border);
+    text-transform: uppercase; letter-spacing: .1em; min-height: 28px; display: flex; align-items: center;
+  }
+  .edwrap { position: relative; flex: 1; background: var(--editor-bg); }
+  .edwrap textarea {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    background: transparent; color: #fff; border: 0; outline: 0; resize: none;
+    font: 16px/30px 'JetBrains Mono', monospace; font-variant-ligatures: none;
+    padding: 16px; white-space: pre; overflow: auto;
+  }
+  body.light-theme .edwrap textarea { color: #000; }
+  .edwrap pre {
+    position: absolute; inset: 0; margin: 0; pointer-events: none; overflow: hidden;
+    font: 16px/30px 'JetBrains Mono', monospace; font-variant-ligatures: none;
+    padding: 16px; white-space: pre; color: var(--color-text-main); display: none;
+  }
+  .on-syntax .edwrap pre { display: block; }
+  .on-syntax .edwrap textarea { color: transparent; caret-color: var(--color-text-main); }
+  .edwrap pre .tk-c { color: var(--color-text-muted); font-style: italic; }
+  .edwrap pre .tk-n { color: var(--color-accent-blue); }
+  .edwrap pre .tk-o { color: var(--color-text-muted); }
+  .reswrap { flex: 1; background: var(--editor-bg); overflow: hidden; padding: 16px 20px; text-align: right; }
+  .reswrap div { font: 600 16px/30px 'JetBrains Mono', monospace; color: var(--color-success); white-space: pre; }
+  .on-syntax .reswrap div { opacity: .5; font-weight: 500; }
+  .on-syntax .reswrap div.em { opacity: 1; font-weight: 700; }
+  .reswrap div.err { color: var(--color-text-muted); font-weight: 400; opacity: .5; }
+
+  /* --- sheet view --- */
+  .sheetv { flex: 1; overflow: auto; background: var(--editor-bg); display: none; }
+  .sheetv table { width: 100%; border-collapse: collapse; font: 13px 'JetBrains Mono', monospace; }
+  .sheetv th { background: var(--color-header); border: 1px solid var(--color-border); color: var(--color-text-muted); font: 600 10px 'Inter', sans-serif; text-transform: uppercase; letter-spacing: .06em; padding: 5px 12px; text-align: left; }
+  .sheetv td { border: 1px solid var(--color-border); padding: 6px 12px; }
+  .sheetv td.rn { background: var(--color-header); color: var(--color-text-muted); text-align: center; width: 40px; font-size: 11px; }
+  .sheetv td.lb { color: var(--color-text-muted); font-family: 'Inter', sans-serif; font-size: 12.5px; }
+  .sheetv td.rr { text-align: right; color: var(--color-success); font-weight: 700; width: 140px; }
+
+  /* --- form view --- */
+  .formv { flex: 1; overflow: auto; background: var(--editor-bg); display: none; padding: 26px 34px; }
+  .formv .fnote { color: var(--color-text-muted); font-size: 12px; margin-bottom: 18px; }
+  .fld { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; max-width: 460px; }
+  .fld label { width: 150px; color: var(--color-text-muted); font-size: 13.5px; flex: none; }
+  .fld input {
+    width: 130px; background: var(--color-header); border: 1px solid var(--color-border); border-radius: 7px;
+    color: var(--color-text-main); font: 600 15px 'JetBrains Mono', monospace; padding: 7px 12px; outline: 0; text-align: right;
+  }
+  .fld input:focus { border-color: var(--color-accent-blue); }
+  .answers { display: flex; gap: 14px; margin-top: 26px; flex-wrap: wrap; }
+  .ans { min-width: 170px; background: var(--color-header); border: 1px solid var(--color-border); border-radius: 10px; padding: 12px 16px; }
+  .ans .l { color: var(--color-text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+  .ans .v { font: 700 26px 'JetBrains Mono', monospace; color: var(--color-success); margin-top: 3px; }
+
+  /* --- widget view --- */
+  .widgetv { flex: 1; display: none; align-items: center; justify-content: center; background: var(--color-bg);
+    background-image: radial-gradient(var(--color-border) 1px, transparent 1px); background-size: 22px 22px; }
+  .widget { width: 320px; background: var(--editor-bg); border: 1px solid var(--color-border); border-radius: 14px; padding: 18px 22px; box-shadow: var(--shadow); }
+  .widget .wt { font-size: 15px; font-weight: 700; display: flex; justify-content: space-between; align-items: baseline; }
+  .widget .wt span { color: var(--color-success); font: 600 9px 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: .08em; }
+  .widget .stp { display: flex; align-items: center; gap: 10px; margin: 14px 0; font-size: 12.5px; color: var(--color-text-muted); }
+  .widget .stp .bx { border: 1px solid var(--color-border); border-radius: 7px; display: flex; align-items: center; }
+  .widget .stp .bx button { background: none; border: 0; color: var(--color-text-muted); font-size: 15px; padding: 3px 11px; }
+  .widget .stp .bx button:hover { color: var(--color-text-main); }
+  .widget .stp .bx b { font: 700 15px 'JetBrains Mono', monospace; color: var(--color-text-main); min-width: 44px; text-align: center; }
+  .widget .wv { font: 700 34px 'JetBrains Mono', monospace; color: var(--color-success); }
+  .widget .wl { color: var(--color-text-muted); font-size: 10.5px; margin-top: 8px; }
+  .widget .wl b { color: var(--color-accent-blue); }
+  .mode-sheet .sheetv { display: block; } .mode-sheet .nb { display: none; }
+  .mode-form .formv { display: block; } .mode-form .nb { display: none; }
+  .mode-widget .widgetv { display: flex; } .mode-widget .nb { display: none; }
+
+  /* gallery shelf (T6) */
+  .shelf { display: none; border-top: 1px solid var(--color-border); padding: 16px; }
+  .on-gallery .shelf { display: block; }
+  .shelf .sh-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 12px; }
+  .shelf h3 { font-size: 14.5px; font-weight: 700; letter-spacing: -.01em; }
+  .shelf .tabs { display: flex; gap: 4px; font-size: 11.5px; color: var(--color-text-muted); }
+  .shelf .tabs span { padding: 3px 10px; border-radius: 6px; cursor: pointer; }
+  .shelf .tabs span.on { background: var(--color-surface-hover); color: var(--color-text-main); font-weight: 600; }
+  .shelf .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 9px; padding: 10px; cursor: pointer; transition: border-color .12s; }
+  .card:hover { border-color: var(--color-text-muted); }
+  .card .thumb { background: var(--color-header); border: 1px solid var(--color-border); border-radius: 6px; padding: 9px 11px; height: 78px; overflow: hidden; margin-bottom: 8px; }
+  .card .ml { display: flex; justify-content: space-between; gap: 10px; font: 9.5px/1.75 'JetBrains Mono', monospace; }
+  .card .ml span { color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .ml b { color: var(--color-success); white-space: nowrap; }
+  .card .t { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .m { color: var(--color-text-muted); font-size: 10.5px; margin-top: 2px; }
+
+  /* up-next rail (T5) */
+  .upnext { width: 0; flex: none; overflow: hidden; background: var(--color-bg); border-left: 0 solid var(--color-border); transition: width .28s ease; white-space: nowrap; }
+  .on-upnext .upnext { width: 250px; border-left-width: 1px; }
+  .up-in { width: 250px; padding: 14px; height: 100%; overflow-y: auto; }
+  .upnext h4 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); margin: 0 0 8px; }
+  .upnext h4.later { margin-top: 20px; }
+  .uprow { display: flex; gap: 10px; align-items: center; padding: 6px; border-radius: 8px; cursor: pointer; }
+  .uprow:hover { background: var(--color-surface-hover); }
+  .uprow .ic { width: 38px; height: 38px; border-radius: 8px; background: var(--color-surface-hover); border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; font-size: 15px; flex: none; }
+  .uprow b { font-size: 12px; font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .uprow span { color: var(--color-text-muted); font-size: 10.5px; }
+  .tr-row { display: flex; gap: 8px; align-items: baseline; padding: 4px 6px; font-size: 12px; border-radius: 6px; cursor: pointer; }
+  .tr-row:hover { background: var(--color-surface-hover); }
+  .tr-row .rk { font: 10px 'JetBrains Mono', monospace; color: var(--color-text-muted); width: 12px; }
+  .tr-row .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tr-row .up { font: 10px 'JetBrains Mono', monospace; color: var(--color-success); }
+
+  /* ⌘K palette */
+  .kdim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60; display: none; }
+  body.light-theme .kdim { background: rgba(100,100,100,.3); }
+  .kdim.open { display: block; }
+  .kbar { position: fixed; left: 50%; top: 15%; transform: translateX(-50%); width: 520px; background: var(--color-header); border: 1px solid var(--color-border); border-radius: 12px; box-shadow: var(--shadow); z-index: 61; display: none; overflow: hidden; }
+  .kbar.open { display: block; }
+  .kbar .ki { padding: 13px 16px; border-bottom: 1px solid var(--color-border); font-size: 14px; color: var(--color-text-muted); display: flex; gap: 8px; }
+  .kbar .ki b { color: var(--color-text-main); font-weight: 500; }
+  .kbar .kh { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); padding: 8px 16px 2px; }
+  .kbar .kr { display: flex; gap: 10px; padding: 8px 16px; font-size: 13px; align-items: center; }
+  .kbar .kr:hover, .kbar .kr.on { background: var(--color-surface-hover); }
+  .kbar .kr kbd { margin-left: auto; font: 10.5px 'JetBrains Mono', monospace; color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: 3px; padding: 0 5px; }
+
+  /* =============== the evolve panel =============== */
+  .fab {
+    position: fixed; right: 18px; bottom: 18px; z-index: 70;
+    background: var(--color-accent); color: var(--color-bg); border: 0; border-radius: 999px;
+    padding: 10px 18px; font-weight: 700; font-size: 13px; box-shadow: var(--shadow); display: flex; gap: 8px; align-items: center;
+  }
+  .fab .cnt { font: 700 11px 'JetBrains Mono', monospace; opacity: .65; }
+  .drawer {
+    position: fixed; right: 18px; bottom: 66px; z-index: 70; width: 300px;
+    background: var(--color-header); border: 1px solid var(--color-border); border-radius: 14px;
+    box-shadow: var(--shadow); overflow: hidden; display: none;
+  }
+  .drawer.open { display: block; }
+  .drawer .dh { padding: 12px 16px; border-bottom: 1px solid var(--color-border); display: flex; align-items: baseline; gap: 8px; }
+  .drawer .dh b { font-size: 13.5px; font-weight: 700; }
+  .drawer .dh span { color: var(--color-text-muted); font-size: 11px; margin-left: auto; font-family: 'JetBrains Mono', monospace; }
+  .drawer .presets { display: flex; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--color-border); }
+  .drawer .presets button { flex: 1; background: var(--color-surface-hover); border: 1px solid var(--color-border); color: var(--color-text-main); border-radius: 7px; padding: 5px 8px; font-size: 11.5px; font-weight: 600; }
+  .drawer .presets button:hover { border-color: var(--color-text-muted); }
+  .trow { display: flex; gap: 10px; padding: 9px 14px; align-items: flex-start; cursor: pointer; border-bottom: 1px solid var(--color-border); }
+  .trow:last-child { border-bottom: 0; }
+  .trow:hover { background: var(--color-surface-hover); }
+  .trow .tx { flex: 1; min-width: 0; }
+  .trow .tx b { font-size: 12.5px; font-weight: 650; display: flex; gap: 7px; align-items: baseline; }
+  .trow .tx b i { font: 700 9px 'JetBrains Mono', monospace; color: var(--color-accent-blue); font-style: normal; }
+  .trow .tx span { color: var(--color-text-muted); font-size: 10.5px; line-height: 1.45; display: block; margin-top: 1px; }
+  .sw { width: 30px; height: 17px; border-radius: 10px; background: var(--color-border); position: relative; flex: none; margin-top: 2px; transition: background .15s; }
+  .sw::after { content: ''; position: absolute; left: 2px; top: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--color-text-muted); transition: all .15s; }
+  .trow.on .sw { background: var(--color-success); }
+  .trow.on .sw::after { left: 15px; background: #000; }
+  body.no-chrome .fab, body.no-chrome .drawer { display: none !important; }
+</style>
+</head>
+<body>
+
+<header class="tool-header" id="hdr">
+  <div class="hdr-basic">
+    <a class="back-link" href="index.html?l=combo">← Dashboard</a>
+    <span class="hdr-sep">|</span>
+    <div class="tool-title">Smart Math Notebook</div>
+  </div>
+  <div class="hdr-social">
+    <a class="back-link" href="#">Events</a><span class="hdr-sep">/</span>
+    <div style="min-width:0">
+      <div class="tool-title">🎉 Party Budget</div>
+      <div class="hdr-byline">by kazad · autosaved <span class="ok">just now</span> · <span class="ok">● public link</span></div>
+    </div>
+  </div>
+  <div class="omni" id="omni">🔍 Search calcs, commands — or just type math… <kbd>⌘K</kbd></div>
+  <div class="hdr-actions">
+    <span class="btn hdr-only-basic" id="a-basic">Share Link with Data</span>
+    <span class="btn hdr-social">☆ Star <b>2.4k</b></span>
+    <span class="btn hdr-social">⑂ Remix <b>312</b></span>
+    <span class="btn primary hdr-social">↗ Share</span>
+  </div>
+</header>
+
+<div class="app" id="app">
+  <aside class="rail"><div class="rail-in">
+    <h4>Workspace</h4>
+    <a href="#">🏠 Home</a><a class="on" href="#">🧮 My calcs <i>12</i></a><a href="#">⭐ Starred</a>
+    <h4>Collections</h4>
+    <a href="#">🎉 Events</a><a href="#">🏠 House hunt</a><a href="#" style="color:var(--color-text-muted)">＋ New collection</a>
+    <h4>Gallery</h4>
+    <a href="#">💰 Finance <i>412</i></a><a href="#">💪 Health <i>187</i></a><a href="#">✈️ Travel <i>88</i></a>
+    <a href="#" style="color:var(--color-accent-blue)">Browse all 1,642 →</a>
+  </div></aside>
+
+  <div class="main">
+    <div class="modebar">
+      <div class="seg" id="seg">
+        <button data-v="nb" class="on">Notebook</button><button data-v="sheet">Sheet</button><button data-v="form">Form</button><button data-v="widget">Widget</button>
+      </div>
+      <span class="hint">same calc, same engine — the view is a lens picked per audience</span>
+    </div>
+
+    <div class="stage" id="stage">
+      <div class="nb">
+        <div class="pane ed">
+          <div class="pane-label">Notebook Editor</div>
+          <div class="edwrap"><pre id="hl"></pre><textarea id="src" spellcheck="false"></textarea></div>
+        </div>
+        <div class="pane res">
+          <div class="pane-label">Results</div>
+          <div class="reswrap" id="res"></div>
+        </div>
+      </div>
+      <div class="sheetv" id="sheetv"></div>
+      <div class="formv" id="formv"></div>
+      <div class="widgetv" id="widgetv"></div>
+    </div>
+
+    <div class="shelf">
+      <div class="sh-head"><h3>Browse the gallery</h3>
+        <div class="tabs"><span class="on">Trending</span><span>New</span><span>Finance</span><span>For you</span></div>
+        <span style="margin-left:auto;color:var(--color-text-muted);font-size:11px">1,642 calcs · <a href="#" style="color:var(--color-accent-blue);text-decoration:none">see all →</a></span>
+      </div>
+      <div class="cards" id="cards"></div>
+    </div>
+  </div>
+
+  <aside class="upnext"><div class="up-in">
+    <h4>Up next</h4><div id="upnext-rows"></div>
+    <h4 class="later">Trending today</h4><div id="tr-rows"></div>
+  </div></aside>
+</div>
+
+<div class="kdim" id="kdim"></div>
+<div class="kbar" id="kbar">
+  <div class="ki">⌘K <b>Type a calc, command, or math…</b></div>
+  <div class="kh">Recent</div>
+  <div class="kr on">🎉 Party Budget <kbd>↵</kbd></div>
+  <div class="kr">✈️ Japan trip</div>
+  <div class="kh">Actions</div>
+  <div class="kr">🧮 New calc <kbd>C</kbd></div>
+  <div class="kr">🗂 Browse gallery <kbd>G G</kbd></div>
+  <div class="kr">↗ Share current calc <kbd>⌘⇧S</kbd></div>
+</div>
+
+<button class="fab" id="fab">🧬 Evolve <span class="cnt" id="cnt">0/7</span></button>
+<div class="drawer" id="drawer">
+  <div class="dh"><b>🧬 Evolve the UI</b><span id="cnt2">0/7</span></div>
+  <div class="presets">
+    <button id="p-none">Today (baseline)</button>
+    <button id="p-all">The Studio (all on)</button>
+  </div>
+  <div id="toggles"></div>
+</div>
+
+<script src="shared.js"></script>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  if (q.get('chrome') === '0') document.body.classList.add('no-chrome');
+  document.body.classList.toggle('light-theme', (q.get('theme') || localStorage.getItem('jshell_theme') || 'dark') === 'light');
+
+  /* ---------- the 7 evolution dimensions, in recommended adoption order ---------- */
+  const DIMS = [
+    { id: 'syntax',  name: 'Living editor',       desc: 'Syntax highlighting; computed answers bold, plain inputs dim. Same bones, sharper signal.' },
+    { id: 'social',  name: 'Share & remix chrome', desc: 'Title, byline, star/remix counts. The calc becomes a shareable object with an author.' },
+    { id: 'omni',    name: '⌘K omnibox',           desc: 'Search, commands, or raw math from one box — the whole nav for keyboard people.' },
+    { id: 'rail',    name: 'Workspace rail',       desc: 'My calcs, collections, gallery door. Your stuff, one glance to the left.' },
+    { id: 'upnext',  name: 'Up next rail',         desc: 'Related calcs + trending on the right — browse without leaving your work.' },
+    { id: 'gallery', name: 'Gallery shelf',        desc: 'The library under the editor: trending cards, tabs, one click to remix.' },
+    { id: 'modes',   name: 'View modes',           desc: 'Notebook / Sheet / Form / Widget — one model, four lenses, picked per audience.' },
+  ];
+  const state = new Set((q.get('on') || '').split(',').filter(s => DIMS.some(d => d.id === s)));
+  let view = q.get('view') || 'nb';
+
+  /* ---------- live engine (source of truth = textarea) ---------- */
+  const src = document.getElementById('src'), hl = document.getElementById('hl'), res = document.getElementById('res');
+  src.value = IC.DEMO;
+
+  function parse() { return IC.evalText(src.value); }
+
+  function renderNotebook() {
+    hl.innerHTML = IC.hl(src.value) + '\n';
+    res.innerHTML = parse().map(r => `<div class="${r.cls}${r.em ? ' em' : ''}">${IC.esc(r.txt)} </div>`).join('');
+  }
+
+  function lines() {
+    return src.value.split('\n').map((raw, i) => {
+      const t = raw.trim();
+      const m = t.match(/^([a-zA-Z_$][\w$]*)\s*=(?!=)\s*(.+)$/);
+      return { i, raw, t, name: m ? m[1] : null, expr: m ? m[2] : t,
+        isComment: /^(#|\/\/)/.test(t), isEmpty: !t,
+        isInput: !!(m && /^[\s\d.,$]+$/.test(m[2])) };
+    });
+  }
+
+  function renderSheet() {
+    const rs = parse();
+    const rows = lines().filter(l => !l.isEmpty).map((l, n) => `
+<tr><td class="rn">${n + 1}</td><td class="lb">${l.isComment ? '📝 note' : IC.esc(l.name || '—')}</td><td>${IC.esc(l.t)}</td><td class="rr">${IC.esc(rs[l.i].txt)}</td></tr>`).join('');
+    document.getElementById('sheetv').innerHTML = `<table><tr><th style="width:40px"></th><th>Label</th><th>Formula</th><th>Result</th></tr>${rows}</table>`;
+  }
+
+  function renderForm() {
+    const rs = parse();
+    const ins = lines().filter(l => l.isInput);
+    const outs = lines().filter(l => !l.isEmpty && !l.isComment && !l.isInput && rs[l.i].cls === 'r');
+    document.getElementById('formv').innerHTML = `
+<div class="fnote">Form lens — inputs become controls, formulas stay hidden. Edit a number; the answers recompute from the same model.</div>
+${ins.map(l => `<div class="fld"><label>${IC.esc(l.name)}</label><input data-i="${l.i}" value="${IC.esc(l.expr)}"></div>`).join('')}
+<div class="answers">${outs.map(l => `<div class="ans"><div class="l">${IC.esc(l.name || l.t)}</div><div class="v">${IC.esc(rs[l.i].txt)}</div></div>`).join('')}</div>`;
+    document.querySelectorAll('#formv input').forEach(inp => inp.addEventListener('input', () => {
+      setLine(+inp.dataset.i, v => v.replace(/=.*/, '= ' + inp.value));
+      renderAll(false);
+    }));
+  }
+
+  function renderWidget() {
+    const rs = parse();
+    const ins = lines().filter(l => l.isInput);
+    const outs = lines().filter(l => !l.isEmpty && !l.isComment && !l.isInput && rs[l.i].cls === 'r');
+    const first = ins[0], last = outs[outs.length - 1];
+    document.getElementById('widgetv').innerHTML = `
+<div class="widget">
+  <div class="wt">🎉 Party Budget <span>● live</span></div>
+  ${first ? `<div class="stp">${IC.esc(first.name)} <div class="bx"><button data-d="-1">−</button><b>${IC.esc(first.expr)}</b><button data-d="1">＋</button></div></div>` : ''}
+  <div class="wv">${last ? IC.esc(rs[last.i].txt) : '—'}</div>
+  <div class="wl">${last ? IC.esc(last.name) : ''} · embed anywhere, stays live · made with <b>InstaCalc</b> ⑂</div>
+</div>`;
+    document.querySelectorAll('.widget .bx button').forEach(b => b.addEventListener('click', () => {
+      const cur = parseFloat(first.expr) || 0;
+      setLine(first.i, () => first.name + ' = ' + (cur + (+b.dataset.d)));
+      renderAll(false);
+    }));
+  }
+
+  function setLine(i, fn) {
+    const ls = src.value.split('\n'); ls[i] = fn(ls[i]); src.value = ls.join('\n');
+  }
+
+  function renderAll(nb = true) {
+    if (nb) renderNotebook(); else renderNotebook();
+    renderSheet(); renderForm(); renderWidget();
+  }
+  src.addEventListener('input', () => renderAll());
+  src.addEventListener('scroll', () => { hl.scrollTop = src.scrollTop; hl.scrollLeft = src.scrollLeft; res.scrollTop = src.scrollTop; });
+
+  /* ---------- gallery shelf + up-next content ---------- */
+  document.getElementById('cards').innerHTML = IC.CALCS.slice(0, 6).map(c => `
+<div class="card"><div class="thumb">${c.lines.map(l => `<div class="ml"><span>${IC.esc(l[0])}</span><b>${IC.esc(l[1])}</b></div>`).join('')}</div>
+<div class="t">${IC.esc(c.title)}</div><div class="m">${IC.esc(c.author)} · ${c.uses} uses · ★ ${c.rating}</div></div>`).join('');
+  document.getElementById('upnext-rows').innerHTML = IC.CALCS.slice(6, 10).map(c => `
+<div class="uprow"><div class="ic">${IC.cat(c.cat).icon}</div><div style="min-width:0"><b>${IC.esc(c.title)}</b><span>${IC.esc(c.author)} · ${c.uses} uses</span></div></div>`).join('');
+  document.getElementById('tr-rows').innerHTML = IC.CALCS.slice(0, 5).map((c, i) => `
+<div class="tr-row"><span class="rk">${i + 1}</span><span class="nm">${IC.esc(c.title)}</span><span class="up">▲ ${340 - i * 52}</span></div>`).join('');
+
+  /* ---------- toggles ---------- */
+  const togglesEl = document.getElementById('toggles');
+  togglesEl.innerHTML = DIMS.map((d, i) => `
+<div class="trow" data-id="${d.id}"><div class="tx"><b><i>${i + 1}</i>${d.name}</b><span>${d.desc}</span></div><div class="sw"></div></div>`).join('');
+
+  function apply() {
+    DIMS.forEach(d => document.body.classList.toggle('on-' + d.id, state.has(d.id)));
+    document.querySelectorAll('.trow').forEach(t => t.classList.toggle('on', state.has(t.dataset.id)));
+    const n = state.size;
+    document.getElementById('cnt').textContent = n + '/7';
+    document.getElementById('cnt2').textContent = n + '/7 applied';
+    if (!state.has('modes')) setView('nb');
+    const u = new URL(location);
+    if (n) u.searchParams.set('on', [...state].join(',')); else u.searchParams.delete('on');
+    if (view !== 'nb') u.searchParams.set('view', view); else u.searchParams.delete('view');
+    history.replaceState(null, '', u);
+    document.title = n ? `InstaCalc — evolved (${n}/7)` : 'InstaCalc — Smart Math Notebook (today)';
+  }
+  function toggle(id) { state.has(id) ? state.delete(id) : state.add(id); apply(); }
+  togglesEl.addEventListener('click', e => { const t = e.target.closest('.trow'); if (t) toggle(t.dataset.id); });
+  document.getElementById('p-none').addEventListener('click', () => { state.clear(); view = 'nb'; apply(); });
+  document.getElementById('p-all').addEventListener('click', () => { DIMS.forEach(d => state.add(d.id)); apply(); });
+
+  /* view modes */
+  function setView(v) {
+    view = v;
+    document.getElementById('stage').className = 'stage' + (v !== 'nb' ? ' mode-' + v : '');
+    document.querySelectorAll('#seg button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  }
+  document.querySelectorAll('#seg button').forEach(b => b.addEventListener('click', () => { setView(b.dataset.v); apply(); }));
+
+  /* drawer + palette */
+  const drawer = document.getElementById('drawer');
+  document.getElementById('fab').addEventListener('click', () => drawer.classList.toggle('open'));
+  const kbar = document.getElementById('kbar'), kdim = document.getElementById('kdim');
+  const openK = o => { kbar.classList.toggle('open', o); kdim.classList.toggle('open', o); };
+  document.getElementById('omni').addEventListener('click', () => openK(true));
+  kdim.addEventListener('click', () => openK(false));
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (state.has('omni')) openK(!kbar.classList.contains('open')); return; }
+    if (e.key === 'Escape') { openK(false); drawer.classList.remove('open'); return; }
+    if (e.target.matches('textarea, input')) return;
+    if (e.key >= '1' && e.key <= '7') toggle(DIMS[+e.key - 1].id);
+    else if (e.key === '0') { state.clear(); view = 'nb'; apply(); }
+    else if (e.key === '9') { DIMS.forEach(d => state.add(d.id)); apply(); }
+    else if (e.key.toLowerCase() === 't') {
+      const next = document.body.classList.contains('light-theme') ? 'dark' : 'light';
+      localStorage.setItem('jshell_theme', next);
+      document.body.classList.toggle('light-theme', next === 'light');
+    }
+  });
+
+  /* boot */
+  renderAll();
+  apply();
+  if (q.get('view') && state.has('modes')) setView(q.get('view'));
+  if (q.get('k') === '1') openK(true);
+  if (q.get('panel') === '1') drawer.classList.add('open');
+  if (!q.get('on') && q.get('chrome') !== '0') drawer.classList.add('open');
+})();
+</script>
+</body>
+</html>
