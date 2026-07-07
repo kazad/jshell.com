@@ -201,6 +201,71 @@ body.light-theme .l-easy-drawer .dr-dim{background:rgba(110,110,110,.25)}
     }
   });
 
+  /* ============ EASY 5 — THE DOCK (bottom tray = working set; libraries stay doorways) ============ */
+  define({
+    id: 'easy-dock', name: 'The Dock', app: 'the five tests', wire: 'topbar', easy: true,
+    note: 'The bottom panel, used for the job it’s shaped for: a wide-short tray holds the WORKING SET (recents with live values — the Excel-tabs/Dock job), while the editor keeps full width and the cold libraries stay behind doorways (rail, ⌘K, Explore full-bleed). Lists that need vertical scanning never live down here — only the hot 6.',
+    css: EZ_BASE + `
+.l-easy-dock{display:flex;flex-direction:column;height:100vh}
+.l-easy-dock .dk2-mid{flex:1;min-height:0;overflow-y:auto;display:flex;justify-content:center}
+.l-easy-dock .dk2-doc{width:min(760px,94%);padding:26px 0 12px}
+.l-easy-dock .dk2-dochead{display:flex;align-items:center;gap:12px;margin-bottom:4px}
+.l-easy-dock .dk2-dochead h1{font-size:21px;font-weight:800;letter-spacing:-.015em}
+.l-easy-dock .dk2-dochead .sp{margin-left:auto;display:flex;gap:8px;align-items:center}
+.l-easy-dock .dk2-meta{margin-bottom:14px}
+.l-easy-dock .ic-calc{font-size:14.5px}
+.l-easy-dock .ic-calc textarea{height:272px}
+.l-easy-dock .tray{flex:none;border-top:1px solid var(--color-border);background:var(--color-header);padding:8px 14px 12px}
+.l-easy-dock .tray-head{display:flex;align-items:center;gap:14px;margin-bottom:8px}
+.l-easy-dock .tray-head .grab{color:var(--color-text-muted);font-size:10px;letter-spacing:2px;cursor:ns-resize}
+.l-easy-dock .tray-tabs{display:flex;gap:4px}
+.l-easy-dock .tray-tabs span{padding:3px 11px;border-radius:6px;font-size:11.5px;font-weight:600;color:var(--color-text-muted);cursor:pointer}
+.l-easy-dock .tray-tabs span:hover{color:var(--color-text-main)}
+.l-easy-dock .tray-tabs span.on{background:var(--color-surface-hover);color:var(--color-text-main)}
+.l-easy-dock .tray-head .all{margin-left:auto;color:var(--color-text-muted);font-size:11px}
+.l-easy-dock .tray-head .all a{color:var(--color-accent-blue);text-decoration:none;cursor:pointer}
+.l-easy-dock .tray-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:2px}
+.l-easy-dock .tcard{flex:none;width:190px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:9px;padding:8px 11px;cursor:pointer;transition:border-color .12s}
+.l-easy-dock .tcard:hover{border-color:var(--color-text-muted)}
+.l-easy-dock .tcard.on{border-color:var(--color-accent-blue);box-shadow:0 0 0 1px var(--color-accent-blue)}
+.l-easy-dock .tcard .tt{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.l-easy-dock .tcard .tt b{font-size:12px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.l-easy-dock .tcard .tt i{font:700 12px 'JetBrains Mono',monospace;color:var(--color-success);font-style:normal;white-space:nowrap}
+.l-easy-dock .tcard .tm{color:var(--color-text-muted);font-size:10px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`,
+    render() {
+      const mine = [
+        ['🎉 Party Budget', '$910', 'edited just now', true],
+        ['📐 Mortgage vs Rent', '−$7,501', '1d ago', false],
+        ['💼 Freelance Rate', '$85/hr', '2d ago', false],
+        ['✈️ Japan trip', '$4,180', '3d ago', false],
+        ['🏦 Refi check', '$3,384', '1w ago', false],
+        ['🍕 Catering remix', '$26.20', '1w ago', false],
+      ];
+      const tray = mine.map(m => `
+<div class="tcard ${m[3] ? 'on' : ''}"><div class="tt"><b>${m[0]}</b><i>${m[1]}</i></div><div class="tm">${m[2]}</div></div>`).join('');
+      return `
+<div class="ic-topbar">${BRAND()}
+  <div class="ic-search ez-k">🔍 <input placeholder="Search, commands, or math…"><kbd>⌘K</kbd></div>
+  <span class="ic-btn">🗂 Explore</span><span class="ic-btn">⑂ Remix</span><span class="ic-btn primary">↗ Share</span>
+</div>
+<div class="dk2-mid">
+  <div class="dk2-doc">
+    <div class="dk2-dochead"><h1>🎉 Party Budget</h1><div class="sp">${SEG()}<span class="ic-btn primary">↗ Share</span></div></div>
+    <div class="dk2-meta ez-by">by kazad · autosaved <span class="ok">just now</span> · <span class="ok">● public link</span> — full width: no side panel ever steals a line</div>
+    ${editor('')}
+  </div>
+</div>
+<div class="tray">
+  <div class="tray-head">
+    <span class="grab">⌃ ⌃ ⌃</span>
+    <div class="tray-tabs"><span class="on" data-t="recent">Recent</span><span data-t="pinned">Pinned</span><span data-t="explore">Explore ↗</span></div>
+    <span class="all">the tray holds the hot 6 — full library lives behind <a>🗂 Explore</a> and <a>⌘K</a>, where lists can scroll vertically</span>
+  </div>
+  <div class="tray-row">${tray}</div>
+</div>`;
+    }
+  });
+
   /* ============ EASY 4 — THE DECK (my calcs as tabs; library is a tab) ============ */
   define({
     id: 'easy-deck', name: 'The Deck', app: 'the five tests', wire: 'topbar', easy: true,
