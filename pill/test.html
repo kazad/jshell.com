@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ValEye — Test Bench</title>
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <style>
+    :root {
+      --bg: #faf7f2; --surface: #ffffff; --surface-2: #f1ece3;
+      --text: #2d3142; --dim: #8a8f9e;
+      --pass: #2fb380; --warn: #e9a13b; --fail: #e2606f;
+      --shadow: 0 2px 14px rgba(45, 49, 66, 0.08);
+    }
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+      padding: 20px;
+    }
+    header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+    h1 { font-size: 20px; }
+    h1 a { color: var(--dim); text-decoration: none; font-weight: 400; }
+    #status { color: var(--dim); font-size: 13px; }
+    .controls { margin: 10px 0 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    button {
+      background: var(--pass); color: #fff; border: none; border-radius: 999px;
+      padding: 9px 20px; font-size: 14px; font-weight: 700; cursor: pointer; box-shadow: var(--shadow);
+    }
+    button:disabled { opacity: 0.4; }
+    button.ghost { background: var(--surface); color: var(--text); font-weight: 600; }
+    #summary {
+      display: none; gap: 18px; flex-wrap: wrap; align-items: center;
+      background: var(--surface); border-radius: 14px; padding: 12px 18px; margin-bottom: 18px; box-shadow: var(--shadow);
+    }
+    #summary.show { display: flex; }
+    .stat { text-align: center; }
+    .stat b { display: block; font-size: 22px; }
+    .stat span { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+    .card { background: var(--surface); border-radius: 14px; overflow: hidden; border-left: 4px solid var(--surface-2); box-shadow: var(--shadow); }
+    .card.pass { border-left-color: var(--pass); }
+    .card.warn { border-left-color: var(--warn); }
+    .card.fail { border-left-color: var(--fail); }
+    .card .imgwrap { position: relative; background: #000; aspect-ratio: 4/3; cursor: zoom-in; }
+    .card canvas, .card img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .imgwrap .anno { position: absolute; inset: 0; transition: opacity 0.15s; }
+    .imgwrap:hover .anno { opacity: 0; } /* hover reveals the original photo */
+    .meta { padding: 10px 12px; }
+    .name { font-size: 12px; color: var(--dim); word-break: break-all; }
+    .nums { display: flex; gap: 14px; align-items: baseline; margin-top: 4px; }
+    .got { font-size: 24px; font-weight: 800; }
+    .pass .got { color: var(--pass); } .warn .got { color: var(--warn); } .fail .got { color: var(--fail); }
+    .exp { color: var(--dim); font-size: 13px; }
+    .ms { margin-left: auto; color: var(--dim); font-size: 12px; }
+    .tag {
+      display: inline-block; font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+      background: var(--surface-2); color: var(--dim); border-radius: 4px; padding: 2px 6px; margin-top: 6px;
+    }
+    #zoom {
+      position: fixed; inset: 0; background: rgba(5, 8, 14, 0.94); display: none;
+      place-items: center; z-index: 10; cursor: zoom-out; padding: 20px;
+    }
+    #zoom.show { display: grid; }
+    #zoom .pair {
+      display: grid; gap: 12px; max-width: 100%; max-height: 100%;
+      grid-template-columns: 1fr; overflow: auto;
+    }
+    @media (min-width: 1100px) { #zoom .pair { grid-template-columns: 1fr 1fr; } }
+    #zoom canvas { max-width: 100%; height: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ValEye Test Bench <a href="./">← app</a> <a href="about.html">how it works</a></h1>
+    <div id="status">loading engine…</div>
+  </header>
+  <div class="controls">
+    <button id="run" disabled>Run all</button>
+    <button id="run-syn" class="ghost" disabled>Synthetic only</button>
+    <button id="run-real" class="ghost" disabled>Real only</button>
+    <label style="color:var(--dim);font-size:13px">algorithm
+      <select id="variant" style="background:var(--surface);color:var(--text);border:1px solid var(--surface-2);border-radius:10px;padding:8px 10px;font-size:13px">
+        <option value="baseline" selected>baseline (watershed hybrid) — default</option>
+        <option value="mass">mass (pixel-mass ÷ unit area)</option>
+        <option value="sized">sized (same-pill prior, experimental)</option>
+      </select>
+    </label>
+  </div>
+  <div id="summary"></div>
+  <div id="analysis" style="display:none; gap:16px; flex-wrap:wrap; margin-bottom:18px; align-items:flex-start"></div>
+  <div id="grid" class="grid"></div>
+  <div id="zoom"></div>
+
+  <script type="module">
+    import { loadCV, countPills, drawOverlay } from './js/counter.js';
+
+    const $ = (s) => document.querySelector(s);
+    const statusEl = $('#status'), grid = $('#grid'), summary = $('#summary'), zoom = $('#zoom');
+
+    // Pass: within max(1, 10%); warn: within 30%; fail: worse.
+    const grade = (got, exp) => {
+      const d = Math.abs(got - exp);
+      if (d <= Math.max(1, exp * 0.10)) return 'pass';
+      if (d <= exp * 0.30) return 'warn';
+      return 'fail';
+    };
+
+    let cv, manifest, version = '';
+
+    async function loadManifest() {
+      manifest = Object.entries(await (await fetch('testdata/expected.json', { cache: 'no-store' })).json())
+        .map(([file, expected]) => ({ file, expected, synthetic: file.startsWith('synthetic-') || file.startsWith('test-pills') }))
+        .sort((a, b) => a.file.localeCompare(b.file));
+    }
+
+    async function init() {
+      try {
+        const sw = await (await fetch('sw.js', { cache: 'no-store' })).text();
+        version = 'build ' + (sw.match(/valeye-(v\d+)/)?.[1] ?? '?');
+      } catch { version = ''; }
+      await loadManifest();
+      statusEl.textContent = `${manifest.length} images · loading engine… · ${version}`;
+      cv = await loadCV('vendor/opencv.js');
+      statusEl.textContent = `${manifest.length} images · engine ready · ${version}`;
+      for (const b of ['#run', '#run-syn', '#run-real']) $(b).disabled = false;
+      // Auto-run the full suite on load (opt out with ?auto=0).
+      if (new URLSearchParams(location.search).get('auto') !== '0') runSuite(() => true);
+    }
+
+    async function loadImageData(url) {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      return { canvas: c, imageData: ctx.getImageData(0, 0, c.width, c.height) };
+    }
+
+    function renderAnnotated(srcCanvas, result, targetW) {
+      const s = targetW / srcCanvas.width;
+      const c = document.createElement('canvas');
+      c.width = targetW; c.height = Math.round(srcCanvas.height * s);
+      const ctx = c.getContext('2d');
+      ctx.drawImage(srcCanvas, 0, 0, c.width, c.height);
+      drawOverlay(ctx, result, c.width / result.width, { clear: false });
+      return c;
+    }
+
+    function renderOriginal(srcCanvas, targetW) {
+      const c = document.createElement('canvas');
+      c.width = targetW; c.height = Math.round(srcCanvas.height * targetW / srcCanvas.width);
+      c.getContext('2d').drawImage(srcCanvas, 0, 0, c.width, c.height);
+      return c;
+    }
+
+    async function runSuite(filter) {
+      await loadManifest(); // pick up newly added corpus images without a reload
+      const items = manifest.filter(filter);
+      grid.innerHTML = '';
+      summary.classList.remove('show');
+      const rows = [];
+      let done = 0;
+
+      for (const item of items) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<div class="imgwrap"></div>
+          <div class="meta">
+            <div class="name">${item.file}</div>
+            <div class="nums"><span class="got">…</span>
+              <span class="exp">expected ${item.expected}</span><span class="ms"></span></div>
+            <span class="tag">${item.synthetic ? 'synthetic' : 'real photo'}</span>
+          </div>`;
+        grid.appendChild(card);
+
+        statusEl.textContent = `running ${++done}/${items.length}: ${item.file}`;
+        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 10)));
+
+        try {
+          const { canvas, imageData } = await loadImageData('testdata/' + item.file);
+          const t0 = performance.now();
+          const result = countPills(cv, imageData, { maxDim: 1280, variant: $('#variant').value });
+          const ms = Math.round(performance.now() - t0);
+          const g = grade(result.count, item.expected);
+          card.classList.add(g);
+          card.querySelector('.got').textContent = result.count;
+          card.querySelector('.ms').textContent = ms + ' ms';
+          const wrap = card.querySelector('.imgwrap');
+          wrap.appendChild(renderOriginal(canvas, 600));
+          const annotated = renderAnnotated(canvas, result, 600);
+          annotated.className = 'anno';
+          wrap.appendChild(annotated);
+          wrap.title = 'hover: original photo · click: zoom both';
+          wrap.addEventListener('click', () => {
+            const zw = Math.min(900, canvas.width);
+            zoom.innerHTML = '<div class="pair"></div>';
+            const pair = zoom.firstChild;
+            pair.appendChild(renderOriginal(canvas, zw));
+            pair.appendChild(renderAnnotated(canvas, result, zw));
+            zoom.classList.add('show');
+          });
+          rows.push({ ...item, got: result.count, ms, grade: g });
+        } catch (e) {
+          card.classList.add('fail');
+          card.querySelector('.got').textContent = 'ERR';
+          card.querySelector('.name').textContent += ' — ' + e.message;
+          rows.push({ ...item, got: null, ms: 0, grade: 'fail' });
+        }
+      }
+
+      const n = rows.length;
+      const passes = rows.filter((r) => r.grade === 'pass').length;
+      const warns = rows.filter((r) => r.grade === 'warn').length;
+      const fails = n - passes - warns;
+      const errs = rows.filter((r) => r.got !== null)
+        .map((r) => Math.abs(r.got - r.expected) / Math.max(1, r.expected) * 100)
+        .sort((a, b) => a - b);
+      const medErr = errs.length ? errs[errs.length >> 1].toFixed(0) : '—';
+      const totalMs = rows.reduce((a, r) => a + r.ms, 0);
+      summary.innerHTML = `
+        <div class="stat"><b style="color:var(--pass)">${passes}</b><span>pass ≤10%</span></div>
+        <div class="stat"><b style="color:var(--warn)">${warns}</b><span>warn ≤30%</span></div>
+        <div class="stat"><b style="color:var(--fail)">${fails}</b><span>fail</span></div>
+        <div class="stat"><b>${medErr}%</b><span>median error</span></div>
+        <div class="stat"><b>${(totalMs / 1000).toFixed(1)}s</b><span>total time</span></div>`;
+      summary.classList.add('show');
+      renderAnalysis(rows);
+      statusEl.textContent = `${n} images done · ${version}`;
+    }
+
+    // ---- per-dimension analysis + expected-vs-counted scatter ----
+
+    function parseDims(file) {
+      // synth2-<type><pill>-<bg>-<size>-n<count>-t<touch>-s<seed>.png
+      const m = file.match(/^synth2-([rc])([cw])-(\w+)-(\w+)-n(\d+)-t(\d+)-s\d+\.png$/);
+      if (!m) return null;
+      return {
+        shape: m[1] === 'r' ? 'round' : 'capsule',
+        pill: m[2] === 'c' ? 'colored' : 'white',
+        background: m[3],
+        size: m[4],
+        count: +m[5] <= 30 ? '≤30' : (+m[5] <= 60 ? '31–60' : '61+'),
+        touching: m[6] === '0' ? 'none' : (m[6] === '35' ? 'some' : 'heavy'),
+      };
+    }
+
+    function renderAnalysis(rows) {
+      const el = document.getElementById('analysis');
+      el.innerHTML = '';
+      const scored = rows.filter((r) => r.got !== null);
+
+      // Scatter: expected vs counted (log-log-ish).
+      const sc = document.createElement('canvas');
+      sc.width = 260; sc.height = 260;
+      sc.style.cssText = 'background:var(--surface);border-radius:14px;box-shadow:var(--shadow);padding:0';
+      const ctx = sc.getContext('2d');
+      const lim = Math.max(...scored.map((r) => Math.max(r.expected, r.got)), 10);
+      const px = (v) => 18 + (Math.log(1 + v) / Math.log(1 + lim)) * 228;
+      ctx.strokeStyle = '#d8d2c6';
+      ctx.beginPath(); ctx.moveTo(px(0), 260 - px(0)); ctx.lineTo(px(lim), 260 - px(lim)); ctx.stroke();
+      const cols = { pass: '#2fb380', warn: '#e9a13b', fail: '#e2606f' };
+      for (const r of scored) {
+        ctx.fillStyle = cols[r.grade] + 'aa';
+        ctx.beginPath();
+        ctx.arc(px(r.expected), 260 - px(r.got), 3.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#8a8f9e';
+      ctx.font = '10px system-ui';
+      ctx.fillText('expected →', 176, 252);
+      ctx.save(); ctx.translate(10, 84); ctx.rotate(-Math.PI / 2); ctx.fillText('counted →', 0, 0); ctx.restore();
+      const scWrap = document.createElement('div');
+      scWrap.innerHTML = '<div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Expected vs counted</div>';
+      scWrap.appendChild(sc);
+      el.appendChild(scWrap);
+
+      // Dimension tables (synthetic sweep images only).
+      const dimRows = scored.map((r) => ({ ...r, dims: parseDims(r.file) })).filter((r) => r.dims);
+      if (dimRows.length) {
+        for (const dim of ['background', 'size', 'touching', 'count', 'shape', 'pill']) {
+          const groups = new Map();
+          for (const r of dimRows) {
+            const k = r.dims[dim];
+            if (!groups.has(k)) groups.set(k, []);
+            groups.get(k).push(r);
+          }
+          const t = document.createElement('table');
+          t.style.cssText = 'background:var(--surface);border-radius:14px;box-shadow:var(--shadow);border-collapse:separate;border-spacing:0;padding:8px 12px;font-size:12px';
+          t.innerHTML = `<tr><th style="text-align:left;color:var(--dim);font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:4px 10px 6px 4px">${dim}</th>
+            <th style="color:var(--dim);font-size:10px;padding:4px 8px 6px">PASS</th><th style="color:var(--dim);font-size:10px;padding:4px 8px 6px">MED ERR</th></tr>`;
+          for (const [k, rs] of [...groups.entries()].sort()) {
+            const pass = rs.filter((r) => r.grade === 'pass').length;
+            const errs = rs.map((r) => Math.abs(r.got - r.expected) / Math.max(1, r.expected) * 100).sort((a, b) => a - b);
+            const med = errs[errs.length >> 1].toFixed(0);
+            const color = pass === rs.length ? 'var(--pass)' : (pass >= rs.length * 0.7 ? 'var(--warn)' : 'var(--fail)');
+            t.innerHTML += `<tr><td style="padding:3px 10px 3px 4px;font-weight:600">${k}</td>
+              <td style="padding:3px 8px;text-align:center;color:${color};font-weight:700">${pass}/${rs.length}</td>
+              <td style="padding:3px 8px;text-align:center;color:var(--dim)">${med}%</td></tr>`;
+          }
+          el.appendChild(t);
+        }
+      }
+      el.style.display = 'flex';
+    }
+
+    $('#run').addEventListener('click', () => runSuite(() => true));
+    $('#run-syn').addEventListener('click', () => runSuite((i) => i.synthetic));
+    $('#run-real').addEventListener('click', () => runSuite((i) => !i.synthetic));
+    zoom.addEventListener('click', () => zoom.classList.remove('show'));
+
+    init().catch((e) => { statusEl.textContent = 'init failed: ' + e.message; });
+  </script>
+</body>
+</html>

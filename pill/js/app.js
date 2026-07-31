@@ -112,7 +112,7 @@ function setLive(on) {
     state.liveTimer = setInterval(() => {
       if (!state.cv || state.busy || els.video.readyState < 2) return;
       try {
-        const r = countPills(state.cv, grabFrame(), { maxDim: 640, overlay: false, variant: 'mass' });
+        const r = countPills(state.cv, grabFrame(), { maxDim: 640, overlay: false, variant: 'baseline' });
         els.liveCount.textContent = `~ ${r.count}`;
       } catch { /* skip frame */ }
     }, 700);
@@ -128,7 +128,7 @@ async function analyze(sourceCanvas) {
   await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30))); // let UI paint
 
   try {
-    const result = countPills(state.cv, sourceCanvas, { maxDim: 1280, variant: 'mass' });
+    const result = countPills(state.cv, sourceCanvas, { maxDim: 1280, variant: 'baseline' });
     state.result = result;
     state.count = result.count;
     showResult(sourceCanvas, result);

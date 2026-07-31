@@ -52,21 +52,40 @@ function borderWhiteFraction(cv, bw) {
   return white / total;
 }
 
-// Median RGB of the image border — an estimate of the background/tray color.
+// Dominant border color — the background/tray estimate. Robust to mixed
+// borders (e.g. black pillarbox bars beside a white counter): each side
+// nominates its median color, the candidate supported by the most border
+// pixels wins, and the final color is the median of just its supporters.
 function borderColor(rgba, w, h) {
   const t = Math.max(2, Math.round(Math.min(w, h) * 0.03));
-  const rs = [], gs = [], bs = [];
-  const push = (x, y) => {
+  const sides = { top: [], bottom: [], left: [], right: [] };
+  const push = (arr, x, y) => {
     const o = (y * w + x) * 4;
-    rs.push(rgba[o]); gs.push(rgba[o + 1]); bs.push(rgba[o + 2]);
+    arr.push([rgba[o], rgba[o + 1], rgba[o + 2]]);
   };
   for (let y = 0; y < t; y++) {
-    for (let x = 0; x < w; x += 3) { push(x, y); push(x, h - 1 - y); }
+    for (let x = 0; x < w; x += 3) { push(sides.top, x, y); push(sides.bottom, x, h - 1 - y); }
   }
   for (let x = 0; x < t; x++) {
-    for (let y = t; y < h - t; y += 3) { push(x, y); push(w - 1 - x, y); }
+    for (let y = t; y < h - t; y += 3) { push(sides.left, x, y); push(sides.right, w - 1 - x, y); }
   }
-  return [median(rs), median(gs), median(bs)];
+  const all = [...sides.top, ...sides.bottom, ...sides.left, ...sides.right];
+  const medOf = (px) => [0, 1, 2].map((c) => median(px.map((p) => p[c])));
+  const candidates = Object.values(sides).filter((s) => s.length).map(medOf);
+  // Every border color with meaningful support is a background (a pillarboxed
+  // photo has two: the counter AND the black bars). Sorted by support.
+  const kept = [];
+  for (const cand of candidates) {
+    const support = all.filter((p) =>
+      Math.abs(p[0] - cand[0]) + Math.abs(p[1] - cand[1]) + Math.abs(p[2] - cand[2]) < 90);
+    if (support.length < all.length * 0.15) continue;
+    const col = medOf(support);
+    if (!kept.some((k) => Math.abs(k.col[0] - col[0]) + Math.abs(k.col[1] - col[1]) + Math.abs(k.col[2] - col[2]) < 60)) {
+      kept.push({ col, support: support.length });
+    }
+  }
+  kept.sort((a, b) => b.support - a.support);
+  return kept.length ? kept.map((k) => k.col) : [medOf(all)];
 }
 
 // Color difference vs a reference, damping only shadow-like shifts (darker
@@ -80,17 +99,22 @@ function colorDist(dr, dg, db) {
   return Math.min(255, Math.sqrt(chroma2 + lumaW * dl * dl) | 0);
 }
 
-// Per-pixel color distance from the background color, as a CV_8U Mat.
+// Per-pixel color distance from the NEAREST background color, as a CV_8U Mat.
 function distanceFromBackground(cv, rgbaMat) {
   const w = rgbaMat.cols, h = rgbaMat.rows;
   const d = rgbaMat.data;
-  const [br, bg, bb] = borderColor(d, w, h);
+  const bgs = borderColor(d, w, h);
   const out = new cv.Mat(h, w, cv.CV_8UC1);
   const o = out.data;
   for (let i = 0, p = 0; i < o.length; i++, p += 4) {
-    o[i] = colorDist(d[p] - br, d[p + 1] - bg, d[p + 2] - bb);
+    let m = 255;
+    for (const [br, bg, bb] of bgs) {
+      const v = colorDist(d[p] - br, d[p + 1] - bg, d[p + 2] - bb);
+      if (v < m) m = v;
+    }
+    o[i] = m;
   }
-  return { mat: out, color: [br, bg, bb] };
+  return { mat: out, color: bgs[0] };
 }
 
 // Visualize a CV_8UC1 mat as a green-tinted ImageData-like object (for the
@@ -284,6 +308,54 @@ function rescueSecondMode(cv, distBg, bw, absFloor) {
   return added;
 }
 
+// Flatten uneven illumination (vignettes, side-light gradients): estimate the
+// lighting field as a heavy low-resolution blur of luminance and divide it
+// out. The field cells are far larger than a pill, so pills barely perturb it.
+function flattenIllumination(cv, src) {
+  const gray = new cv.Mat();
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  const fw = 24, fh = Math.max(2, Math.round(24 * src.rows / src.cols));
+  const small = new cv.Mat();
+  cv.resize(gray, small, new cv.Size(fw, fh), 0, 0, cv.INTER_AREA);
+  cv.GaussianBlur(small, small, new cv.Size(5, 5), 0);
+  const field = new cv.Mat();
+  cv.resize(small, field, gray.size(), 0, 0, cv.INTER_LINEAR);
+  const meanL = cv.mean(field)[0];
+  const f = field.data, d = src.data;
+  for (let i = 0, p = 0; i < f.length; i++, p += 4) {
+    const k = meanL / Math.max(30, f[i]);
+    if (k > 1.02 || k < 0.98) {
+      d[p] = Math.min(255, d[p] * k);
+      d[p + 1] = Math.min(255, d[p + 1] * k);
+      d[p + 2] = Math.min(255, d[p + 2] * k);
+    }
+  }
+  gray.delete(); small.delete(); field.delete();
+}
+
+// Cut strong interior intensity edges (the creases where touching pills
+// meet) out of a mask copy. Used to calibrate the single-pill unit area when
+// pills form one connected clump with no isolated specimen.
+function cutCreases(cv, src, mask) {
+  const gray = new cv.Mat();
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  cv.GaussianBlur(gray, gray, new cv.Size(3, 3), 0);
+  const gx = new cv.Mat(), gy = new cv.Mat(), mag = new cv.Mat();
+  cv.Sobel(gray, gx, cv.CV_32F, 1, 0, 3);
+  cv.Sobel(gray, gy, cv.CV_32F, 0, 1, 3);
+  cv.magnitude(gx, gy, mag);
+  const mg = mag.data32F, md = mask.data;
+  // Threshold at a high percentile of the in-mask gradient.
+  const vals = [];
+  for (let i = 0; i < md.length; i += 3) if (md[i]) vals.push(mg[i]);
+  vals.sort((a, b) => a - b);
+  const thr = Math.max(30, vals[Math.floor(vals.length * 0.86)] || 1e9);
+  for (let i = 0; i < md.length; i++) if (md[i] && mg[i] > thr) md[i] = 0;
+  const k = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3));
+  cv.morphologyEx(mask, mask, cv.MORPH_OPEN, k, new cv.Point(-1, -1), 1);
+  gray.delete(); gx.delete(); gy.delete(); mag.delete(); k.delete();
+}
+
 function toImageData(source) {
   if (source && source.data && source.width && source.height) return source;
   if (source && typeof source.getContext === 'function') {
@@ -328,6 +400,9 @@ export function countPills(cv, source, opts = {}) {
     // Optional stage-snapshot callback (drives the live demos in about.html).
     const emit = typeof opts.stages === 'function' ? opts.stages : null;
     if (emit) emit('input', { data: new Uint8ClampedArray(src.data), width: src.cols, height: src.rows });
+
+    // Level out vignettes and lighting gradients before any color reasoning.
+    flattenIllumination(cv, src);
 
     // Segment by color distance from the background (est. from the border) —
     // works for colored pills that grayscale Otsu lumps into the background.
@@ -506,21 +581,69 @@ export function countPills(cv, source, opts = {}) {
       for (let l = 1; l < peaks.length; l++) {
         if (blobAreas[l] >= absFloor && peaks[l] >= MIN_PEAK) blobList.push(l);
       }
-      const unit = estimateUnitArea(blobList.map((l) => blobAreas[l]));
-      opts.debug?.({ stage: 'mass', blobs: blobList.length, unit });
+      let unit = estimateUnitArea(blobList.map((l) => blobAreas[l]));
+
+      // Clump rescue: cut creases on a mask copy and re-measure. If cutting
+      // reveals substantially more pieces than there were blobs, the blobs
+      // were multi-pill clumps and the pieces are the real unit calibration.
+      const cutM = track(new cv.Mat());
+      bw.copyTo(cutM);
+      cutCreases(cv, src, cutM);
+      const cutLab = track(new cv.Mat());
+      cv.connectedComponents(cutM, cutLab);
+      const cl = cutLab.data32S;
+      const pieceStats = new Map(); // label -> {area, sx, sy, blob}
+      for (let i = 0; i < cl.length; i++) {
+        if (!cl[i]) continue;
+        let p = pieceStats.get(cl[i]);
+        if (!p) { p = { area: 0, sx: 0, sy: 0, blob: bl[i] }; pieceStats.set(cl[i], p); }
+        p.area++;
+        p.sx += i % w;
+        p.sy += (i / w) | 0;
+      }
+      const pieces = [...pieceStats.values()].filter((p) => p.area >= absFloor);
+      const unit2 = estimateUnitArea(pieces.map((p) => p.area));
+      // Physical sanity: a pill's area can't be much less than pi*(half its
+      // thickness)^2 — engraving fragments fail this and must not calibrate.
+      const minPlausibleUnit = 0.6 * Math.PI * radiusEst * radiusEst;
+      if (pieces.length >= blobList.length * 2 && unit2 >= Math.max(absFloor, minPlausibleUnit)) unit = unit2;
+      opts.debug?.({ stage: 'mass', blobs: blobList.length, unit, pieces: pieces.length, unit2 });
+
       if (blobList.length >= 2 && unit >= absFloor) {
         const cent = new Map(blobList.map((l) => [l, { sx: 0, sy: 0, n: 0 }]));
         for (let i = 0; i < bl.length; i++) {
           const c = cent.get(bl[i]);
           if (c) { c.sx += i % w; c.sy += (i / w) | 0; c.n++; }
         }
+        // Badge placement: when the watershed found exactly as many pill
+        // centers inside a blob as its mass says it holds, badge those
+        // centers (pills), not the blob centroid (which is the gap between
+        // touching pills). Otherwise fall back to a range badge.
+        const baseByBlob = new Map();
+        for (const r of regions) {
+          const l = bl[(Math.round(r.cy) * w + Math.round(r.cx)) | 0];
+          if (!baseByBlob.has(l)) baseByBlob.set(l, []);
+          baseByBlob.get(l).push(r);
+        }
         regions = [];
         count = 0;
         for (const l of blobList) {
           const units = Math.max(1, Math.round(blobAreas[l] / unit));
           count += units;
-          const c = cent.get(l);
-          regions.push({ cx: c.sx / c.n, cy: c.sy / c.n, area: blobAreas[l], units });
+          const centers = (baseByBlob.get(l) || []).filter((r) => r.units === 1);
+          const pieceCenters = pieces
+            .filter((p) => p.blob === l && p.area >= 0.55 * unit && p.area <= 1.8 * unit)
+            .map((p) => ({ cx: p.sx / p.area, cy: p.sy / p.area, area: p.area }));
+          const pick = centers.length === units ? centers
+            : (pieceCenters.length === units ? pieceCenters : null);
+          if (units > 1 && pick) {
+            for (const r of pick) regions.push({ cx: r.cx, cy: r.cy, area: r.area, units: 1 });
+          } else if (units === 1 && centers.length === 1) {
+            regions.push({ cx: centers[0].cx, cy: centers[0].cy, area: blobAreas[l], units: 1 });
+          } else {
+            const c = cent.get(l);
+            regions.push({ cx: c.sx / c.n, cy: c.sy / c.n, area: blobAreas[l], units });
+          }
         }
         unitArea = unit;
       }
