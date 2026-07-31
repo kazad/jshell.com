@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ValEye — How It Works</title>
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <style>
+    :root {
+      --bg: #faf7f2; --surface: #ffffff; --surface-2: #f1ece3;
+      --text: #2d3142; --dim: #8a8f9e; --accent: #1f8f65; --warn: #e9a13b; --fail: #e2606f;
+      --shadow: 0 2px 14px rgba(45, 49, 66, 0.08);
+    }
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+      line-height: 1.6;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 28px 20px 80px; }
+    header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+    header img { width: 30px; height: 30px; }
+    h1 { font-size: 24px; }
+    .links { margin: 6px 0 30px; }
+    .links a { color: var(--accent); text-decoration: none; margin-right: 16px; font-size: 14px; }
+    h2 { font-size: 19px; margin: 36px 0 10px; }
+    p { margin: 10px 0; color: #4c5165; }
+    strong { color: var(--text); }
+    .step {
+      display: flex; gap: 14px; background: var(--surface);
+      border-radius: 14px; padding: 14px 16px; margin: 10px 0; flex-wrap: wrap; box-shadow: var(--shadow);
+    }
+    .step .txt { flex: 1 1 300px; }
+    .demo { flex: 1 1 100%; display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+    .demo figure { margin: 0; flex: 1 1 200px; max-width: 280px; }
+    .demo canvas { width: 100%; border-radius: 8px; display: block; background: #000; }
+    .demo figcaption { font-size: 11px; color: var(--dim); margin-top: 4px; letter-spacing: 0.3px; }
+    .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-left: 4px; border: 1px solid rgba(255,255,255,0.25); }
+    #demo-status { font-size: 12px; color: var(--dim); margin: 4px 0 0; }
+    .step .n {
+      flex: 0 0 34px; height: 34px; border-radius: 999px; background: var(--surface-2);
+      color: var(--accent); font-weight: 800; display: grid; place-items: center; font-size: 15px;
+    }
+    .step h3 { font-size: 15px; margin-bottom: 3px; }
+    .step p { font-size: 14px; margin: 3px 0; color: var(--dim); }
+    code {
+      background: var(--surface-2); border-radius: 5px; padding: 1px 6px;
+      font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #176b4d;
+    }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--surface-2); }
+    th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+    .good { color: var(--accent); } .bad { color: var(--fail); } .mid { color: var(--warn); }
+    .note {
+      background: var(--surface); border-left: 4px solid var(--warn);
+      border-radius: 10px; padding: 12px 16px; margin: 14px 0; font-size: 14px; color: #4c5165; box-shadow: var(--shadow);
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="icons/icon.svg" alt="" />
+    <h1>How ValEye Counts Pills</h1>
+  </header>
+  <div class="links"><a href="./">← app</a></div>
+
+  <p><strong>ValEye counts pills from a single overhead photo, entirely on your device.</strong>
+  No photo ever leaves the phone: the vision pipeline runs in your browser via
+  <strong>OpenCV</strong> compiled to WebAssembly, works offline once installed, and takes
+  roughly a quarter-second per image.</p>
+
+  <p>The problem sounds easy — "count the blobs" — but real trays have touching pills,
+  shadows, white pills on white counters, engraved trays, and piles. The pipeline below is
+  classical computer vision (no neural network), tuned against a test corpus of real
+  pharmacy-style photos and synthetic stress tests with exact known counts.</p>
+
+  <h2>The pipeline</h2>
+  <p id="demo-status">Loading the vision engine to render the stage demos below — these are
+  computed live in your browser, right now, by the same code the app uses…</p>
+
+  <div class="step"><div class="n">1</div><div class="txt">
+    <h3>Estimate the background</h3>
+    <p>The border of the photo is assumed to be tray/counter. Its <strong>median color</strong>
+    becomes the background model — no fixed color or special tray required.</p>
+  </div><div class="demo" id="d1"></div></div>
+
+  <div class="step"><div class="n">2</div><div class="txt">
+    <h3>Color-distance segmentation with shadow damping</h3>
+    <p>Every pixel gets a distance-from-background score. The luminance component is
+    down-weighted <em>only</em> when a pixel is darker than the background at the same hue —
+    the signature of a cast shadow. White pills on a white counter keep full weight, so they
+    still register. <strong>Otsu's method</strong> picks the foreground threshold automatically.</p>
+  </div><div class="demo" id="d2"></div></div>
+
+  <div class="step"><div class="n">3</div><div class="txt">
+    <h3>Second-mode rescue</h3>
+    <p>If the tray holds both strongly-colored and faint pills, Otsu splits "colored vs
+    everything" and drops the faint ones. We re-run Otsu on just the leftover background;
+    anything it reveals is admitted only if it is a <strong>compact, pill-shaped piece</strong>
+    (its area must be explainable by its thickness — a disk, not a smudge).</p>
+  </div><div class="demo" id="d3"></div></div>
+
+  <div class="step"><div class="n">4</div><div class="txt">
+    <h3>Surface refinement</h3>
+    <p>A blob covering more than ~12% of the frame is a plate or tray, not a pill. It gets
+    re-segmented against <em>its own</em> dominant color so the pills sitting on it pop out.
+    An <strong>accept-test</strong> guards the other direction: if re-segmenting yields crevice
+    fragments instead of several pill-like pieces (i.e. the blob was actually a pile of
+    same-colored pills), the refinement is reverted.</p>
+  </div><div class="demo" id="d4"></div></div>
+
+  <div class="step"><div class="n">5</div><div class="txt">
+    <h3>Distance transform &amp; markers</h3>
+    <p>The <strong>distance transform</strong> gives each foreground pixel its distance to the
+    nearest background pixel — pill centers become peaks, and a blob's peak is its half-width.
+    Pill-scale blobs seed one marker per peak cluster (60% of the blob's own peak); blobs
+    thicker than a pill (piles) instead use <strong>local maxima</strong>, spaced by the
+    estimated pill radius, so each buried pill center still gets a seed.</p>
+  </div><div class="demo" id="d5"></div></div>
+
+  <div class="step"><div class="n">6</div><div class="txt">
+    <h3>Watershed</h3>
+    <p>The <strong>watershed algorithm</strong> floods outward from the markers and draws
+    ridge lines where floods meet — which is exactly the boundary between two touching pills.
+    This is the classic separator for touching convex objects.</p>
+  </div><div class="demo" id="d6"></div></div>
+
+  <div class="step"><div class="n">7</div><div class="txt">
+    <h3>Filter, split, number</h3>
+    <p>Regions are filtered by an absolute size floor (relative to the image), a relative
+    floor (vs the median region), and a minimum thickness — killing specks, rims, and
+    engraving lines. A region much larger than the median (a merged cluster the watershed
+    missed) contributes <code>round(area / median)</code> pills and is badged as a range,
+    e.g. <code>12–14</code>. Every counted pill gets a numbered badge in the overlay.</p>
+  </div><div class="demo" id="d7"></div></div>
+
+  <h2>Pixel mass: the counting rule that won</h2>
+  <p>A pharmacy count is one medication, so every pill in frame has the <strong>same
+  area in pixels</strong>. That turns counting into arithmetic: after segmentation, each
+  blob's pixel mass should be an integer multiple of one pill's mass — a lone pill is
+  1.0×, two touching pills are ~2.0×, a chain of five is ~5.0×. The unit mass is
+  estimated iteratively (start at the median blob, divide each blob by its rounded
+  multiple, re-take the median), and the count is
+  <code>Σ round(blobArea / unitArea)</code>.</p>
+  <p>We A/B-tested three algorithms head-to-head on the corpus
+  (<code>node tools/count-cli.mjs testdata --ab</code>):</p>
+  <table>
+    <tr><th>Variant</th><th>Idea</th><th>Pass ≤10%</th><th>Median error</th></tr>
+    <tr><td><strong>mass</strong> (default)</td><td>pixel mass ÷ unit area</td>
+        <td class="good">14/16</td><td class="good">0%</td></tr>
+    <tr><td>baseline</td><td>watershed hybrid markers</td><td class="mid">10/16</td><td class="mid">10%</td></tr>
+    <tr><td>sized</td><td>size-derived markers + area split of watershed regions</td>
+        <td class="bad">4/16</td><td class="bad">35%</td></tr>
+  </table>
+  <p>Watershed still runs — it draws the pill boundaries and badge positions for the
+  overlay — but the <em>number</em> comes from pixel mass. The failed <code>sized</code>
+  experiment taught us why: dividing <em>watershed regions</em> by area amplifies marker
+  noise, while dividing <em>raw blobs</em> (whose outlines come straight from
+  segmentation) is stable.</p>
+
+  <h2>Current results</h2>
+  <table>
+    <tr><th>Scenario</th><th>Result</th></tr>
+    <tr><td>Scattered same-size pills, overhead, plain surface (the intended use)</td>
+        <td class="good">exact in testing — 118/118 kraft scatter, 30/30 touching chains, 3/3 minimal</td></tr>
+    <tr><td>White pills on white background</td><td class="good">15/15 via shadow-aware color distance</td></tr>
+    <tr><td>120-pill single-layer scatter with touching</td><td class="good">116/120 (~3% low)</td></tr>
+    <tr><td>Motion blur</td><td class="mid">±50% — blur merges pills with their shadows</td></tr>
+    <tr><td>Heavy vignette, angled/perspective shots, piles with buried pills</td>
+        <td class="bad">out of scope — retake from directly above, single layer, even light</td></tr>
+  </table>
+
+  <div class="note"><strong>Why overhead matters:</strong> the pipeline assumes pills are
+  round-faced and equal-sized <em>in the image</em>. Perspective turns circles into ellipses
+  of varying size across the frame, breaking the size prior and the watershed geometry.
+  Shoot straight down, fill the frame with the tray, avoid harsh side-light.</div>
+
+  <h2>Test methodology</h2>
+  <p>The test bench (in the source repo) runs the full
+  pipeline in your browser over the corpus: real CC-licensed photos (with hand-counted
+  expectations) plus synthetic stress tests rendered with <em>exact</em> known counts —
+  touching chains, tiny/large pills, gradients, sensor noise, motion blur, vignettes,
+  white-on-white. Grading: <strong>pass</strong> within max(1, 10%), <strong>warn</strong>
+  within 30%, <strong>fail</strong> beyond. The same suite runs headless via
+  <code>node tools/count-cli.mjs testdata --ab</code> for algorithm A/B comparisons.</p>
+
+  <h2>Stack</h2>
+  <p>Static PWA (no build step, no server): vanilla JS + OpenCV.js 4.9 (single-file WASM,
+  ~10&nbsp;MB, cached by a service worker for offline use). The counting module is
+  environment-agnostic and runs identically in Node for headless regression testing.</p>
+</div>
+
+<script type="module">
+import { loadCV, countPills, drawOverlay } from './js/counter.js';
+
+const status = document.getElementById('demo-status');
+
+function fig(slotId, imgLike, caption) {
+  const f = document.createElement('figure');
+  const c = document.createElement('canvas');
+  c.width = imgLike.width;
+  c.height = imgLike.height;
+  c.getContext('2d').putImageData(new ImageData(imgLike.data, imgLike.width, imgLike.height), 0, 0);
+  const cap = document.createElement('figcaption');
+  cap.innerHTML = caption;
+  f.appendChild(c);
+  f.appendChild(cap);
+  document.getElementById(slotId).appendChild(f);
+  return c;
+}
+
+async function loadImageData(url) {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  return ctx.getImageData(0, 0, c.width, c.height);
+}
+
+async function runStages(cv, url) {
+  const stages = {};
+  const result = countPills(cv, await loadImageData(url), {
+    maxDim: 900,
+    stages: (k, v) => { stages[k] = v; },
+  });
+  return { stages, result };
+}
+
+try {
+  const cv = await loadCV('vendor/opencv.js');
+  status.textContent = 'Engine ready — running the pipeline on the demo photos…';
+  await new Promise((r) => setTimeout(r, 30));
+
+  // Main demo: 118 white tablets on kraft paper, overhead.
+  const kraft = await runStages(cv, 'testdata/synthetic-kraft-118.png');
+  const K = kraft.stages;
+  fig('d1', K.input, 'Demo photo: 118 white tablets on kraft paper. Detected background color:'
+    + ` <span class="swatch" style="background:rgb(${K.bgcolor.join(',')})"></span>`);
+  fig('d2', K.distmap, 'Distance-from-background — pills glow, paper stays dark');
+  fig('d2', K['mask-otsu'], 'After Otsu threshold: the binary foreground mask');
+  fig('d5', K.disttransform, 'Distance transform — each pill center is a bright peak');
+  fig('d5', K.markers, 'Markers seeded from the peaks (one per pill, even when touching)');
+
+  // Watershed boundaries over the dimmed photo.
+  {
+    const c = fig('d6', K.input, 'Watershed ridge lines — the split between touching pills');
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = 'rgba(5,8,14,0.55)';
+    ctx.fillRect(0, 0, c.width, c.height);
+    const b = kraft.result.boundaries;
+    ctx.fillStyle = '#3ddc97';
+    for (let i = 0; i < b.length; i++) {
+      if (b[i]) ctx.fillRect(i % kraft.result.width, (i / kraft.result.width) | 0, 1, 1);
+    }
+  }
+
+  // Final numbered result.
+  {
+    const c = fig('d7', K.input, `Final result: ${kraft.result.count} pills, each numbered`);
+    drawOverlay(c.getContext('2d'), kraft.result, c.width / kraft.result.width, { clear: false });
+  }
+  status.textContent = 'Rendering the rescue and surface-refinement demos…';
+  await new Promise((r) => setTimeout(r, 30));
+
+  // Rescue demo: white + colored pills mixed on a light tray.
+  const mix = await runStages(cv, 'testdata/synthetic-touching-30.png');
+  fig('d3', mix.stages['mask-otsu'], 'First threshold on a mixed tray — before rescue');
+  fig('d3', mix.stages['mask-final'], 'After the second-mode rescue + cleanup');
+
+  // Surface refinement demo: pills on a white plate on a wooden table.
+  const plate = await runStages(cv, 'testdata/perspective/pills-on-plate-commons.png');
+  fig('d4', plate.stages['mask-otsu'], 'A plate segments as one giant blob…');
+  fig('d4', plate.stages['mask-final'], '…re-segmented against the plate’s own color: pills pop out');
+
+  status.textContent = 'Every demo below was computed live in your browser, just now, by the same pipeline the app uses.';
+} catch (e) {
+  status.textContent = 'Demo rendering failed: ' + e.message;
+}
+</script>
+</body>
+</html>

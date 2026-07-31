@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- floppy ears -->
+  <ellipse cx="38" cy="102" rx="26" ry="44" fill="#d29a5e" transform="rotate(14 38 102)"/>
+  <ellipse cx="162" cy="102" rx="26" ry="44" fill="#d29a5e" transform="rotate(-14 162 102)"/>
+  <ellipse cx="40" cy="104" rx="18" ry="34" fill="#c78d50" transform="rotate(14 40 104)"/>
+  <ellipse cx="160" cy="104" rx="18" ry="34" fill="#c78d50" transform="rotate(-14 160 104)"/>
+
+  <!-- fluffy head: ring of curls -->
+  <g fill="#eec084">
+    <circle cx="100" cy="52" r="22"/>
+    <circle cx="74" cy="58" r="20"/>
+    <circle cx="126" cy="58" r="20"/>
+    <circle cx="58" cy="80" r="20"/>
+    <circle cx="142" cy="80" r="20"/>
+    <circle cx="54" cy="106" r="20"/>
+    <circle cx="146" cy="106" r="20"/>
+    <circle cx="62" cy="130" r="20"/>
+    <circle cx="138" cy="130" r="20"/>
+    <circle cx="82" cy="146" r="20"/>
+    <circle cx="118" cy="146" r="20"/>
+    <circle cx="100" cy="150" r="20"/>
+  </g>
+  <circle cx="100" cy="100" r="54" fill="#f2c98f"/>
+
+  <!-- top curls -->
+  <g fill="#eec084">
+    <circle cx="86" cy="44" r="11"/>
+    <circle cx="102" cy="38" r="12"/>
+    <circle cx="118" cy="45" r="10"/>
+  </g>
+
+  <!-- muzzle -->
+  <ellipse cx="100" cy="124" rx="30" ry="24" fill="#f9e3bb"/>
+
+  <!-- eyes -->
+  <g>
+    <circle cx="78" cy="94" r="9" fill="#3c2e21"/>
+    <circle cx="122" cy="94" r="9" fill="#3c2e21"/>
+    <circle cx="81" cy="91" r="3" fill="#fff"/>
+    <circle cx="125" cy="91" r="3" fill="#fff"/>
+  </g>
+
+  <!-- nose + mouth -->
+  <path d="M100 110 q-10 -2 -10 6 q0 7 10 10 q10 -3 10 -10 q0 -8 -10 -6 z" fill="#4a3428"/>
+  <path d="M100 126 v6 M100 132 q-7 8 -15 3 M100 132 q7 8 15 3" stroke="#4a3428" stroke-width="3.4" fill="none" stroke-linecap="round"/>
+  <!-- tongue -->
+  <path d="M92 138 q8 12 16 0 q-2 10 -8 10 q-6 0 -8 -10 z" fill="#ef8f9d"/>
+</svg>
