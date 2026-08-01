@@ -30,6 +30,8 @@ const els = {
   cameraFallback: $('#camera-fallback'),
   helperTip: $('#helper-tip'),
   helperReact: $('#helper-react'),
+  liveOverlay: $('#live-overlay'),
+  useCount: $('#use-count'),
 };
 
 const TIPS = [
@@ -85,6 +87,7 @@ async function initCamera() {
     els.cameraFallback.hidden = true;
     els.shutter.disabled = false;
     els.liveToggle.disabled = false;
+    setLive(true); // live counting is the default state
   } catch (e) {
     console.warn('Camera unavailable:', e.name);
     els.cameraFallback.hidden = false;
@@ -102,21 +105,77 @@ function grabFrame() {
 }
 
 // ---------- live mode ----------
+// Live is the default state: the camera counts continuously, on-device.
+// The count is smoothed over recent analyses; when it holds steady the chip
+// locks green and "Use this count" commits it as a full-res record.
+
+const LIVE_WINDOW = 5;
+const liveCounts = [];
+let liveLocked = false;
+
+function liveMapping() {
+  // Video renders with object-fit: cover — map processed coords onto the box.
+  const box = els.video.getBoundingClientRect();
+  const vw = els.video.videoWidth, vh = els.video.videoHeight;
+  const s = Math.max(box.width / vw, box.height / vh);
+  return { box, s, ox: (box.width - vw * s) / 2, oy: (box.height - vh * s) / 2 };
+}
+
+function liveTick() {
+  if (!state.cv || state.busy || els.video.readyState < 2 || document.hidden) return;
+  let r;
+  try {
+    r = countPills(state.cv, grabFrame(), { maxDim: 640, overlay: false, variant: 'baseline' });
+  } catch { return; }
+
+  liveCounts.push(r.count);
+  if (liveCounts.length > LIVE_WINDOW) liveCounts.shift();
+  const sorted = [...liveCounts].sort((a, b) => a - b);
+  const med = sorted[sorted.length >> 1];
+  const spread = sorted[sorted.length - 1] - sorted[0];
+  const stable = liveCounts.length === LIVE_WINDOW && spread <= Math.max(1, med * 0.02);
+
+  if (stable !== liveLocked) {
+    liveLocked = stable;
+    els.liveCount.classList.toggle('stable', stable);
+    els.useCount.hidden = !stable;
+    if (stable) {
+      const target = parseInt(els.targetInput.value, 10);
+      els.helperTip.textContent = Number.isFinite(target) && target > 0
+        ? (med === target ? `${med} — that’s your target! 🎾` :
+           med < target ? `${med} so far — ${target - med} more to reach ${target}.` :
+           `${med} — that’s ${med - target} over your target of ${target}.`)
+        : `Holding steady at ${med}. Tap “Use this count” to save it.`;
+    }
+  }
+  els.liveCount.textContent = stable ? `${med}` : `~ ${med}`;
+
+  // Badges on the glass (light: no boundaries, just numbered circles).
+  const { box, s, ox, oy } = liveMapping();
+  const c = els.liveOverlay;
+  if (c.width !== Math.round(box.width) || c.height !== Math.round(box.height)) {
+    c.width = Math.round(box.width);
+    c.height = Math.round(box.height);
+  }
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.save();
+  ctx.translate(ox, oy);
+  drawOverlay(ctx, r, s * (els.video.videoWidth / r.width), { clear: false });
+  ctx.restore();
+}
 
 function setLive(on) {
   state.live = on;
   els.liveToggle.classList.toggle('active', on);
   els.liveCount.hidden = !on;
+  els.liveOverlay.hidden = !on;
+  els.useCount.hidden = true;
+  liveCounts.length = 0;
+  liveLocked = false;
+  els.liveCount.classList.remove('stable');
   clearInterval(state.liveTimer);
-  if (on) {
-    state.liveTimer = setInterval(() => {
-      if (!state.cv || state.busy || els.video.readyState < 2) return;
-      try {
-        const r = countPills(state.cv, grabFrame(), { maxDim: 640, overlay: false, variant: 'baseline' });
-        els.liveCount.textContent = `~ ${r.count}`;
-      } catch { /* skip frame */ }
-    }, 700);
-  }
+  if (on) state.liveTimer = setInterval(liveTick, 500);
 }
 
 // ---------- counting ----------
@@ -285,6 +344,7 @@ els.fileInput.addEventListener('change', () => {
 });
 
 els.liveToggle.addEventListener('click', () => setLive(!state.live));
+els.useCount.addEventListener('click', () => analyze(grabFrame())); // full-res commit
 els.adjustMinus.addEventListener('click', () => { state.count = Math.max(0, state.count - 1); updateCountUI(); });
 els.adjustPlus.addEventListener('click', () => { state.count += 1; updateCountUI(); });
 els.targetInput.addEventListener('input', updateCountUI);

@@ -95,26 +95,40 @@ function colorDist(dr, dg, db) {
   const dl = (dr + dg + db) / 3;
   const cr = dr - dl, cg = dg - dl, cb = db - dl;
   const chroma2 = cr * cr + cg * cg + cb * cb;
-  const lumaW = dl < 0 && chroma2 < 400 ? 0.12 : 1;
+  // Shadow = luminance-dominant darkening. On saturated surfaces (wood),
+  // shading is multiplicative, so deep shadows shift chroma proportionally —
+  // the gate must scale with |dl| rather than stay absolute.
+  const lumaW = dl < 0 && chroma2 < Math.max(400, 0.5 * dl * dl) ? 0.12 : 1;
   return Math.min(255, Math.sqrt(chroma2 + lumaW * dl * dl) | 0);
 }
 
 // Per-pixel color distance from the NEAREST background color, as a CV_8U Mat.
+// Also returns a raw (shadow-damping-free) map: white pill bodies that sit
+// slightly darker than a light background look like shadows to the damped
+// metric, but the rescue stage can re-examine them in the raw map where its
+// pill-shape filters (not luma damping) reject actual cast shadows.
 function distanceFromBackground(cv, rgbaMat) {
   const w = rgbaMat.cols, h = rgbaMat.rows;
   const d = rgbaMat.data;
   const bgs = borderColor(d, w, h);
   const out = new cv.Mat(h, w, cv.CV_8UC1);
-  const o = out.data;
+  const raw = new cv.Mat(h, w, cv.CV_8UC1);
+  const o = out.data, ro = raw.data;
   for (let i = 0, p = 0; i < o.length; i++, p += 4) {
-    let m = 255;
+    let m = 255, mr = 255;
     for (const [br, bg, bb] of bgs) {
-      const v = colorDist(d[p] - br, d[p + 1] - bg, d[p + 2] - bb);
+      const dr = d[p] - br, dg = d[p + 1] - bg, db = d[p + 2] - bb;
+      const v = colorDist(dr, dg, db);
       if (v < m) m = v;
+      const dl = (dr + dg + db) / 3;
+      const cr = dr - dl, cg = dg - dl, cb = db - dl;
+      const vr = Math.min(255, Math.sqrt(cr * cr + cg * cg + cb * cb + dl * dl) | 0);
+      if (vr < mr) mr = vr;
     }
     o[i] = m;
+    ro[i] = mr;
   }
-  return { mat: out, color: bgs[0] };
+  return { mat: out, raw, color: bgs[0] };
 }
 
 // Visualize a CV_8UC1 mat as a green-tinted ImageData-like object (for the
@@ -243,7 +257,7 @@ function refineOversizedBlobs(cv, src, bw, absFloor) {
 // When pill colors are bimodal (colored + near-white on a light surface),
 // Otsu splits colored-vs-rest and drops the faint pills. Re-threshold the
 // residual background and admit only compact pill-shaped pieces.
-function rescueSecondMode(cv, distBg, bw, absFloor) {
+function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
   // Size/thickness profile of pills already found — rescued pieces must match
   // (same-medication prior). No confirmed pills => nothing to calibrate against.
   const preLab = new cv.Mat();
@@ -273,11 +287,14 @@ function rescueSecondMode(cv, distBg, bw, absFloor) {
   }
   if (!n) return 0;
   const t2 = otsuFromHist(hist, n);
-  if (t2 < 8) return 0; // residual is flat noise, nothing hiding in it
+  if (t2 < 5) return 0; // residual is flat noise, nothing hiding in it
 
   const cand = new cv.Mat(bw.rows, bw.cols, cv.CV_8UC1);
   const cd = cand.data;
-  for (let i = 0; i < mask.length; i++) cd[i] = !mask[i] && db[i] > t2 ? 255 : 0;
+  // Union with the existing mask: a faint pill whose specular highlight was
+  // already segmented must be measured as a full disk, not an annulus (the
+  // hole flattens its distance peak and fails the thickness filter).
+  for (let i = 0; i < mask.length; i++) cd[i] = mask[i] || db[i] > t2 ? 255 : 0;
   const k = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3));
   cv.morphologyEx(cand, cand, cv.MORPH_OPEN, k, new cv.Point(-1, -1), 2);
 
@@ -286,17 +303,36 @@ function rescueSecondMode(cv, distBg, bw, absFloor) {
   const dist = new cv.Mat();
   cv.distanceTransform(cand, dist, cv.DIST_L2, 5);
   const ll = lab.data32S, dd = dist.data32F;
+  const sd = src.data;
   const pieces = new Map();
   for (let i = 0; i < ll.length; i++) {
     if (!ll[i]) continue;
     let p = pieces.get(ll[i]);
-    if (!p) { p = { area: 0, peak: 0 }; pieces.set(ll[i], p); }
+    if (!p) { p = { area: 0, peak: 0, dtSum: 0, newArea: 0, lumSum: 0 }; pieces.set(ll[i], p); }
     p.area++;
+    p.dtSum += dd[i];
+    if (!mask[i]) {
+      p.newArea++;
+      const q = i * 4;
+      p.lumSum += (sd[q] + sd[q + 1] + sd[q + 2]) / 3;
+    }
     if (dd[i] > p.peak) p.peak = dd[i];
   }
+  debug?.({ stage: 'rescue', t2, medA, medP, pieces: [...pieces.values()].filter((p) => p.area > 2.2 * medA).map((p) => `a${p.area | 0}p${p.peak.toFixed(1)}m${(p.dtSum / p.area / p.peak).toFixed(2)}n${(p.newArea / p.area).toFixed(2)}`).slice(0, 40) });
+  // Unit pill radius implied by the confirmed-pill median area (medP is
+  // unreliable pre-fillHoles: specular holes flatten the distance peak).
+  const rUnit = Math.sqrt(medA / Math.PI);
   const good = new Set([...pieces.entries()]
-    .filter(([, p]) => p.area >= Math.max(absFloor, 0.45 * medA) && p.area <= 2.2 * medA
+    .filter(([, p]) => (p.area >= Math.max(absFloor, 0.45 * medA) && p.area <= 2.2 * medA
       && p.peak >= Math.max(4, 0.5 * medP) && p.area <= 4 * Math.PI * p.peak * p.peak)
+      // Touching CHAIN of same-medication pills: single-pill thickness but a
+      // multi-unit area. Watershed + area-split handle the separation later.
+      // The new material must not be darker than the background — a pill
+      // glued to its own shadow ring mimics a chain geometrically, but its
+      // new material is shadow (dark), not pill (bright).
+      || (p.area > 2.2 * medA && p.area <= 12 * medA
+        && p.peak >= 0.8 * rUnit && p.peak <= 1.35 * rUnit
+        && p.lumSum >= (bgLum - 6) * p.newArea))
     .map(([l]) => l));
   let added = 0;
   if (good.size && good.size <= 500) {
@@ -304,6 +340,65 @@ function rescueSecondMode(cv, distBg, bw, absFloor) {
       if (good.has(ll[i])) { mask[i] = 255; added++; }
     }
   }
+
+  // Oversized pieces (> 12*medA) are ambiguous as a whole: a mega-cluster of
+  // faint pills looks just like already-masked pills grouted together by
+  // shadow. Decide by their NEW material alone — pill chains stay pill-thick,
+  // shadow grout is a thin web that fails the same shape filters.
+  const bigSet = new Set([...pieces.entries()]
+    .filter(([, p]) => p.area > 12 * medA).map(([l]) => l));
+  if (bigSet.size) {
+    const cand2 = new cv.Mat(bw.rows, bw.cols, cv.CV_8UC1);
+    const c2 = cand2.data;
+    for (let i = 0; i < ll.length; i++) c2[i] = bigSet.has(ll[i]) && !mask[i] ? 255 : 0;
+    const lab2 = new cv.Mat();
+    cv.connectedComponents(cand2, lab2);
+    const dist2 = new cv.Mat();
+    cv.distanceTransform(cand2, dist2, cv.DIST_L2, 5);
+    const l2 = lab2.data32S, d2 = dist2.data32F;
+    const sub = new Map();
+    const W = bw.cols;
+    for (let i = 0; i < l2.length; i++) {
+      if (!l2[i]) continue;
+      let p = sub.get(l2[i]);
+      if (!p) { p = { area: 0, peak: 0, perim: 0, contact: 0, lumSum: 0 }; sub.set(l2[i], p); }
+      p.area++;
+      const q2 = i * 4;
+      p.lumSum += (sd[q2] + sd[q2 + 1] + sd[q2 + 2]) / 3;
+      if (d2[i] > p.peak) p.peak = d2[i];
+      // Boundary/contact topology: shadow grout hugs already-masked pills
+      // (contact along most of its perimeter); a chain of faint pills mostly
+      // borders open background.
+      const nb = [i - 1, i + 1, i - W, i + W];
+      let isB = false, isC = false;
+      for (const j of nb) {
+        if (j < 0 || j >= l2.length || l2[j] !== l2[i]) {
+          isB = true;
+          if (j >= 0 && j < l2.length && mask[j]) isC = true;
+        }
+      }
+      if (isB) p.perim++;
+      if (isC) p.contact++;
+    }
+    debug?.({ stage: 'rescue2', subs: [...sub.values()].filter((p) => p.area >= 0.45 * medA).map((p) => `a${p.area | 0}p${p.peak.toFixed(1)}c${(p.contact / Math.max(1, p.perim)).toFixed(2)}`).slice(0, 40) });
+    // Chain subcomps must be thicker than a lone pill radius: overlapping
+    // pills with shadow-filled crevices push the distance peak ABOVE rUnit,
+    // while shadow-grout webs between pills stay below it.
+    const good2 = new Set([...sub.entries()]
+      .filter(([, p]) => (p.area >= Math.max(absFloor, 0.45 * medA) && p.area <= 2.2 * medA
+        && p.peak >= Math.max(4, 0.5 * medP) && p.area <= 4 * Math.PI * p.peak * p.peak)
+        || (p.area > 2.2 * medA && p.area <= 6 * medA
+          && p.peak >= 1.05 * rUnit && p.peak <= 1.35 * rUnit
+          && p.lumSum >= (bgLum - 6) * p.area))
+      .map(([l]) => l));
+    if (good2.size && good2.size <= 500) {
+      for (let i = 0; i < l2.length; i++) {
+        if (good2.has(l2[i])) { mask[i] = 255; added++; }
+      }
+    }
+    cand2.delete(); lab2.delete(); dist2.delete();
+  }
+
   k.delete(); cand.delete(); lab.delete(); dist.delete();
   return added;
 }
@@ -323,7 +418,9 @@ function flattenIllumination(cv, src) {
   const meanL = cv.mean(field)[0];
   const f = field.data, d = src.data;
   for (let i = 0, p = 0; i < f.length; i++, p += 4) {
-    const k = meanL / Math.max(30, f[i]);
+    // Cap the gain: vignettes need ~1.5x at the corners, but larger gains
+    // amplify dark-surface texture (fabric weave) into phantom pills.
+    const k = Math.min(1.5, Math.max(0.7, meanL / Math.max(30, f[i])));
     if (k > 1.02 || k < 0.98) {
       d[p] = Math.min(255, d[p] * k);
       d[p + 1] = Math.min(255, d[p + 1] * k);
@@ -331,6 +428,25 @@ function flattenIllumination(cv, src) {
     }
   }
   gray.delete(); small.delete(); field.delete();
+}
+
+// Pills are solid: any background component fully enclosed by foreground is
+// an artifact (specular highlight, engraving) — fill it.
+function fillHoles(cv, bw) {
+  const inv = new cv.Mat();
+  cv.bitwise_not(bw, inv);
+  const lab = new cv.Mat();
+  const n = cv.connectedComponents(inv, lab);
+  const ll = lab.data32S;
+  const w = bw.cols, h = bw.rows;
+  const touchesBorder = new Uint8Array(n + 1);
+  for (let x = 0; x < w; x++) { touchesBorder[ll[x]] = 1; touchesBorder[ll[(h - 1) * w + x]] = 1; }
+  for (let y = 0; y < h; y++) { touchesBorder[ll[y * w]] = 1; touchesBorder[ll[y * w + w - 1]] = 1; }
+  const md = bw.data;
+  for (let i = 0; i < ll.length; i++) {
+    if (ll[i] && !touchesBorder[ll[i]]) md[i] = 255;
+  }
+  inv.delete(); lab.delete();
 }
 
 // Cut strong interior intensity edges (the creases where touching pills
@@ -408,6 +524,8 @@ export function countPills(cv, source, opts = {}) {
     // works for colored pills that grayscale Otsu lumps into the background.
     const dfb = distanceFromBackground(cv, src);
     const distBg = track(dfb.mat);
+    const distBgRaw = track(dfb.raw);
+    cv.GaussianBlur(distBgRaw, distBgRaw, new cv.Size(5, 5), 0);
     if (emit) emit('bgcolor', dfb.color);
     cv.GaussianBlur(distBg, distBg, new cv.Size(5, 5), 0);
     if (emit) emit('distmap', grayToStage(distBg));
@@ -436,12 +554,16 @@ export function countPills(cv, source, opts = {}) {
 
     // Faint pills hidden below a bimodal Otsu split (white pills next to
     // colored ones on a light tray) get a second chance.
-    if (usedColorDist) rescueSecondMode(cv, distBg, bw, absFloor);
+    if (usedColorDist) {
+      const bgLum = (dfb.color[0] + dfb.color[1] + dfb.color[2]) / 3;
+      rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, opts.debug);
+    }
 
     const kernel = track(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3)));
     const anchor = new cv.Point(-1, -1);
     cv.morphologyEx(bw, bw, cv.MORPH_OPEN, kernel, anchor, 2);
     cv.morphologyEx(bw, bw, cv.MORPH_CLOSE, kernel, anchor, 2);
+    fillHoles(cv, bw); // highlights/engravings punch holes in solid pills
     if (emit) emit('mask-final', grayToStage(bw));
 
     // Sure background: dilated mask. Sure foreground: distance-transform peaks.
@@ -560,10 +682,12 @@ export function countPills(cv, source, opts = {}) {
     for (const s of stats.values()) {
       if (s.area < minArea) continue;
       if (s.peak < MIN_PEAK) continue; // thin artifact (rim, engraving), not a pill
-      // Oversized region => watershed under-split; estimate pills by area ratio.
-      // 2.4x guard keeps mixed pill sizes (capsule vs tablet) from false splits;
-      // splitting also requires pill-like thickness so rings/rims never multiply.
-      const units = med > 0 && s.area > med * 2.4 && s.peak >= 0.8 * medPeak
+      // Oversized region => watershed under-split; estimate pills by area
+      // ratio. 1.5x catches merged PAIRS (the most common under-split; any
+      // ratio >= 1.5 already rounds to 2 units, and mixed-size pairs like
+      // capsule+tablet land near 1.55x); splitting still requires pill-like
+      // thickness so rings/rims never multiply.
+      const units = med > 0 && s.area > med * 1.5 && s.peak >= 0.8 * medPeak
         ? Math.max(1, Math.round(s.area / med)) : 1;
       count += units;
       regions.push({ cx: s.sx / s.area, cy: s.sy / s.area, area: s.area, units });
@@ -571,6 +695,67 @@ export function countPills(cv, source, opts = {}) {
 
     let activeMd = md;
     let unitArea = 0;
+
+    // 'geometry' variant: classify every mask region by shape before counting.
+    // Pills are convex ellipses; touching clusters are convex-deficient at
+    // their necks; texture junk is neither. Reasonableness rules: a pill's
+    // area can never be far below pi*(its thickness)^2, artifacts are never
+    // counted, and only convex-deficient regions may count as more than one.
+    if (opts.variant === 'geometry') {
+      const contours = new cv.MatVector();
+      const hier = track(new cv.Mat());
+      cv.findContours(bw, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+      const items = [];
+      for (let i = 0; i < contours.size(); i++) {
+        const c = contours.get(i);
+        const area = cv.contourArea(c);
+        if (area < absFloor) { c.delete(); continue; }
+        const hull = new cv.Mat();
+        cv.convexHull(c, hull);
+        const hullArea = cv.contourArea(hull);
+        hull.delete();
+        const solidity = hullArea ? area / hullArea : 0;
+        let ell = null, fill = 0, aspect = 99;
+        if (c.rows >= 5) {
+          const e = cv.fitEllipse(c);
+          const ea = Math.PI * (e.size.width / 2) * (e.size.height / 2);
+          fill = ea ? area / ea : 0;
+          aspect = Math.max(e.size.width, e.size.height) / Math.max(1, Math.min(e.size.width, e.size.height));
+          ell = { cx: e.center.x, cy: e.center.y, rx: e.size.width / 2, ry: e.size.height / 2, angle: e.angle };
+        }
+        // Pass 1: SHAPE classification only (clump-proof — a giant merged
+        // clump can't corrupt solidity/fill of the other regions).
+        const pillShaped = solidity >= 0.92 && fill >= 0.85 && fill <= 1.15 && aspect <= 3.5;
+        const clusterShaped = !pillShaped && solidity >= 0.72;
+        items.push({ area, ell, pillShaped, clusterShaped });
+        c.delete();
+      }
+      contours.delete();
+
+      // Unit from shape-clean specimens (median is robust to a few shape-
+      // passing specks); thickness-implied area only as a last resort.
+      const specimens = items.filter((x) => x.pillShaped).map((x) => x.area);
+      let unitG = specimens.length >= 1 ? median(specimens) : Math.PI * radiusEst * radiusEst;
+      unitG = Math.max(unitG, absFloor);
+
+      // Pass 2: size-gate against the unit. Pill-shaped but far smaller than
+      // a pill = artifact (texture speck); cluster mass divides by the unit.
+      regions = [];
+      count = 0;
+      unitArea = unitG;
+      for (const x of items) {
+        if (!x.ell) continue;
+        if (x.pillShaped && x.area >= 0.45 * unitG && x.area <= 2.2 * unitG) {
+          count += 1;
+          regions.push({ cx: x.ell.cx, cy: x.ell.cy, area: x.area, units: 1, ellipse: x.ell, cls: 'pill' });
+        } else if ((x.clusterShaped || x.pillShaped) && x.area > 1.5 * unitG) {
+          const units = Math.max(2, Math.round(x.area / unitG));
+          count += units;
+          regions.push({ cx: x.ell.cx, cy: x.ell.cy, area: x.area, units, ellipse: x.ell, cls: 'cluster' });
+        }
+        // everything else: artifact — never counted
+      }
+    }
 
     // 'mass' variant: pixel-mass counting. Same medication => equal pill
     // area, so each blob's pixel count is ~an integer multiple of one pill's
@@ -755,6 +940,19 @@ export function drawOverlay(ctx, result, displayScale, opts = {}) {
   const ordered = [...regions].sort((a, b) => (a.cy - b.cy) || (a.cx - b.cx));
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+
+  // Fitted ellipses (geometry variant): green = verified pill shape,
+  // amber = convex-deficient cluster counted by mass.
+  for (const r of ordered) {
+    if (!r.ellipse) continue;
+    const e = r.ellipse;
+    ctx.beginPath();
+    ctx.ellipse(e.cx * displayScale, e.cy * displayScale, e.rx * displayScale, e.ry * displayScale, (e.angle * Math.PI) / 180, 0, Math.PI * 2);
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = r.cls === 'pill' ? 'rgba(47,179,128,0.95)' : 'rgba(255,176,32,0.95)';
+    ctx.stroke();
+  }
+
   let n = 1;
   for (const r of ordered) {
     const x = r.cx * displayScale, y = r.cy * displayScale;

@@ -30,7 +30,9 @@
   <main id="camera-screen" class="screen">
     <div class="viewport">
       <video id="viewfinder" playsinline muted autoplay></video>
+      <canvas id="live-overlay" class="live-overlay" hidden></canvas>
       <div id="live-count" class="live-count" hidden>~ 0</div>
+      <button id="use-count" class="pill-btn primary use-count" hidden>Use this count ✓</button>
       <div id="camera-fallback" class="camera-fallback" hidden>
         <p>Camera unavailable.</p>
         <p class="sub">Upload a photo of pills on a plain, contrasting tray.</p>
