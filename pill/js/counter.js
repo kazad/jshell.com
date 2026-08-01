@@ -432,7 +432,7 @@ function flattenIllumination(cv, src) {
 
 // Pills are solid: any background component fully enclosed by foreground is
 // an artifact (specular highlight, engraving) — fill it.
-function fillHoles(cv, bw) {
+function fillHoles(cv, bw, debug) {
   const inv = new cv.Mat();
   cv.bitwise_not(bw, inv);
   const lab = new cv.Mat();
@@ -442,6 +442,13 @@ function fillHoles(cv, bw) {
   const touchesBorder = new Uint8Array(n + 1);
   for (let x = 0; x < w; x++) { touchesBorder[ll[x]] = 1; touchesBorder[ll[(h - 1) * w + x]] = 1; }
   for (let y = 0; y < h; y++) { touchesBorder[ll[y * w]] = 1; touchesBorder[ll[y * w + w - 1]] = 1; }
+  if (debug) {
+    const sizes = new Map();
+    for (let i = 0; i < ll.length; i++) {
+      if (ll[i] && !touchesBorder[ll[i]]) sizes.set(ll[i], (sizes.get(ll[i]) || 0) + 1);
+    }
+    debug({ stage: 'holes', n: sizes.size, sizes: [...sizes.values()].sort((a, b) => b - a).slice(0, 25) });
+  }
   const md = bw.data;
   for (let i = 0; i < ll.length; i++) {
     if (ll[i] && !touchesBorder[ll[i]]) md[i] = 255;
@@ -581,7 +588,7 @@ export function countPills(cv, source, opts = {}) {
     cv.GaussianBlur(distBg, distBg, new cv.Size(5, 5), 0);
     if (emit) emit('distmap', grayToStage(distBg));
     const bw = track(new cv.Mat());
-    cv.threshold(distBg, bw, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
+    const otsuThr = cv.threshold(distBg, bw, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
 
     // If pills fill the frame, the border isn't background — fall back to gray Otsu.
     let usedColorDist = true;
@@ -614,7 +621,80 @@ export function countPills(cv, source, opts = {}) {
     const anchor = new cv.Point(-1, -1);
     cv.morphologyEx(bw, bw, cv.MORPH_OPEN, kernel, anchor, 2);
     cv.morphologyEx(bw, bw, cv.MORPH_CLOSE, kernel, anchor, 2);
-    fillHoles(cv, bw); // highlights/engravings punch holes in solid pills
+    const preFill = track(bw.clone()); // pre-fill state: crevices between touching pills still open
+    fillHoles(cv, bw, opts.debug); // highlights/engravings punch holes in solid pills
+
+    // Dominant-cluster texture purge. On textured surfaces (paper towel,
+    // wood grain) the pills form one dominant high-contrast cluster while
+    // the texture segments into satellite blobs. Same-medication prior: a
+    // real stray pill is the same COLOR as the cluster, so satellites whose
+    // body color doesn't match are texture, shadow folds, or surface streaks.
+    // Scatter scenes (no dominant blob) are left untouched.
+    if (usedColorDist) {
+      const labP = track(new cv.Mat());
+      cv.connectedComponents(bw, labP);
+      const lp = labP.data32S;
+      const dtP = track(new cv.Mat());
+      cv.distanceTransform(bw, dtP, cv.DIST_L2, 3);
+      const dp = dtP.data32F;
+      const dbv = distBg.data, sdp = src.data;
+      const st = new Map();
+      const W = src.cols, H = src.rows;
+      for (let i = 0; i < lp.length; i++) {
+        if (!lp[i]) continue;
+        let s = st.get(lp[i]);
+        if (!s) { s = { a: 0, mx: 0, pk: 0, r: 0, g: 0, b: 0, edge: 0 }; st.set(lp[i], s); }
+        s.a++;
+        if (dbv[i] > s.mx) s.mx = dbv[i];
+        if (dp[i] > s.pk) s.pk = dp[i];
+        const x = i % W, y = (i / W) | 0;
+        if (x === 0 || y === 0 || x === W - 1 || y === H - 1) s.edge++;
+        const q = i * 4;
+        s.r += sdp[q]; s.g += sdp[q + 1]; s.b += sdp[q + 2];
+      }
+      // Border-strip removal: an unrecognized second background (wood table
+      // behind the paper towel) segments as a wide flat band hugging the
+      // image border — long border contact, area far beyond what its
+      // thickness explains. Pill piles are compact; pills touching the
+      // border have tiny contact runs.
+      {
+        const mdp = bw.data;
+        for (const [l, s] of st) {
+          if (s.edge >= 0.2 * Math.max(W, H) && s.a > 4 * Math.PI * s.pk * s.pk) {
+            for (let i = 0; i < lp.length; i++) if (lp[i] === l) mdp[i] = 0;
+            opts.debug?.({ stage: 'strip', a: s.a, pk: s.pk, edge: s.edge });
+            st.delete(l);
+          }
+        }
+      }
+      let fg = 0, big = null;
+      for (const s of st.values()) { fg += s.a; if (!big || s.a > big.a) big = s; }
+      if (big && big.a >= 0.45 * fg && big.mx >= 40) {
+        // Chromaticity (shading-invariant): a real pill in shade keeps the
+        // cluster's color RATIOS; wood streaks and towel folds don't. Pills
+        // washed by a scene-wide color cast CAN drift, so pill-THICK blobs
+        // (a real fraction of the cluster's own distance peak) are protected;
+        // texture is invariably thin next to the pill mass.
+        const chrom = (s) => {
+          const sum = Math.max(1, s.r + s.g + s.b);
+          return [s.r / sum, s.g / sum, s.b / sum];
+        };
+        const bc = chrom(big);
+        const drop = new Set();
+        for (const [l, s] of st) {
+          if (s === big) continue;
+          if (s.pk >= 0.25 * big.pk) continue;
+          const c = chrom(s);
+          const dC = 255 * (Math.abs(c[0] - bc[0]) + Math.abs(c[1] - bc[1]) + Math.abs(c[2] - bc[2]));
+          if (dC > 35) drop.add(l);
+        }
+        if (drop.size) {
+          const mdp = bw.data;
+          for (let i = 0; i < lp.length; i++) if (drop.has(lp[i])) mdp[i] = 0;
+        }
+        opts.debug?.({ stage: 'purge', fg, bigA: big.a, bigMx: big.mx, bigPk: big.pk, dropped: drop.size });
+      }
+    }
     if (emit) emit('mask-final', grayToStage(bw));
 
     // Sure background: dilated mask. Sure foreground: distance-transform peaks.
@@ -723,7 +803,12 @@ export function countPills(cv, source, opts = {}) {
 
     // Median of pill-sized regions; the absolute floor keeps texture specks
     // from dragging the median down, then a relative floor rejects fragments.
-    const areas = [...stats.values()].map((s) => s.area).filter((a) => a >= absFloor);
+    // The 2%-of-largest floor keeps a handful of specks from corrupting the
+    // median in few-pill photos (3 large pills + 3 specks would otherwise
+    // put the median between the two populations and split every pill).
+    const allAreas = [...stats.values()].map((s) => s.area);
+    const maxArea = Math.max(0, ...allAreas);
+    const areas = allAreas.filter((a) => a >= Math.max(absFloor, 0.02 * maxArea));
     const med = median(areas);
     const minArea = Math.max(absFloor, med * 0.3);
 
@@ -805,6 +890,125 @@ export function countPills(cv, source, opts = {}) {
           regions.push({ cx: x.ell.cx, cy: x.ell.cy, area: x.area, units, ellipse: x.ell, cls: 'cluster' });
         }
         // everything else: artifact — never counted
+      }
+    }
+
+    // Clump-collapse rescue. A tight monolayer clump (all pills touching, no
+    // isolated specimen) closes+fills into one SOLID blob: the filled
+    // distance transform loses per-pill structure, radiusEst inflates to the
+    // clump thickness, and the whole cluster tallies as 1-3 regions. Rebuild
+    // markers from a mask that still knows the pill size: the PRE-FILL mask
+    // (inter-pill crevices still open, so its distance peak is one pill
+    // radius), else the crease-cut mask (intensity valleys where pills meet).
+    if (count >= 1 && count <= 3) {
+      const fgArea = cv.countNonZero(bw);
+      if (fgArea >= 12 * absFloor) {
+        // Candidate structure masks, coarsest signal first. Each is accepted
+        // if its distance peak is pill-scale (far below the clump thickness).
+        const dt2 = track(new cv.Mat());
+        let mm2 = { maxVal: 0 };
+        let source = 'none';
+        let massCap = Infinity;
+        const structOk = () => mm2.maxVal >= 6 && mm2.maxVal <= 0.6 * radiusEst;
+        cv.distanceTransform(preFill, dt2, cv.DIST_L2, 5);
+        mm2 = cv.minMaxLoc(dt2);
+        source = 'prefill';
+        if (!structOk()) {
+          // Crease-cut mask. Its pieces also give a unit-area estimate that
+          // caps the final count: on ELONGATED pills the distance transform
+          // has several maxima per pill, so maxima-markers over-split, but
+          // mask-area / unit-area stays honest.
+          const cutM = track(new cv.Mat());
+          bw.copyTo(cutM);
+          cutCreases(cv, src, cutM);
+          cv.distanceTransform(cutM, dt2, cv.DIST_L2, 5);
+          mm2 = cv.minMaxLoc(dt2);
+          source = 'crease';
+          if (structOk()) {
+            const cutLab = track(new cv.Mat());
+            cv.connectedComponents(cutM, cutLab);
+            const cl2 = cutLab.data32S;
+            const pMap = new Map();
+            for (let i = 0; i < cl2.length; i++) {
+              if (cl2[i]) pMap.set(cl2[i], (pMap.get(cl2[i]) || 0) + 1);
+            }
+            const pAreas = [...pMap.values()].filter((a) => a >= absFloor);
+            const unit = estimateUnitArea(pAreas);
+            if (pAreas.length >= 4 && unit >= absFloor) massCap = Math.round(fgArea / unit);
+          }
+        }
+        if (!structOk()) {
+          // Re-threshold the color-distance map above Otsu: crevices between
+          // touching pills sit just above the background cut and reopen,
+          // while pill bodies stay far above it. Climb a ladder and keep the
+          // first cut that yields pill-scale structure.
+          const hiM = track(new cv.Mat());
+          for (const mult of [1.25, 1.5, 1.75, 2.1]) {
+            const hiThr = Math.min(250, mult * otsuThr);
+            cv.threshold(distBg, hiM, hiThr, 255, cv.THRESH_BINARY);
+            cv.bitwise_and(hiM, bw, hiM);
+            cv.distanceTransform(hiM, dt2, cv.DIST_L2, 5);
+            mm2 = cv.minMaxLoc(dt2);
+            source = 'hithresh' + mult;
+            if (structOk()) break;
+          }
+        }
+        opts.debug?.({ stage: 'collapse', count, fgArea, source, structMax: mm2.maxVal, radiusEst, massCap });
+        if (structOk()) {
+          const rN = mm2.maxVal;
+          const dd3 = dt2.data32F;
+          const kkN = Math.min(40, Math.max(2, Math.round(0.8 * rN)));
+          const dil3 = track(new cv.Mat());
+          const mk3 = track(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(2 * kkN + 1, 2 * kkN + 1)));
+          cv.dilate(dt2, dil3, mk3);
+          const dm3 = dil3.data32F;
+          const sf3m = track(new cv.Mat(src.rows, src.cols, cv.CV_8UC1));
+          const sf3 = sf3m.data;
+          const floor3 = Math.max(MIN_PEAK, 0.45 * rN);
+          for (let i = 0; i < sf3.length; i++) {
+            sf3[i] = dd3[i] >= floor3 && dd3[i] >= dm3[i] ? 255 : 0;
+          }
+          cv.dilate(sf3m, sf3m, kernel, anchor, 1);
+          const markers3 = track(new cv.Mat());
+          cv.connectedComponents(sf3m, markers3);
+          const md3 = markers3.data32S;
+          const sb3 = sureBg.data;
+          for (let i = 0; i < md3.length; i++) {
+            md3[i] += 1;
+            if (sb3[i] === 255 && sf3[i] === 0) md3[i] = 0;
+          }
+          cv.watershed(rgb, markers3);
+          const stats3 = new Map();
+          for (let i = 0; i < md3.length; i++) {
+            const l = md3[i];
+            if (l <= 1) continue;
+            let s = stats3.get(l);
+            if (!s) { s = { area: 0, sx: 0, sy: 0, peak: 0 }; stats3.set(l, s); }
+            s.area++;
+            s.sx += i % w;
+            s.sy += (i / w) | 0;
+            if (dd3[i] > s.peak) s.peak = dd3[i];
+          }
+          const areas3 = [...stats3.values()].map((s) => s.area).filter((a) => a >= absFloor);
+          const med3 = median(areas3);
+          const minArea3 = Math.max(absFloor, med3 * 0.3);
+          let count3 = 0;
+          const regions3 = [];
+          for (const s of stats3.values()) {
+            if (s.area < minArea3 || s.peak < MIN_PEAK) continue;
+            const units = med3 > 0 && s.area > med3 * 1.5 ? Math.max(1, Math.round(s.area / med3)) : 1;
+            count3 += units;
+            regions3.push({ cx: s.sx / s.area, cy: s.sy / s.area, area: s.area, units });
+          }
+          opts.debug?.({ stage: 'collapse2', rN, markers: stats3.size, count3, massCap });
+          // Only adopt a real improvement — a rescue that lands back at 1-3
+          // regions means the structure mask had no per-pill signal either.
+          if (count3 > count + 2) {
+            count = Math.min(count3, massCap);
+            regions = regions3;
+            activeMd = md3;
+          }
+        }
       }
     }
 
