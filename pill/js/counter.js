@@ -1363,6 +1363,78 @@ export function countPills(cv, source, opts = {}) {
       }
     }
 
+    // Fragment consolidation (the outline can't lie): a connected blob whose
+    // outer contour is a single convex ellipse IS one pill. Engravings
+    // (PFE / 3CL) crease the interior and fragment the watershed into many
+    // regions, but they cannot change the convex outline. Merge everything
+    // inside a pill-shaped contour into exactly one counted pill. Touching
+    // chains are convex-DEFICIENT, so they are never touched by this.
+    {
+      const contoursC = new cv.MatVector();
+      const hierC = track(new cv.Mat());
+      cv.findContours(bw, contoursC, hierC, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+      const idMask = track(cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC1));
+      const ells = [null];
+      let cid = 0;
+      for (let i = 0; i < contoursC.size() && cid < 254; i++) {
+        const c = contoursC.get(i);
+        const area = cv.contourArea(c);
+        if (area < absFloor || c.rows < 5) continue;
+        const hull = new cv.Mat();
+        cv.convexHull(c, hull);
+        const hullArea = cv.contourArea(hull);
+        hull.delete();
+        const solidity = hullArea ? area / hullArea : 0;
+        const e = cv.fitEllipse(c);
+        const ea = Math.PI * (e.size.width / 2) * (e.size.height / 2);
+        const fillR = ea ? area / ea : 0;
+        const aspect = Math.max(e.size.width, e.size.height) / Math.max(1, Math.min(e.size.width, e.size.height));
+        // Neck test: a tangent PAIR of pills has two inward cusps where they
+        // meet (deep convexity defects); a single pill — even heavily
+        // engraved — has a smooth convex outline. Depth is scaled by the
+        // minor half-axis so the gate is size-invariant.
+        let maxDefect = 0;
+        {
+          const hullIdx = new cv.Mat();
+          cv.convexHull(c, hullIdx, false, false);
+          const defects = new cv.Mat();
+          try {
+            cv.convexityDefects(c, hullIdx, defects);
+            for (let d = 0; d < defects.rows; d++) {
+              const depth = defects.data32S[d * 4 + 3] / 256;
+              if (depth > maxDefect) maxDefect = depth;
+            }
+          } catch { /* degenerate contour: treat as no defects */ }
+          hullIdx.delete(); defects.delete();
+        }
+        const minorHalf = Math.min(e.size.width, e.size.height) / 2;
+        const smoothOutline = maxDefect <= 0.16 * minorHalf;
+        if (solidity >= 0.92 && fillR >= 0.85 && fillR <= 1.15 && aspect <= 3.5 && smoothOutline) {
+          cid++;
+          cv.drawContours(idMask, contoursC, i, new cv.Scalar(cid), -1);
+          ells.push({ cx: e.center.x, cy: e.center.y, rx: e.size.width / 2, ry: e.size.height / 2, angle: e.angle, area });
+        }
+      }
+      contoursC.delete();
+      if (cid) {
+        const im = idMask.data;
+        const merged = new Map();
+        const keep = [];
+        for (const r of regions) {
+          const k = im[Math.round(r.cy) * w + Math.round(r.cx)];
+          if (!k) { keep.push(r); continue; }
+          merged.set(k, (merged.get(k) || 0) + r.units);
+        }
+        for (const [k, unitsSum] of merged) {
+          const e = ells[k];
+          count += 1 - unitsSum;
+          keep.push({ cx: e.cx, cy: e.cy, area: e.area, units: 1, ellipse: e });
+        }
+        if (merged.size) opts.debug?.({ stage: 'consolidate', pills: merged.size });
+        regions = keep;
+      }
+    }
+
     let boundaries = null;
     if (withOverlay) {
       boundaries = new Uint8Array(activeMd.length);
