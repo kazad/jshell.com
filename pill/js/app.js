@@ -187,7 +187,7 @@ async function analyze(sourceCanvas) {
   await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30))); // let UI paint
 
   try {
-    const result = countPills(state.cv, sourceCanvas, { maxDim: 1280, variant: 'baseline' });
+    const result = countPills(state.cv, sourceCanvas, { maxDim: 1280, variant: 'consensus' });
     state.result = result;
     state.count = result.count;
     showResult(sourceCanvas, result);
@@ -222,7 +222,18 @@ function showResult(sourceCanvas, result) {
 
 function updateCountUI() {
   els.countValue.textContent = state.count;
+  const flagged = state.result?.lowConfidence || 0;
   const target = parseInt(els.targetInput.value, 10);
+  if (flagged > 0) {
+    els.helperReact.textContent = flagged === 1
+      ? 'One group has a “?” badge — I’m not sure about it. Mind double-checking that spot for me? 🐾'
+      : `${flagged} groups have “?” badges — please double-check those spots for me. 🐾`;
+    els.targetInfo.textContent = Number.isFinite(target) && target > 0
+      ? `${state.count} counted (target ${target}) — verify the ? areas first`
+      : '';
+    els.targetInfo.className = 'target-info over';
+    return;
+  }
   if (!Number.isFinite(target) || target <= 0) {
     els.targetInfo.textContent = '';
     els.targetInfo.className = 'target-info';

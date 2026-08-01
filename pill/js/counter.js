@@ -492,6 +492,57 @@ function estimateUnitArea(areas) {
   return unit;
 }
 
+// Erosion-split core counter (consensus panel method). Thresholding a blob's
+// distance transform at depth t is exactly erosion by a disk of radius t, so
+// sweep t across the blob's depth range and count the cores at each level.
+// Touching pills separate once t passes the neck depth; the core count that
+// persists over the most levels is the geometrically stable answer.
+function erosionCores(bl, dd, w, l, box, peak) {
+  const lw = box.x1 - box.x0 + 1, lh = box.y1 - box.y0 + 1;
+  const loc = new Float32Array(lw * lh);
+  for (let y = box.y0; y <= box.y1; y++) {
+    const row = y * w, lrow = (y - box.y0) * lw;
+    for (let x = box.x0; x <= box.x1; x++) {
+      if (bl[row + x] === l) loc[lrow + x - box.x0] = dd[row + x];
+    }
+  }
+  const seen = new Int32Array(lw * lh);
+  const stack = new Int32Array(lw * lh);
+  const countAt = (t, gen) => {
+    let comps = 0;
+    for (let s = 0; s < loc.length; s++) {
+      if (loc[s] < t || seen[s] === gen) continue;
+      let top = 0, area = 0;
+      stack[top++] = s;
+      seen[s] = gen;
+      while (top) {
+        const p = stack[--top];
+        area++;
+        const px = p % lw;
+        const nb = [px > 0 ? p - 1 : -1, px < lw - 1 ? p + 1 : -1, p - lw, p + lw];
+        for (const q of nb) {
+          if (q < 0 || q >= loc.length || loc[q] < t || seen[q] === gen) continue;
+          seen[q] = gen;
+          stack[top++] = q;
+        }
+      }
+      if (area >= 4) comps++; // sub-4px cores are noise bumps, not pills
+    }
+    return comps;
+  };
+  const lo = Math.max(1.5, 0.3 * peak), hi = 0.85 * peak;
+  const steps = 10;
+  const tally = new Map();
+  for (let s = 0; s <= steps; s++) {
+    const c = countAt(lo + (hi - lo) * (s / steps), s + 1);
+    if (c >= 1) tally.set(c, (tally.get(c) || 0) + 1);
+  }
+  let best = 0, bestN = 0;
+  // Tie-break toward MORE cores: separation (high t) is the informative regime.
+  for (const [c, n] of tally) if (n > bestN || (n === bestN && c > best)) { best = c; bestN = n; }
+  return best || 1;
+}
+
 /**
  * Count pills in an image.
  * @param {object} cv - OpenCV module
@@ -679,7 +730,7 @@ export function countPills(cv, source, opts = {}) {
     const medPeak = median([...stats.values()].filter((s) => s.area >= minArea).map((s) => s.peak));
     let regions = [];
     let count = 0;
-    for (const s of stats.values()) {
+    for (const [lbl, s] of stats) {
       if (s.area < minArea) continue;
       if (s.peak < MIN_PEAK) continue; // thin artifact (rim, engraving), not a pill
       // Oversized region => watershed under-split; estimate pills by area
@@ -690,7 +741,7 @@ export function countPills(cv, source, opts = {}) {
       const units = med > 0 && s.area > med * 1.5 && s.peak >= 0.8 * medPeak
         ? Math.max(1, Math.round(s.area / med)) : 1;
       count += units;
-      regions.push({ cx: s.sx / s.area, cy: s.sy / s.area, area: s.area, units });
+      regions.push({ cx: s.sx / s.area, cy: s.sy / s.area, area: s.area, units, label: lbl });
     }
 
     let activeMd = md;
@@ -905,6 +956,209 @@ export function countPills(cv, source, opts = {}) {
       }
     }
 
+    // 'consensus' variant: keep the baseline result for CLEAR blobs, and for
+    // the few AMBIGUOUS ones run an independent panel of per-blob counters,
+    // taking the answer >=2 methods agree on. Blobs where no two methods
+    // agree get the median vote and a LOW-CONFIDENCE flag — the count is
+    // never silently wrong (see docs/consensus-design.md).
+    let lowConfidence = 0;
+    let consensusEligible = Infinity;
+    if (opts.variant === 'consensus') {
+      for (const r of regions) r.confidence = 'high';
+
+      // -- Unit-area calibration (same-medication prior), as in 'mass'. --
+      const blobList = [];
+      for (let l = 1; l < peaks.length; l++) {
+        if (blobAreas[l] >= absFloor && peaks[l] >= MIN_PEAK) blobList.push(l);
+      }
+      let unit = estimateUnitArea(blobList.map((l) => blobAreas[l]));
+
+      // Crease-cut pieces: unit recalibration AND panel method 3's evidence.
+      const cutM = track(new cv.Mat());
+      bw.copyTo(cutM);
+      cutCreases(cv, src, cutM);
+      const cutLab = track(new cv.Mat());
+      cv.connectedComponents(cutM, cutLab);
+      const cl = cutLab.data32S;
+      const pieceStats = new Map(); // cut-label -> {area, sx, sy, blob}
+      for (let i = 0; i < cl.length; i++) {
+        if (!cl[i]) continue;
+        let p = pieceStats.get(cl[i]);
+        if (!p) { p = { area: 0, sx: 0, sy: 0, blob: bl[i] }; pieceStats.set(cl[i], p); }
+        p.area++;
+        p.sx += i % w;
+        p.sy += (i / w) | 0;
+      }
+      const pieces = [...pieceStats.values()].filter((p) => p.area >= absFloor);
+      const unit2 = estimateUnitArea(pieces.map((p) => p.area));
+      const minPlausibleUnit = 0.6 * Math.PI * radiusEst * radiusEst;
+      if (pieces.length >= blobList.length * 2 && unit2 >= Math.max(absFloor, minPlausibleUnit)) unit = unit2;
+      const unitOk = unit >= absFloor;
+
+      // -- Map watershed regions to blobs (majority pixel vote). --
+      const labelBlob = new Map();
+      {
+        const votes = new Map(); // ws-label -> Map(blob -> px)
+        for (let i = 0; i < md.length; i++) {
+          if (md[i] <= 1 || !bl[i]) continue;
+          let m = votes.get(md[i]);
+          if (!m) { m = new Map(); votes.set(md[i], m); }
+          m.set(bl[i], (m.get(bl[i]) || 0) + 1);
+        }
+        for (const [L, m] of votes) {
+          let bb = 0, bn = 0;
+          for (const [b, n] of m) if (n > bn) { bn = n; bb = b; }
+          labelBlob.set(L, bb);
+        }
+      }
+      const regByBlob = new Map();
+      for (const r of regions) {
+        const b = labelBlob.get(r.label) || 0;
+        if (!regByBlob.has(b)) regByBlob.set(b, []);
+        regByBlob.get(b).push(r);
+      }
+
+      // -- Ambiguity test per blob (cheap; most blobs are CLEAR). --
+      const ambiguous = [];
+      let eligible = 0;
+      for (const l of blobList) {
+        const regs = regByBlob.get(l);
+        if (!regs || !regs.length) continue; // baseline counted nothing here; keep that
+        eligible++;
+        const mass = unitOk ? blobAreas[l] / unit : 0;
+        const k0 = Math.round(mass);
+        const wsCount = regs.length;
+        const unitsSum = regs.reduce((a, r) => a + r.units, 0);
+        const pillThick = peaks[l] >= 0.6 * radiusEst && peaks[l] <= 1.45 * radiusEst;
+        const compact = blobAreas[l] <= 4 * Math.PI * peaks[l] * peaks[l] * Math.max(1, k0);
+        const clear = unitOk && k0 >= 1 && Math.abs(mass - k0) <= 0.2
+          && wsCount === k0 && unitsSum === wsCount && pillThick && compact;
+        if (!clear) ambiguous.push({ l, regs, k0, unitsSum });
+      }
+      consensusEligible = eligible;
+      opts.debug?.({ stage: 'consensus', blobs: blobList.length, eligible, ambiguous: ambiguous.length, unit, unitOk });
+
+      if (ambiguous.length) {
+        // Bounding boxes + centroids for just the ambiguous blobs.
+        const ambSet = new Map(ambiguous.map((a) => [a.l, a]));
+        for (let i = 0; i < bl.length; i++) {
+          const a = ambSet.get(bl[i]);
+          if (!a) continue;
+          const x = i % w, y = (i / w) | 0;
+          if (!a.box) { a.box = { x0: x, y0: y, x1: x, y1: y }; a.sx = 0; a.sy = 0; }
+          if (x < a.box.x0) a.box.x0 = x;
+          if (x > a.box.x1) a.box.x1 = x;
+          if (y < a.box.y0) a.box.y0 = y;
+          if (y > a.box.y1) a.box.y1 = y;
+          a.sx += x;
+          a.sy += y;
+        }
+
+        const drop = new Set();
+        for (const a of ambiguous) drop.add(a.l);
+        regions = regions.filter((r) => !drop.has(labelBlob.get(r.label) || 0));
+
+        // Image-level prior: when most eligible blobs are CLEAR, the clear
+        // majority certifies the calibration and the baseline — the few
+        // ambiguous blobs are local overlap cases the panel systematically
+        // under-reads, so it may only flag them, not override. Broad
+        // ambiguity means the baseline's own calibration is suspect
+        // image-wide and the panel's consensus is the better estimate.
+        const broadAmbiguity = ambiguous.length >= 0.5 * eligible;
+
+        // A calibrated unit must look like ONE pill of the observed thickness;
+        // outside this window the "unit" is a clump and mass votes are noise.
+        const unitPlausible = unitOk
+          && unit >= 0.6 * Math.PI * radiusEst * radiusEst
+          && unit <= 4 * Math.PI * radiusEst * radiusEst;
+
+        for (const a of ambiguous) {
+          const { l, regs } = a;
+          // A single pill of this blob's thickness can cover at most ~4*pi*peak^2
+          // px. When crease-cut or erosion answers "1" for a blob far beyond
+          // that, they did not measure one pill — they hit their documented
+          // failure mode (invisible seams / no separating neck). Abstain.
+          const singleable = blobAreas[l] <= 4 * Math.PI * peaks[l] * peaks[l];
+
+          // Panel votes (each method abstains when it has no evidence).
+          const votes = [];
+          if (regs.length >= 1) votes.push({ m: 'ws', v: regs.length }); // 1. watershed markers
+          if (unitPlausible) votes.push({ m: 'mass', v: Math.max(1, a.k0) }); // 2. pixel mass
+          const blobPieces = unitOk
+            ? pieces.filter((p) => p.blob === l && p.area >= 0.5 * unit) : [];
+          if (blobPieces.length >= 2 || (blobPieces.length === 1 && singleable)) {
+            votes.push({ m: 'crease', v: blobPieces.length });        // 3. crease-cut pieces
+          }
+          const ero = erosionCores(bl, dd, w, l, a.box, peaks[l]);    // 4. erosion split
+          if (ero >= 2 || singleable) votes.push({ m: 'ero', v: ero });
+
+          // >=2 agreeing methods win; ties in agreement go to the value
+          // nearest the vote median. No valid agreement => keep the baseline
+          // answer for this blob but flag it LOW-CONFIDENCE.
+          const tally = new Map();
+          for (const { m, v } of votes) {
+            if (!tally.has(v)) tally.set(v, []);
+            tally.get(v).push(m);
+          }
+          const medV = median(votes.map((x) => x.v));
+          let k = 0, ks = [];
+          for (const [v, ms] of tally) {
+            if (ms.length > ks.length
+              || (ms.length === ks.length && k && Math.abs(v - medV) < Math.abs(k - medV))) { k = v; ks = ms; }
+          }
+          // Independence guards. The four methods form two families that fail
+          // together: {ws, ero} both read the distance transform (weak necks
+          // merge for both), {mass, crease} both lean on the unit calibration.
+          // A 2-member coalition is only trustworthy when it either crosses
+          // families without opposition, or nothing credible opposes it:
+          // - crease+erosion pair alone: shared buried-seam/merged-core bias;
+          // - ws+erosion pair alone with a calibrated mass dissenting: weak
+          //   necks fooling the distance family while pixel mass sees more;
+          // - any agreement below the watershed marker count contradicts
+          //   direct thickness-peak evidence.
+          const independent = ks.length >= 3 || ks.includes('ws') || ks.includes('mass');
+          const massVote = votes.find((x) => x.m === 'mass');
+          const distancePairVsMass = ks.length === 2 && ks.includes('ws') && ks.includes('ero')
+            && massVote && massVote.v !== k;
+          // A downward override that pixel mass contradicts UPWARD (mass
+          // saw even more material than the baseline counted) is the whole
+          // geometry family under-reading an overlapped clump — reject it.
+          const massContradicts = k < a.unitsSum && massVote && massVote.v > a.unitsSum;
+          const agreed = ks.length >= 2 && independent && !distancePairVsMass
+            && !massContradicts && k >= regs.length
+            && (broadAmbiguity || k === a.unitsSum);
+          opts.debug?.({ stage: 'panel', blob: l, votes, k, agreed, base: a.unitsSum });
+          if (!agreed) {
+            // Keep the baseline count for this blob. If some independent
+            // method reproduces it, that IS a 2-method agreement on the
+            // baseline answer — high confidence. Otherwise flag it.
+            const corroborated = votes.some((x) => x.m !== 'ws' && x.v === a.unitsSum);
+            const conf = corroborated ? 'high' : 'low';
+            if (!corroborated) lowConfidence++;
+            for (const r of regs) regions.push({ ...r, confidence: conf });
+            continue;
+          }
+
+          // Badge placement: watershed pill centers when they match k, else
+          // crease-piece centers, else one range badge at the blob centroid.
+          const singles = regs.filter((r) => r.units === 1);
+          const pieceCenters = blobPieces
+            .filter((p) => p.area >= 0.55 * unit && p.area <= 1.8 * unit)
+            .map((p) => ({ cx: p.sx / p.area, cy: p.sy / p.area, area: p.area }));
+          count -= a.unitsSum;
+          count += k;
+          if (singles.length === k) {
+            for (const r of singles) regions.push({ ...r, units: 1, confidence: 'high' });
+          } else if (pieceCenters.length === k) {
+            for (const p of pieceCenters) regions.push({ ...p, units: 1, confidence: 'high' });
+          } else {
+            const area = blobAreas[l];
+            regions.push({ cx: a.sx / area, cy: a.sy / area, area, units: k, confidence: 'high' });
+          }
+        }
+      }
+    }
+
     let boundaries = null;
     if (withOverlay) {
       boundaries = new Uint8Array(activeMd.length);
@@ -912,6 +1166,18 @@ export function countPills(cv, source, opts = {}) {
     }
 
     const out = { count, regions, scale, boundaries, width: w, height: h, unitArea };
+    if (opts.variant === 'consensus') out.lowConfidence = lowConfidence;
+    if (opts.variant === 'consensus' && consensusEligible <= 2 && regions.length) {
+      // With <=2 countable blobs, the unit area is calibrated from the very
+      // blobs being judged — a solid 50-pill cluster with invisible seams is
+      // indistinguishable from one big pill (mass ratio 1 by construction).
+      // Nothing independent certifies the count, so never let it pass silently.
+      if (!lowConfidence) {
+        out.lowConfidence = 1;
+        const biggest = regions.reduce((a, r) => (r.area > a.area ? r : a));
+        biggest.confidence = 'low';
+      }
+    }
     if (opts.returnImage) out.image = new Uint8ClampedArray(src.data); // RGBA at processed resolution
     return out;
   } finally {
@@ -957,18 +1223,20 @@ export function drawOverlay(ctx, result, displayScale, opts = {}) {
   for (const r of ordered) {
     const x = r.cx * displayScale, y = r.cy * displayScale;
     const multi = r.units > 1;
-    const label = multi ? `${n}–${n + r.units - 1}` : String(n);
+    const low = r.confidence === 'low'; // consensus panel could not agree here
+    const label = low ? (multi ? `${n}–${n + r.units - 1}?` : `${n}?`)
+      : (multi ? `${n}–${n + r.units - 1}` : String(n));
     n += r.units;
-    const rad = multi ? 15 : 11;
+    const rad = multi || low ? 15 : 11;
     ctx.beginPath();
     ctx.arc(x, y, rad, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
     ctx.fill();
     ctx.lineWidth = 2.5;
-    ctx.strokeStyle = multi ? '#ffb020' : '#18a06a';
+    ctx.strokeStyle = multi || low ? '#ffb020' : '#18a06a';
     ctx.stroke();
     ctx.fillStyle = '#0a0f19';
-    ctx.font = `bold ${multi ? 10 : 12}px system-ui, sans-serif`;
+    ctx.font = `bold ${multi || low ? 10 : 12}px system-ui, sans-serif`;
     ctx.fillText(label, x, y);
   }
 }
