@@ -1407,8 +1407,13 @@ export function countPills(cv, source, opts = {}) {
           } catch { /* degenerate contour: treat as no defects */ }
           hullIdx.delete(); defects.delete();
         }
+        // Threshold rationale: a tangent PAIR's neck defect is ~1.0x the
+        // minor half-axis (two-circle geometry); an engraving/shadow notch
+        // biting into a single pill's outline measures <=0.45x. 0.5x sits
+        // in the gap and is robust to browser-vs-Node JPEG decode drift.
         const minorHalf = Math.min(e.size.width, e.size.height) / 2;
-        const smoothOutline = maxDefect <= 0.16 * minorHalf;
+        const smoothOutline = maxDefect <= 0.5 * minorHalf;
+        opts.debug?.({ stage: 'contour', area: Math.round(area), solidity: +solidity.toFixed(3), fillR: +fillR.toFixed(3), aspect: +aspect.toFixed(2), maxDefect: +maxDefect.toFixed(1), minorHalf: +minorHalf.toFixed(1) });
         if (solidity >= 0.92 && fillR >= 0.85 && fillR <= 1.15 && aspect <= 3.5 && smoothOutline) {
           cid++;
           cv.drawContours(idMask, contoursC, i, new cv.Scalar(cid), -1);
