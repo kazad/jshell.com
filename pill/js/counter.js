@@ -1443,21 +1443,49 @@ export function countPills(cv, source, opts = {}) {
           return m >= 0.85 * unitLen;
         }).length;
         if (confirmed >= 5) {
+          // Per-blob mean brightness. Geometry alone cannot reject every
+          // splotch: the worst one measured here is a bare-board patch at 2x
+          // the unit area and full pill length, so no size or axis test can
+          // see it. What it cannot fake is BEING A PILL'S COLOR — the pills
+          // are markedly brighter than the board. Comparing each blob to the
+          // population's own brightness keeps this illumination-independent.
+          const blobLum = new Map();
+          {
+            const sd = src.data, ch = src.channels();
+            const sum = new Map();
+            for (let i = 0; i < bl.length; i++) {
+              const l = bl[i];
+              if (!l) continue;
+              const o = i * ch;
+              const v = (sd[o] + sd[o + 1] + sd[o + 2]) / 3;
+              let s = sum.get(l);
+              if (!s) { s = { v: 0, n: 0 }; sum.set(l, s); }
+              s.v += v; s.n++;
+            }
+            for (const [l, s] of sum) blobLum.set(l, s.v / Math.max(1, s.n));
+          }
+          const lums = blobList.map((l) => blobLum.get(l) || 0).filter((v) => v > 0);
+          const medLum = median(lums);
+
           const junk = new Set();
           for (const l of blobList) {
             const ax = blobAxis.get(l) || {};
             const maj = ax.major || 0, min = ax.minor || 0;
             if (!maj) continue;
-            // Small in BOTH axes. Length alone cannot carry this test: a real
-            // pill seen at a steep angle foreshortens to ~0.76 of the median
-            // length while a splotch measured 0.66 — too narrow a gap. What
-            // separates them is that the foreshortened pill stays ELONGATED
-            // (it keeps a pill's aspect), whereas the splotch is a blob that
-            // is stubby in both directions.
+            // (a) Small in BOTH axes. Length alone cannot carry this test: a
+            // real pill seen at a steep angle foreshortens to ~0.76 of the
+            // median length while a splotch measured 0.66 — too narrow a gap.
+            // What separates them is that the foreshortened pill stays
+            // ELONGATED, whereas the splotch is stubby in both directions.
             const shortAxis = maj < 0.80 * unitLen;
             const stubby = min > 0 && maj / min < 1.6;
             const lightMass = unitOk && blobAreas[l] < 0.8 * unit;
-            if (shortAxis && stubby && lightMass) junk.add(l);
+            if (shortAxis && stubby && lightMass) { junk.add(l); continue; }
+            // (b) Too dark to be one of these pills. Pills of one medication
+            // share a color; a blob well below the population's own median
+            // brightness is surface, not product. The margin is wide (0.82)
+            // so shadowed or dulled pills are never touched.
+            if (medLum > 0 && (blobLum.get(l) || 0) < 0.70 * medLum) junk.add(l);
           }
           if (junk.size) {
             const before = regions.length;

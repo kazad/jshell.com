@@ -32,7 +32,10 @@ html, body {
 body {
   display: flex;
   flex-direction: column;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  /* NOTE: no bottom inset here — bottom-anchored elements (the camera dock,
+     result panel, history list) apply it themselves. Applying it at both
+     levels doubled the gap above the home indicator in installed PWA mode. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
 }
 
 /* ---------- top bar ---------- */
@@ -298,7 +301,12 @@ body {
   background: var(--surface);
   border-radius: 26px 26px 0 0;
   box-shadow: 0 -3px 20px rgba(45, 49, 66, 0.07);
-  padding-bottom: env(safe-area-inset-bottom);
+  /* Home-indicator clearance only — capped so installed PWA mode (where
+     there is no browser toolbar) doesn't leave a large dead strip. */
+  padding-bottom: min(env(safe-area-inset-bottom), 12px);
+}
+@media (display-mode: standalone) {
+  .camera-dock { padding-bottom: min(env(safe-area-inset-bottom), 8px); }
 }
 
 .controls {
@@ -391,14 +399,44 @@ body {
 
 /* Secondary row: quiet, evenly spaced, never competing with the shutter. */
 .control-extras {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-around;
-  gap: 10px;
-  padding: 2px 18px 12px;
+  justify-content: center;
+  gap: 6px;
+  padding: 2px 18px 10px;
   border-top: 1px solid var(--surface-2);
   margin: 6px 18px 0;
 }
+
+.more-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: 0 4px 22px rgba(45, 49, 66, 0.16);
+  padding: 6px;
+  min-width: 210px;
+  z-index: 8;
+}
+.more-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+.more-row:active { background: var(--surface-2); }
 
 .fps-select {
   background: transparent;

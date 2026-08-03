@@ -85,20 +85,29 @@
       </div>
 
       <div class="control-slot">
-        <input id="target-input" class="target-input" type="number" inputmode="numeric" min="1" placeholder="—" aria-label="Target count" />
-        <span class="control-label">Target</span>
+        <input id="target-input" class="target-input" type="number" inputmode="numeric" min="1" placeholder="—"
+          aria-label="Expected count" title="How many pills should be there? ValEye tells you if the count is over or short." />
+        <span class="control-label">Expected</span>
       </div>
     </div>
 
     <div class="control-extras">
-      <button id="upload-btn" class="pill-btn subtle">Take photo</button>
-      <select id="live-fps" class="fps-select" title="Live counting rate" aria-label="Live counting rate">
-        <option value="0.5">0.5 fps</option>
-        <option value="1">1 fps</option>
-        <option value="2" selected>2 fps</option>
-        <option value="4">4 fps</option>
-      </select>
-      <button id="session-btn" class="pill-btn subtle" hidden>Report count</button>
+      <!-- One everyday action only. Diagnostics (frame rate, frame-session
+           reporting) live behind the ⋯ menu so the bar stays uncluttered. -->
+      <button id="upload-btn" class="pill-btn subtle">Choose photo</button>
+      <button id="more-btn" class="pill-btn subtle" aria-label="More options" aria-expanded="false">⋯</button>
+      <div class="more-menu" id="more-menu" hidden>
+        <label class="more-row">
+          <span>Live rate</span>
+          <select id="live-fps" class="fps-select" aria-label="Live counting rate">
+            <option value="0.5">0.5 fps</option>
+            <option value="1">1 fps</option>
+            <option value="2" selected>2 fps</option>
+            <option value="4">4 fps</option>
+          </select>
+        </label>
+        <button id="session-btn" class="more-row as-btn">Send 3 frames for review</button>
+      </div>
       <!-- Camera path: accept a CONCRETE type (not image/*) so iOS honours
            `capture` and opens the camera directly instead of showing the
            Photo Library / Take Photo / Choose File sheet. -->

@@ -166,7 +166,7 @@ function layoutGuide() {
   const vw = els.video.videoWidth, vh = els.video.videoHeight;
   if (!vw || !box.width) { g.hidden = true; return; }
   g.hidden = false;
-  const s = Math.max(box.width / vw, box.height / vh);      // cover scale
+  const s = Math.min(box.width / vw, box.height / vh);      // contain scale
   const ox = (box.width - vw * s) / 2, oy = (box.height - vh * s) / 2;
   const r = captureRect();
   const L = ox + r.x * s, T = oy + r.y * s, S = r.side * s;
@@ -221,8 +221,13 @@ function startPreview() {
       els.preview.width = Math.round(box.width);
       els.preview.height = Math.round(box.height);
     }
-    const s = Math.max(box.width / vw, box.height / vh);
+    // CONTAIN, not cover: show the ENTIRE camera frame. With cover, the
+    // video's left/right edges were cropped off-screen while still being
+    // analyzed, so pills could be counted that the user could not see.
+    const s = Math.min(box.width / vw, box.height / vh);
     const ctx = els.preview.getContext('2d');
+    ctx.fillStyle = '#1c1f2b';
+    ctx.fillRect(0, 0, els.preview.width, els.preview.height);
     ctx.drawImage(els.video, (box.width - vw * s) / 2, (box.height - vh * s) / 2, vw * s, vh * s);
     layoutGuide();
   }, 125);
@@ -246,7 +251,7 @@ function liveMapping() {
   // Video renders with object-fit: cover — map processed coords onto the box.
   const box = els.video.getBoundingClientRect();
   const vw = els.video.videoWidth, vh = els.video.videoHeight;
-  const s = Math.max(box.width / vw, box.height / vh);
+  const s = Math.min(box.width / vw, box.height / vh); // contain: match preview
   return { box, s, ox: (box.width - vw * s) / 2, oy: (box.height - vh * s) / 2 };
 }
 
@@ -400,7 +405,7 @@ function setLive(on) {
   els.liveToggle.classList.toggle('active', on);
   els.liveCount.hidden = !on;
   els.liveOverlay.hidden = !on;
-  document.getElementById('session-btn').hidden = !on;
+  // (session reporting lives in the ⋯ menu; it stays available regardless)
   els.useCount.hidden = true;
   liveCounts.length = 0;
   liveLocked = false;
@@ -881,6 +886,23 @@ els.fileInput.addEventListener('change', () => {
 els.liveToggle.addEventListener('click', () => setLive(!state.live));
 // Changing the rate restarts the loop at the new interval.
 els.liveFps.addEventListener('change', () => { if (state.live) setLive(true); });
+
+// ⋯ menu holds diagnostics so the camera bar stays to one everyday action.
+{
+  const btn = document.getElementById('more-btn');
+  const menu = document.getElementById('more-menu');
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    menu.hidden = !menu.hidden;
+    btn.setAttribute('aria-expanded', String(!menu.hidden));
+  });
+  document.addEventListener('click', (e) => {
+    if (!menu.hidden && !menu.contains(e.target)) {
+      menu.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
 els.useCount.addEventListener('click', () => analyze(grabFrame())); // full-res commit
 els.adjustMinus.addEventListener('click', () => { state.count = Math.max(0, state.count - 1); updateCountUI(); });
 els.adjustPlus.addEventListener('click', () => { state.count += 1; updateCountUI(); });
