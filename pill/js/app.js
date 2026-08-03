@@ -110,8 +110,14 @@ async function initCamera() {
     // this produced the reported "Camera unavailable while counting" state.
     if (!state.stream) {
       els.cameraFallback.hidden = false;
-      els.cameraFallback.querySelector('.sub').textContent =
-        `Tap here to choose a photo instead. (${e.name})`;
+      // NotAllowedError = permission denied, which is a user-fixable state,
+      // not a broken app. Say how to fix it instead of "unavailable".
+      const denied = e.name === 'NotAllowedError';
+      els.cameraFallback.querySelector('p').textContent =
+        denied ? 'Camera access is off' : 'Camera unavailable.';
+      els.cameraFallback.querySelector('.sub').textContent = denied
+        ? 'Allow it in Settings → Safari → Camera (or tap “aA” in the address bar → Website Settings). Tap here to pick a photo instead.'
+        : `Tap here to choose a photo instead. (${e.name})`;
       els.shutter.disabled = true;
       els.liveToggle.disabled = true;
     }

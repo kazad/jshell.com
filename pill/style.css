@@ -262,6 +262,16 @@ body {
   margin: 0 auto;
 }
 
+/* Below the viewfinder, never over it — the camera preview stays clear. */
+.helper-below {
+  position: static;
+  pointer-events: auto;
+  margin: 10px 14px 0;
+  max-width: none;
+}
+.helper-below .helper-dog { width: 44px; height: 44px; }
+.helper-below .helper-bubble { margin-bottom: 0; font-size: 12.5px; }
+
 .camera-fallback {
   position: absolute;
   inset: 0;
