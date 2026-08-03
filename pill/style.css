@@ -421,6 +421,9 @@ body {
 
 .result-actions { display: flex; gap: 12px; }
 
+.report-btn { font-size: 13px; margin-top: -4px; }
+.report-btn.sent { color: var(--accent-dark); }
+
 .contribute {
   display: flex;
   align-items: center;

@@ -34,6 +34,7 @@ const els = {
   useCount: $('#use-count'),
   preview: $('#preview-canvas'),
   libraryInput: $('#library-input'),
+  reportBtn: $('#report-btn'),
   zoomWrap: $('#zoom-wrap'),
   resultPhoto: $('#result-photo'),
 };
@@ -330,6 +331,8 @@ function showPhoto(sourceCanvas) {
   els.overlayCanvas.width = dw;
   els.overlayCanvas.height = dh;
   els.overlayCanvas.getContext('2d').clearRect(0, 0, dw, dh);
+  els.reportBtn.textContent = '⚠︎ Count is wrong — report it';
+  els.reportBtn.classList.remove('sent');
   resetZoom();
   requestAnimationFrame(syncOverlayBox); // after the screen is visible
 }
@@ -690,6 +693,42 @@ els.useCount.addEventListener('click', () => analyze(grabFrame())); // full-res 
 els.adjustMinus.addEventListener('click', () => { state.count = Math.max(0, state.count - 1); updateCountUI(); });
 els.adjustPlus.addEventListener('click', () => { state.count += 1; updateCountUI(); });
 els.targetInput.addEventListener('input', updateCountUI);
+// Report a wrong count WITHOUT saving it as a good one: asks for the true
+// count (pre-filled with the current, possibly +/- adjusted number) and an
+// optional note, then labels the already-uploaded photo as a failure case.
+els.reportBtn.addEventListener('click', async () => {
+  const machine = state.result?.count ?? state.count;
+  const truth = prompt(`ValEye counted ${machine}. How many pills are actually there?`, String(state.count));
+  if (truth == null) return;
+  const n = parseInt(truth, 10);
+  if (!Number.isFinite(n)) return;
+  const note = prompt('What went wrong? (optional — e.g. "missed 3 under the shadow")', '') || null;
+
+  if (!state.submissionId) {
+    // The photo upload failed or is still in flight — queue it with labels
+    // so the report is never lost.
+    els.photoCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const q = loadQueue();
+      q.push({
+        dataUrl: els.photoCanvas.toDataURL('image/jpeg', 0.8),
+        meta: { count: machine, adjusted: n, lowConfidence: state.result?.lowConfidence ?? 0,
+                variant: 'consensus', build: state.build || null, note: note || 'reported wrong' },
+      });
+      saveQueue(q);
+      flushQueue();
+    }, 'image/jpeg', 0.85);
+  } else {
+    annotate({ adjusted: n, note: note || 'reported wrong' });
+  }
+
+  state.count = n;
+  updateCountUI();
+  els.reportBtn.textContent = `✓ Reported — thank you! (actual: ${n})`;
+  els.reportBtn.classList.add('sent');
+  els.helperReact.textContent = 'Got it — I saved this one so I can learn from it. 🐾';
+});
+
 els.retake.addEventListener('click', () => showScreen('camera'));
 els.save.addEventListener('click', saveCurrentCount);
 els.historyBtn.addEventListener('click', () => showScreen('history'));
