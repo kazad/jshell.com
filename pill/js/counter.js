@@ -726,8 +726,48 @@ export function countPills(cv, source, opts = {}) {
 
     const kernel = track(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3)));
     const anchor = new cv.Point(-1, -1);
+    if (opts.probe) opts.probe('pre-open', bw);
     cv.morphologyEx(bw, bw, cv.MORPH_OPEN, kernel, anchor, 2);
-    cv.morphologyEx(bw, bw, cv.MORPH_CLOSE, kernel, anchor, 2);
+    if (opts.probe) opts.probe('post-open', bw);
+    // Closing seals interior speckle, but 2 iterations dilate by ~2px on
+    // every side, which BRIDGES pills that merely lie near each other. That
+    // bridge is unrecoverable downstream: two pills become one blob with no
+    // neck for the watershed to cut, and the pair is counted as one. Measured
+    // on a real photo: 16 separate blobs before closing, 14 after — two
+    // genuine pills lost at this line, upstream of every size/shape rule.
+    // Keep the speckle-sealing benefit but forbid the side effect: close as
+    // before, then undo the fill anywhere it would weld two distinct
+    // components together. Blobs that were already separate stay separate.
+    {
+      const preClose = track(bw.clone());
+      cv.morphologyEx(bw, bw, cv.MORPH_CLOSE, kernel, anchor, 2);
+      const labPre = track(new cv.Mat());
+      const nPre = cv.connectedComponents(preClose, labPre);
+      const labPost = track(new cv.Mat());
+      const nPost = cv.connectedComponents(bw, labPost);
+      if (nPost < nPre) {
+        // Some component absorbed another. For each post-close component,
+        // find which pre-close labels it contains; if more than one, the
+        // pixels closing ADDED inside it are a bridge — remove just those.
+        const lp = labPre.data32S, lq = labPost.data32S, bd = bw.data, pd = preClose.data;
+        const seen = new Map(); // post label -> Set(pre labels)
+        for (let i = 0; i < lq.length; i++) {
+          if (!lq[i] || !lp[i]) continue;
+          let s = seen.get(lq[i]);
+          if (!s) { s = new Set(); seen.set(lq[i], s); }
+          s.add(lp[i]);
+        }
+        const merged = new Set();
+        for (const [post, pres] of seen) if (pres.size > 1) merged.add(post);
+        if (merged.size) {
+          for (let i = 0; i < lq.length; i++) {
+            if (bd[i] && !pd[i] && merged.has(lq[i])) bd[i] = 0; // added bridge pixel
+          }
+        }
+      }
+      opts.debug?.({ stage: 'closeguard', nPre, nPost });
+    }
+    if (opts.probe) opts.probe('post-close', bw);
     const preFill = track(bw.clone()); // pre-fill state: crevices between touching pills still open
     fillHoles(cv, bw, opts.debug); // highlights/engravings punch holes in solid pills
 

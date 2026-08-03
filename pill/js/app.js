@@ -141,7 +141,7 @@ setInterval(() => {
 // The square capture region, in VIDEO pixel coordinates. It is the largest
 // centered square inset by a margin — matching the on-screen guide, so what
 // gets counted is exactly what the user framed.
-const CAPTURE_INSET = 0.86; // square side = 86% of the short video edge
+const CAPTURE_INSET = 0.96; // square side = 96% of the short video edge
 
 function captureRect() {
   const vw = els.video.videoWidth, vh = els.video.videoHeight;
