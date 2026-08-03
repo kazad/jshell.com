@@ -9,6 +9,10 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <!-- Grant the camera to this origin's own frames so the permission prompt
+       isn't re-triggered by embedded contexts. -->
+  <meta http-equiv="Permissions-Policy" content="camera=(self)" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -39,7 +43,15 @@
         <p>Camera unavailable.</p>
         <p class="sub">Tap here to choose a photo of pills on a plain, contrasting tray.</p>
       </div>
-      <div class="frame-guide"></div>
+      <!-- Square capture area: sides dimmed so the tray is centered with a
+           margin, and no pill is sliced by the frame edge. -->
+      <div class="capture-guide" id="capture-guide">
+        <div class="guide-dim guide-top"></div>
+        <div class="guide-dim guide-bottom"></div>
+        <div class="guide-dim guide-left"></div>
+        <div class="guide-dim guide-right"></div>
+        <div class="guide-square"></div>
+      </div>
       <div class="helper">
         <img src="icons/doodle.svg" alt="Goldendoodle helper" class="helper-dog" />
         <div id="helper-tip" class="helper-bubble">Spread the pills out flat — no piles! — and I’ll count them. 🐾</div>

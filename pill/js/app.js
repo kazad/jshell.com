@@ -114,12 +114,47 @@ async function initCamera() {
 }
 let retried = false;
 
+// The square capture region, in VIDEO pixel coordinates. It is the largest
+// centered square inset by a margin — matching the on-screen guide, so what
+// gets counted is exactly what the user framed.
+const CAPTURE_INSET = 0.86; // square side = 86% of the short video edge
+
+function captureRect() {
+  const vw = els.video.videoWidth, vh = els.video.videoHeight;
+  const side = Math.round(Math.min(vw, vh) * CAPTURE_INSET);
+  return { x: Math.round((vw - side) / 2), y: Math.round((vh - side) / 2), side };
+}
+
 function grabFrame() {
+  const { x, y, side } = captureRect();
   const c = document.createElement('canvas');
-  c.width = els.video.videoWidth;
-  c.height = els.video.videoHeight;
-  c.getContext('2d').drawImage(els.video, 0, 0);
+  c.width = side;
+  c.height = side;
+  c.getContext('2d').drawImage(els.video, x, y, side, side, 0, 0, side, side);
   return c;
+}
+
+// Draw the guide to match captureRect() as it appears on screen (the preview
+// is object-fit: cover, so the mapping must account for the crop).
+function layoutGuide() {
+  const g = document.getElementById('capture-guide');
+  const box = els.preview.parentElement.getBoundingClientRect();
+  const vw = els.video.videoWidth, vh = els.video.videoHeight;
+  if (!vw || !box.width) { g.hidden = true; return; }
+  g.hidden = false;
+  const s = Math.max(box.width / vw, box.height / vh);      // cover scale
+  const ox = (box.width - vw * s) / 2, oy = (box.height - vh * s) / 2;
+  const r = captureRect();
+  const L = ox + r.x * s, T = oy + r.y * s, S = r.side * s;
+  const sq = g.querySelector('.guide-square');
+  sq.style.cssText = `left:${L}px;top:${T}px;width:${S}px;height:${S}px`;
+  const dims = {
+    '.guide-top': `left:0;top:0;width:100%;height:${Math.max(0, T)}px`,
+    '.guide-bottom': `left:0;top:${T + S}px;width:100%;bottom:0`,
+    '.guide-left': `left:0;top:${T}px;width:${Math.max(0, L)}px;height:${S}px`,
+    '.guide-right': `left:${L + S}px;top:${T}px;right:0;height:${S}px`,
+  };
+  for (const [sel, css] of Object.entries(dims)) g.querySelector(sel).style.cssText = css;
 }
 
 // A canvas can come back entirely black when iOS hasn't delivered a frame
@@ -165,6 +200,7 @@ function startPreview() {
     const s = Math.max(box.width / vw, box.height / vh);
     const ctx = els.preview.getContext('2d');
     ctx.drawImage(els.video, (box.width - vw * s) / 2, (box.height - vh * s) / 2, vw * s, vh * s);
+    layoutGuide();
   }, 125);
 }
 
@@ -255,9 +291,12 @@ function liveTick() {
   }
   const ctx = c.getContext('2d');
   ctx.clearRect(0, 0, c.width, c.height);
+  // Live frames are CROPPED to the capture square, so overlay coordinates are
+  // relative to that square, not the whole video: offset by the crop origin.
+  const rect = captureRect();
   ctx.save();
-  ctx.translate(ox, oy);
-  drawOverlay(ctx, r, s * (els.video.videoWidth / r.width), { clear: false });
+  ctx.translate(ox + rect.x * s, oy + rect.y * s);
+  drawOverlay(ctx, r, s * (rect.side / r.width), { clear: false });
   ctx.restore();
 }
 
