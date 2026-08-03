@@ -884,7 +884,16 @@ export function countPills(cv, source, opts = {}) {
       // ratio >= 1.5 already rounds to 2 units, and mixed-size pairs like
       // capsule+tablet land near 1.55x); splitting still requires pill-like
       // thickness so rings/rims never multiply.
-      const units = med > 0 && s.area > med * 1.5 && s.peak >= 0.8 * medPeak
+      // The thickness guard exists to stop thin rings/rims from multiplying,
+      // but it also blocked legitimate splits: when pills OVERLAP or one lies
+      // SIDEWAYS, the merged region is thin at the neck, so its peak falls
+      // below the population's and the split never fired (user-reported: a
+      // sideways pill in a clump was never counted). Allow the split when the
+      // region is either pill-thick OR clearly oversized in area — a ring is
+      // never both large in area and elongated like a pill run.
+      const thickEnough = s.peak >= 0.8 * medPeak;
+      const clearlyMultiple = s.area > med * 1.8 && s.peak >= 0.5 * medPeak;
+      const units = med > 0 && s.area > med * 1.5 && (thickEnough || clearlyMultiple)
         ? Math.max(1, Math.round(s.area / med)) : 1;
       count += units;
       regions.push({ cx: s.sx / s.area, cy: s.sy / s.area, area: s.area, units, label: lbl });

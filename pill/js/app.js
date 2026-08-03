@@ -232,6 +232,9 @@ let lastWildReport = 0;
 
 function liveTick() {
   if (!state.cv || state.busy || els.video.readyState < 2 || document.hidden) return;
+  // Counting means frames are arriving: the "Camera unavailable" panel must
+  // never coexist with live results (reported by the user).
+  if (!els.cameraFallback.hidden) els.cameraFallback.hidden = true;
   let r;
   try {
     r = countPills(state.cv, grabFrame(), { maxDim: 640, overlay: false, variant: 'baseline', thrHint: liveThr });
@@ -336,6 +339,30 @@ document.getElementById('session-btn')?.addEventListener('click', reportSession)
 
 function setLive(on) {
   state.live = on;
+  // Live counting analyses ~2 frames/sec; pausing stops BOTH the analysis and
+  // the preview repaint so the camera work stops draining battery.
+  els.liveToggle.textContent = on ? '⏸ Pause' : '▶ Live';
+  if (!on) {
+    // Stop analysis, stop the preview repaint, and RELEASE the camera so the
+    // hardware powers down (this is what actually saves battery, and it turns
+    // off the phone's recording indicator).
+    clearInterval(previewTimer);
+    previewTimer = null;
+    if (state.stream) {
+      state.stream.getTracks().forEach((t) => t.stop());
+      state.stream = null;
+      els.video.srcObject = null;
+    }
+    els.preview.hidden = true;
+    els.liveOverlay.hidden = true;
+    els.liveCount.hidden = true;
+    els.helperTip.textContent = 'Camera paused — tap ▶ Live to start counting again. 🐾';
+  } else if (!state.stream) {
+    initCamera(); // re-acquire; it calls setLive(true) once frames flow
+    return;
+  } else if (!previewTimer) {
+    startPreview();
+  }
   els.liveToggle.classList.toggle('active', on);
   els.liveCount.hidden = !on;
   els.liveOverlay.hidden = !on;
@@ -487,7 +514,7 @@ function syncOverlayBox() {
   if (!cw || !ch) return;
   const box = els.resultPhoto.getBoundingClientRect();
   const availW = box.width || window.innerWidth - 28;
-  const availH = Math.min(window.innerHeight * 0.55, box.height || Infinity);
+  const availH = Math.min(window.innerHeight * 0.62, box.height || Infinity);
   const s = Math.min(availW / cw, availH / ch);
   els.zoomWrap.style.width = Math.round(cw * s) + 'px';
   els.zoomWrap.style.height = Math.round(ch * s) + 'px';

@@ -351,7 +351,10 @@ body {
   box-shadow: var(--shadow);
   display: grid;
   place-items: center;
-  max-height: 55vh;
+  /* The photo is the working surface (badges must be readable, the crop box
+     must be draggable), so give it most of the screen. */
+  max-height: 62vh;
+  min-height: 42vh;
 }
 .result-photo { touch-action: none; } /* pinch/pan belongs to the photo */
 
