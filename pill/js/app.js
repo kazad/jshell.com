@@ -680,6 +680,26 @@ initCamera();
 showScreen('camera');
 flushQueue(); // retry anything that failed to upload previously
 
+// iOS Safari ignores user-scalable=no, so page zoom must be suppressed
+// explicitly: block the proprietary gesture events (pinch) and swallow the
+// second tap of a double-tap. The photo's own zoom handlers live on
+// #result-photo and call stopPropagation, so they keep working.
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+}
+{
+  let lastTouch = 0;
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - lastTouch < 350 && !els.resultPhoto.contains(e.target)) e.preventDefault();
+    lastTouch = now;
+  }, { passive: false });
+  // Two-finger pinch anywhere outside the photo is page zoom — block it.
+  document.addEventListener('touchmove', (e) => {
+    if (e.touches.length > 1 && !els.resultPhoto.contains(e.target)) e.preventDefault();
+  }, { passive: false });
+}
+
 // iOS re-prompts for camera on every Safari *tab* visit, but an installed
 // (Add to Home Screen) PWA keeps the grant. Nudge once, only where it helps.
 (() => {

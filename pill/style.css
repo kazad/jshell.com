@@ -22,7 +22,8 @@ html, body {
   font-family: ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
-  touch-action: manipulation; /* app-like: no double-tap page zoom */
+  touch-action: pan-y; /* app-like: no pinch/double-tap page zoom */
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
