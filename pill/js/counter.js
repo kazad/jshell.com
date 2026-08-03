@@ -1395,7 +1395,13 @@ export function countPills(cv, source, opts = {}) {
         if (b) blobAxis.set(l, blobAxes(bl, w, l, b));
       }
       const unitLen = estimateUnitLength(blobList.map((l) => (blobAxis.get(l) || {}).major || 0).filter((m) => m > 0));
+
       opts.debug?.({ stage: 'lengthcal', unitLen, unit });
+      for (const l of blobList) {
+        const ax = blobAxis.get(l) || {};
+        const bx = blobBox.get(l) || {};
+        opts.debug?.({ stage: 'blobgeo', l, area: blobAreas[l], major: +(ax.major || 0).toFixed(1), minor: +(ax.minor || 0).toFixed(1), lenR: +((ax.major || 0) / unitLen).toFixed(2), massR: +(blobAreas[l] / unit).toFixed(2), cx: Math.round(((bx.x0 || 0) + (bx.x1 || 0)) / 2), cy: Math.round(((bx.y0 || 0) + (bx.y1 || 0)) / 2), peak: +(peaks[l] || 0).toFixed(1) });
+      }
 
       // -- Map watershed regions to blobs (majority pixel vote). --
       const labelBlob = new Map();
@@ -1536,8 +1542,17 @@ export function countPills(cv, source, opts = {}) {
           // saw even more material than the baseline counted) is the whole
           // geometry family under-reading an overlapped clump — reject it.
           const massContradicts = k < a.unitsSum && massVote && massVote.v > a.unitsSum;
+          // Length floor on downward overrides. A blob spanning N pill-lengths
+          // holds at least N pills end to end, whatever the distance-transform
+          // family reads at a weak neck. Pills touching END TO END produce the
+          // long thin blobs the {ws, ero} pair systematically under-splits;
+          // the major axis is the one measurement that neck weakness cannot
+          // corrupt. Only blocks REDUCTIONS below that floor.
+          const lenFloor = unitLen > 0 && majL > 0
+            ? Math.floor(majL / unitLen + 0.15) : 0;
+          const belowLenFloor = k < a.unitsSum && lenFloor >= 2 && k < lenFloor;
           const agreed = ks.length >= 2 && independent && !distancePairVsMass
-            && !massContradicts && k >= regs.length
+            && !massContradicts && !belowLenFloor && k >= regs.length
             && (broadAmbiguity || k === a.unitsSum);
           opts.debug?.({ stage: 'panel', blob: l, votes, k, agreed, base: a.unitsSum });
           if (!agreed) {

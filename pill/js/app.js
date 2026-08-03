@@ -779,6 +779,10 @@ function showScreen(name) {
 
 // One tap = photo. If the in-page stream is live, capture from it instantly
 // (no OS camera UI, no confirm step). Otherwise open the camera directly.
+// Snapshot = freeze + analyze properly. Live counting runs small and fast
+// (640px, baseline) so it can keep up; a snapshot pauses the stream and runs
+// the full-quality pass (1280px, consensus with self-flagging). Same camera,
+// already streaming, so the capture itself is instant.
 els.shutter.addEventListener('click', async () => {
   // Prefer the in-app viewfinder: it is the only path that shows the square
   // framing guide. If the stream is merely still warming up, wait briefly
@@ -792,9 +796,25 @@ els.shutter.addEventListener('click', async () => {
   if (els.video.readyState >= 2) {
     const frame = grabFrame();
     if (isBlank(frame)) { els.helperTip.textContent = 'Camera’s still waking up — try that again in a second. 🐾'; return; }
+    // FREEZE: stop live analysis so the frame can't change mid-count and the
+    // phone's whole budget goes to the high-quality pass.
+    freezeLive();
     analyze(frame);
   } else els.fileInput.click();
 });
+
+// Pause the live loop (keeping the stream open for an instant retake) and
+// leave the captured frame on screen.
+function freezeLive() {
+  clearInterval(state.liveTimer);
+  state.liveTimer = null;
+  clearInterval(previewTimer);
+  previewTimer = null;
+  state.live = false;
+  els.liveToggle.classList.add('paused');
+  const lbl = document.getElementById('live-label');
+  if (lbl) lbl.textContent = 'Paused';
+}
 
 // Import = library picker; the fallback panel and shutter open the camera
 // directly (capture="environment"), so taking a photo stays ONE tap.
@@ -1038,7 +1058,11 @@ els.adjustBtn.addEventListener('click', () => setAdjust(!crop.on));
   box.addEventListener('pointercancel', onUp);
 }
 
-els.retake.addEventListener('click', () => { setAdjust(false); showScreen('camera'); });
+els.retake.addEventListener('click', () => {
+  setAdjust(false);
+  showScreen('camera');
+  if (state.stream) setLive(true); // un-freeze: the stream is still open
+});
 els.save.addEventListener('click', saveCurrentCount);
 els.historyBtn.addEventListener('click', () => showScreen('history'));
 els.historyBack.addEventListener('click', () => showScreen('camera'));
