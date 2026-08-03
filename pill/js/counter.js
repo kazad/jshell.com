@@ -916,139 +916,6 @@ export function countPills(cv, source, opts = {}) {
     }
     cv.dilate(sureFg, sureFg, kernel, anchor, 1); // fatten point seeds
 
-    // SEED CONSOLIDATION (one seed per pill-sized blob).
-    // The `dd >= 0.6*peak` rule assumes a pill's distance transform has one
-    // compact maximum. That holds for round tablets but NOT for caplets: an
-    // elongated pill's distance ridge runs nearly its whole length, so noise
-    // along that ridge breaks the thresholded region into 2+ slivers and the
-    // watershed then splits ONE pill into several. Measured on the real
-    // corpus: 13.1% of single-pill blobs fragmented into >1 seed; on
-    // r-91254db6 the mask was perfect (19 blobs for 19 pills) yet produced 23
-    // seeds, purely from this effect.
-    //
-    // Retuning the threshold cannot fix it -- a sweep showed fragmentation
-    // only falls once seeds start vanishing entirely (frac .65 + open 7:
-    // frag 14.1%->4.5% but 22% of pills LOST their seed). So instead of
-    // changing WHICH pixels pass, collapse the surviving pixels per blob:
-    // a blob that is geometrically ONE pill gets exactly ONE seed.
-    //
-    // "One pill" is decided by the two measurements that survive touching:
-    // the blob is no longer than ~1.35 unit lengths AND carries no more than
-    // ~1.3 units of area. Both are needed -- length alone would merge the
-    // seeds of two pills lying side by side (short but heavy), area alone
-    // would merge an on-edge pill's neighbours (an on-edge caplet is only
-    // ~2/3 the area, so a genuine pair can read light). Blobs failing either
-    // test keep every seed they have, so real clusters still split.
-    {
-      const w0 = src.cols;
-      const seedLab = track(new cv.Mat());
-      const nSeed = cv.connectedComponents(sureFg, seedLab);
-      const sl = seedLab.data32S;
-      // Per-seed: which blob owns it, its area, and its distance-weighted
-      // centroid (the ridge's centre of mass -- for a caplet this is the
-      // pill's middle, which is exactly where a marker belongs).
-      const seedBlob = new Int32Array(nSeed);
-      const seedArea = new Float64Array(nSeed);
-      const seedWx = new Float64Array(nSeed);
-      const seedWy = new Float64Array(nSeed);
-      const seedW = new Float64Array(nSeed);
-      for (let i = 0; i < sl.length; i++) {
-        const s = sl[i];
-        if (!s) continue;
-        seedBlob[s] = bl[i];
-        seedArea[s]++;
-        const wgt = dd[i] || 1e-3;
-        seedWx[s] += (i % w0) * wgt;
-        seedWy[s] += ((i / w0) | 0) * wgt;
-        seedW[s] += wgt;
-      }
-      const perBlob = new Map(); // blob -> [seed labels]
-      for (let s = 1; s < nSeed; s++) {
-        const b = seedBlob[s];
-        if (!b) continue;
-        if (!perBlob.has(b)) perBlob.set(b, []);
-        perBlob.get(b).push(s);
-      }
-
-      // Unit scale from the blobs themselves. Length is the robust anchor
-      // (an on-edge pill keeps its length), so derive the unit from the
-      // MEDIAN major axis of pill-sized blobs -- the same estimator the
-      // consensus stage trusts. Area unit comes from the median blob area,
-      // which for a photo of mostly-singleton pills is the pill area.
-      const seedBoxes = new Map();
-      for (let i = 0; i < bl.length; i++) {
-        const l = bl[i];
-        if (!l || blobAreas[l] < absFloor || peaks[l] < MIN_PEAK) continue;
-        const x = i % w0, y = (i / w0) | 0;
-        let b = seedBoxes.get(l);
-        if (!b) { b = { x0: x, y0: y, x1: x, y1: y }; seedBoxes.set(l, b); }
-        if (x < b.x0) b.x0 = x;
-        if (x > b.x1) b.x1 = x;
-        if (y < b.y0) b.y0 = y;
-        if (y > b.y1) b.y1 = y;
-      }
-      const majors = [];
-      const minors = [];
-      const areasForUnit = [];
-      const axCache = new Map();
-      for (const [l, box] of seedBoxes) {
-        const ax = blobAxes(bl, w0, l, box);
-        axCache.set(l, ax);
-        if (ax.major > 0) majors.push(ax.major);
-        if (ax.minor > 0) minors.push(ax.minor);
-        areasForUnit.push(blobAreas[l]);
-      }
-      const unitMajor0 = median(majors) || 0;
-      const unitMinor0 = median(minors) || 0;
-      const unitArea0 = median(areasForUnit) || 0;
-
-      let merged = 0, mergedBlobs = 0;
-      for (const [l, seeds] of perBlob) {
-        if (seeds.length < 2) continue;
-        const ax = axCache.get(l);
-        if (!ax || !(ax.major > 0) || !(unitMajor0 > 0) || !(unitArea0 > 0)) continue;
-        const lenR = ax.major / unitMajor0;
-        const massR = blobAreas[l] / unitArea0;
-        // WIDTH is the decisive test, and it must come first. Length and area
-        // ratios are measured against medians that touching clusters inflate,
-        // so a genuine PAIR can read lenR/massR near 1 and be merged away.
-        // The minor axis cannot: two pills side by side double it, whatever
-        // the medians do. Measured regression without this guard --
-        // synth2-rc-{dark,kraft}-small-n12-t65 (12 small pills at maximum
-        // touch density) each lost 2 pills, because side-by-side small pills
-        // pass the area test. An on-edge pill only ever gets NARROWER, so
-        // this guard never rejects the on-edge case it must protect.
-        const widthR = unitMinor0 > 0 ? ax.minor / unitMinor0 : 0;
-        if (widthR > 1.3) continue;
-        // Geometrically ONE pill? Then it must carry exactly one seed.
-        if (lenR > 1.35 || massR > 1.3) continue;
-        // Keep the seed nearest the blob's distance-weighted centre and
-        // erase the rest. Erasing (rather than merging pixels) is safe: the
-        // surviving seed still sits on the ridge, and the watershed floods
-        // the erased area back into this same region.
-        let bx = 0, by = 0, bw2 = 0;
-        for (const s of seeds) { bx += seedWx[s]; by += seedWy[s]; bw2 += seedW[s]; }
-        bx /= Math.max(1e-6, bw2); by /= Math.max(1e-6, bw2);
-        let keep = seeds[0], bestD = Infinity;
-        for (const s of seeds) {
-          const cx = seedWx[s] / Math.max(1e-6, seedW[s]);
-          const cy = seedWy[s] / Math.max(1e-6, seedW[s]);
-          const d2 = (cx - bx) * (cx - bx) + (cy - by) * (cy - by);
-          // Prefer the larger seed when two are near-equidistant; a sliver
-          // beside a solid core is the artifact, not the pill's centre.
-          const score = d2 - 0.5 * seedArea[s];
-          if (score < bestD) { bestD = score; keep = s; }
-        }
-        const kill = new Set(seeds.filter((s) => s !== keep));
-        if (!kill.size) continue;
-        for (let i = 0; i < sl.length; i++) if (kill.has(sl[i])) sf[i] = 0;
-        merged += kill.size;
-        mergedBlobs++;
-      }
-      opts.debug?.({ stage: 'seedconsolidate', mergedBlobs, seedsRemoved: merged,
-        unitMajor: +unitMajor0.toFixed(1), unitArea: +unitArea0.toFixed(0) });
-    }
-
     if (emit) emit('markers', grayToStage(sureFg));
 
     const unknown = track(new cv.Mat());
@@ -1548,7 +1415,45 @@ export function countPills(cv, source, opts = {}) {
       for (let l = 1; l < peaks.length; l++) {
         if (blobAreas[l] >= absFloor && peaks[l] >= MIN_PEAK) blobList.push(l);
       }
-      let unit = estimateUnitArea(blobList.map((l) => blobAreas[l]));
+      // Calibrate on pill-sized blobs only. ONE MEDICATION PER PHOTO means
+      // every pill is the same size, so blobs a small fraction of the biggest
+      // ones are debris, not product -- and debris must not set the unit.
+      // Glossy tablets make this acute: printed text and specular highlights
+      // punch interior holes that survive as tiny blobs. Measured on
+      // t2-advil-scatter-dark-1, ~30 imprint fragments of 106..524 px sat
+      // beside real tablets of ~8500 px and dragged BOTH estimators down
+      // (unit 322 and unitLen 21.7 against a true tablet of ~8500 / ~100),
+      // after which each tablet read as dozens of pills: 283 counted vs 28.
+      //
+      // The 80th percentile of area is the anchor -- high enough that debris
+      // (many but small) cannot reach it, while a genuine clump-heavy photo
+      // still lands on real pill material. An on-edge pill keeps ~2/3 of the
+      // flat area, well clear of the 0.33 cut, so it is never discarded.
+      // Falls back to the unfiltered list whenever filtering would leave too
+      // few blobs to calibrate from.
+      const areasSorted = blobList.map((l) => blobAreas[l]).sort((x, y) => x - y);
+      const hiArea = areasSorted.length
+        ? areasSorted[Math.min(areasSorted.length - 1, Math.floor(areasSorted.length * 0.8))] : 0;
+      const solidList = hiArea > 0
+        ? blobList.filter((l) => blobAreas[l] >= 0.33 * hiArea) : blobList;
+      // Only trust this filter when the discarded blobs look like DEBRIS
+      // rather than pills. The 80th-percentile anchor is a multi-pill CLUMP
+      // in a photo where pills touch heavily, and then a perfectly real
+      // single pill sits below 0.33x of it. Measured on r-cc7a2ada, whose 10
+      // blobs hold 19 pills: the filter dropped 3 of 10 and the count fell
+      // from 18 to 16.
+      //
+      // Real debris is numerous AND tiny -- the advil photos discard ~70% of
+      // their blobs, which are imprint specks. Genuine pills are never the
+      // minority of their own photo, so require the discards to outnumber the
+      // survivors before believing them to be fragments.
+      const dropped = blobList.length - solidList.length;
+      const debrisDominates = dropped > solidList.length;
+      const calList = (debrisDominates && solidList.length >= 3) ? solidList : blobList;
+      if (calList.length !== blobList.length) {
+        opts.debug?.({ stage: 'fragfilter', blobs: blobList.length, kept: calList.length, hiArea });
+      }
+      let unit = estimateUnitArea(calList.map((l) => blobAreas[l]));
 
       // Crease-cut pieces: unit recalibration AND panel method 3's evidence.
       const cutM = track(new cv.Mat());
@@ -1591,7 +1496,10 @@ export function countPills(cv, source, opts = {}) {
         const b = blobBox.get(l);
         if (b) blobAxis.set(l, blobAxes(bl, w, l, b));
       }
-      const unitLen = estimateUnitLength(blobList.map((l) => (blobAxis.get(l) || {}).major || 0).filter((m) => m > 0));
+      // Calibrated on calList for the same reason as the area unit: imprint
+      // and highlight fragments are short as well as small, so leaving them
+      // in collapses unitLen too (21.7 vs a true ~100 on the advil photos).
+      const unitLen = estimateUnitLength(calList.map((l) => (blobAxis.get(l) || {}).major || 0).filter((m) => m > 0));
       // Unit WIDTH, from blobs length says are single pills. Length alone
       // cannot bound a SIDE-BY-SIDE pair (two pills abreast are wide, not
       // long), so the width of a known-single pill is needed to recognise
@@ -1621,10 +1529,31 @@ export function countPills(cv, source, opts = {}) {
       // only when it disagrees materially (>15%) with the incumbent — on 20 of
       // 22 real photos the two agree within 2% and this is a no-op.
       if (unitLen > 0) {
+        // SUB-PILL FRAGMENT GUARD.
+        // The "singles" pool is selected by length, so when length itself is
+        // contaminated the pool fills with debris and the median collapses.
+        // Glossy tablets are the pathological case: printed text and specular
+        // highlights punch interior holes that survive as tiny blobs.
+        // Measured on t2-advil-scatter-dark-1 -- 44 blobs, of which ~30 are
+        // imprint fragments of 106..524 px against real tablets of ~8500 px.
+        // Those 22 fragments outvoted the tablets and drove unitfix to a unit
+        // of 226 (37x too small), after which every real tablet read as ~38
+        // pills and the photo counted 283 vs 28.
+        //
+        // ONE MEDICATION PER PHOTO means every pill is the same size, so a
+        // blob a small fraction of the biggest coherent blobs is not a pill.
+        // Anchor on a HIGH percentile of blob area (robust to the debris that
+        // dominates by count but not by size) and drop anything below a third
+        // of it. An on-edge pill keeps ~2/3 of the flat area, comfortably
+        // above the 0.33 cut, so the exception the owner called out survives.
+        // Same debris-only condition as the calibration filter above: when
+        // the small blobs are NOT the dominant population they are pills, not
+        // fragments, and excluding them would bias the unit upward.
+        const fragFloor = (debrisDominates && hiArea > 0) ? 0.33 * hiArea : 0;
         const singleAreas = blobList
           .filter((l) => {
             const m = (blobAxis.get(l) || {}).major || 0;
-            return m > 0 && m <= 1.35 * unitLen;
+            return m > 0 && m <= 1.35 * unitLen && blobAreas[l] >= fragFloor;
           })
           .map((l) => blobAreas[l]);
         if (singleAreas.length >= 5) {
@@ -1914,10 +1843,36 @@ export function countPills(cv, source, opts = {}) {
             // a blob the major axis says is too short to hold them.
             const stacked = peaks[l] >= 1.35 * radiusEst
               && unitLen > 0 && majL >= 1.5 * unitLen;
-            if (lenRoom || stacked) {
-              opts.debug?.({ stage: 'massoverride', blob: l, from: k, to: mv, lenRoom, stacked });
+
+            // PHYSICAL CAPACITY INVARIANT.
+            // A blob can never hold more pills than fit inside it. The
+            // distance-transform peak measures the blob's own half-thickness,
+            // so a pill of that thickness covers at least pi*peak^2 px -- a
+            // bound derived from the blob's geometry alone, never from the
+            // area calibration. That independence is the point: when the unit
+            // is corrupted, every calibration-based number is wrong together,
+            // and only a self-contained measurement can catch it.
+            //
+            // Measured on t2-advil-scatter-dark-1 (28 glossy tablets whose
+            // printed text and specular highlights punch the mask into ~30
+            // sub-pill fragments): unitfix took the unit to 226 against a
+            // true tablet of ~8500 px, so each real tablet read as ~38 pills
+            // and massoverride multiplied it on the `stacked` branch with
+            // lenRoom:false. Count came out 283 vs 28.
+            //
+            // pi*peak^2 understates a caplet (whose area exceeds a circle of
+            // its half-width), so the 2x headroom keeps genuine end-to-end
+            // chains and overlapping clumps intact; it only bites when a
+            // claim exceeds what the pixels can physically contain.
+            const capacity = peaks[l] >= MIN_PEAK
+              ? Math.max(1, Math.floor((2 * blobAreas[l]) / (Math.PI * peaks[l] * peaks[l])))
+              : Infinity;
+            if ((lenRoom || stacked) && mv <= capacity) {
+              opts.debug?.({ stage: 'massoverride', blob: l, from: k, to: mv, lenRoom, stacked, capacity });
               k = mv;
               ks = ['mass', 'len'];
+            } else if (lenRoom || stacked) {
+              opts.debug?.({ stage: 'massoverride-capped', blob: l, from: k, want: mv, capacity });
             }
           }
           // Independence guards. The four methods form two families that fail
