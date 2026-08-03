@@ -743,17 +743,3 @@ for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
   }, { passive: false });
 }
 
-// iOS re-prompts for camera on every Safari *tab* visit, but an installed
-// (Add to Home Screen) PWA keeps the grant. Nudge once, only where it helps.
-(() => {
-  const tip = document.getElementById('install-tip');
-  const installed = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
-  const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  if (!installed && iOS && !localStorage.getItem('valeye-install-tip-seen')) {
-    tip.hidden = false;
-    document.getElementById('install-dismiss').addEventListener('click', () => {
-      tip.hidden = true;
-      localStorage.setItem('valeye-install-tip-seen', '1');
-    });
-  }
-})();
