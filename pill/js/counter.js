@@ -1658,7 +1658,19 @@ export function countPills(cv, source, opts = {}) {
           // shrink an over-reading mass vote, never to raise one.
           const majL = (blobAxis.get(l) || {}).major || 0;
           const lenSingle = unitLen > 0 && majL > 0 && majL <= 1.35 * unitLen;
-          const massV = lenSingle ? 1 : Math.max(1, a.k0);
+          // Round-up on a heavy fraction the BASELINE already claims. Plain
+          // rounding throws away real evidence at the .3-.5 band: a clump
+          // holding one flat pill plus one lying ON EDGE measures ~k+0.4
+          // units, because an on-edge caplet projects only ~0.6-0.75x a flat
+          // one's area. Measured on r-dbe1f2d8: a 3-pill clump read 2.40
+          // units and the vote rounded it to 2, losing a pill the watershed
+          // had already found. Only rounds toward a count the baseline
+          // independently reached, so it can never invent pills on its own.
+          const massFrac = unitOk ? blobAreas[l] / unit : 0;
+          const heavyFraction = massFrac - Math.floor(massFrac) >= 0.3
+            && Math.ceil(massFrac) === a.unitsSum;
+          const massV = lenSingle ? 1
+            : (heavyFraction ? Math.ceil(massFrac) : Math.max(1, a.k0));
           // Panel votes (each method abstains when it has no evidence).
           const votes = [];
           if (regs.length >= 1) votes.push({ m: 'ws', v: regs.length }); // 1. watershed markers
@@ -1685,6 +1697,38 @@ export function countPills(cv, source, opts = {}) {
             if (ms.length > ks.length
               || (ms.length === ks.length && k && Math.abs(v - medV) < Math.abs(k - medV))) { k = v; ks = ms; }
           }
+
+          // STACKED-CLUMP MASS OVERRIDE.
+          // Plain majority cannot rescue a deeply merged clump, because three
+          // of the four methods read the same failing evidence: watershed,
+          // crease and erosion all need a visible SEAM between pills. When
+          // pills overlap or stack, there is no seam, so those three agree on
+          // a low answer and out-vote the one method that still sees the
+          // truth. Measured on r-f5d11815's top cluster: ws:3, crease:3,
+          // ero:1 against mass:6 — the blob holds 5.9 units of pill material
+          // and spans 2.4 pill-lengths, but the majority froze it at 3.
+          //
+          // Mass may only overrule that majority when a measurement OUTSIDE
+          // the area calibration independently agrees the blob is big enough:
+          // the major axis must span at least (k-0.5) pill-lengths, and the
+          // blob must be genuinely thick (a flat single pill can never be),
+          // so a mis-calibrated unit alone can never trigger this.
+          const massVoteRaw = votes.find((x) => x.m === 'mass');
+          if (massVoteRaw && massVoteRaw.v > k) {
+            const mv = massVoteRaw.v;
+            // Length arm must be STRICT. A lone caplet already measures ~1.1
+            // pill-lengths, so a (mv-0.5) test lets "long enough for 2" pass on
+            // a single pill — measured on synth2-rc-wood-*, that inflated 12
+            // pills to 16. Requiring the blob to span nearly the full mv
+            // pill-lengths keeps only genuine end-to-end chains.
+            const lenRoom = unitLen > 0 && majL > 0 && majL >= (mv - 0.15) * unitLen;
+            const stacked = peaks[l] >= 1.35 * radiusEst;
+            if (lenRoom || stacked) {
+              opts.debug?.({ stage: 'massoverride', blob: l, from: k, to: mv, lenRoom, stacked });
+              k = mv;
+              ks = ['mass', 'len'];
+            }
+          }
           // Independence guards. The four methods form two families that fail
           // together: {ws, ero} both read the distance transform (weak necks
           // merge for both), {mass, crease} both lean on the unit calibration.
@@ -1699,10 +1743,15 @@ export function countPills(cv, source, opts = {}) {
           const massVote = votes.find((x) => x.m === 'mass');
           const distancePairVsMass = ks.length === 2 && ks.includes('ws') && ks.includes('ero')
             && massVote && massVote.v !== k;
-          // A downward override that pixel mass contradicts UPWARD (mass
-          // saw even more material than the baseline counted) is the whole
-          // geometry family under-reading an overlapped clump — reject it.
-          const massContradicts = k < a.unitsSum && massVote && massVote.v > a.unitsSum;
+          // A downward override that pixel mass contradicts is the whole
+          // seam-reading family under-reading an overlapped clump — reject it.
+          // Mass CORROBORATING the baseline counts as contradiction too: when
+          // the watershed found k pills and the pixel mass independently says
+          // the same, a reduction is being driven purely by methods that need
+          // a visible seam (crease/erosion), which overlapping pills do not
+          // have. Measured on r-7ff7fd99: ws:2, crease:2, ero:2 talked a blob
+          // down from 3 to 2 while mass read exactly 3 — one real pill lost.
+          const massContradicts = k < a.unitsSum && massVote && massVote.v >= a.unitsSum;
           // Length floor on downward overrides. A blob spanning N pill-lengths
           // holds at least N pills end to end, whatever the distance-transform
           // family reads at a weak neck. Pills touching END TO END produce the
@@ -1712,9 +1761,27 @@ export function countPills(cv, source, opts = {}) {
           const lenFloor = unitLen > 0 && majL > 0
             ? Math.floor(majL / unitLen + 0.15) : 0;
           const belowLenFloor = k < a.unitsSum && lenFloor >= 2 && k < lenFloor;
+          // Mass+length corroborated INCREASE. The `broadAmbiguity` clause
+          // below exists to stop the panel overriding a calibration that the
+          // clear-blob majority has certified — but it also froze the one
+          // case the panel gets right: a clump that pixel mass AND the major
+          // axis both say holds more pills than the watershed found. Measured
+          // on the real corpus: r-f5d11815's top cluster is 5.9 units of mass
+          // spanning 2.4 pill-lengths, yet stayed at the watershed's 3.
+          // Length is independent of the area calibration, so when it
+          // separately confirms the blob is long enough to hold k pills, the
+          // increase rests on two non-distance measurements and is safe.
+          // Either kind of corroboration counts: the blob is long enough to
+          // lay k pills end to end, OR it is thick enough that the pills must
+          // be stacked (the case the seam-reading methods cannot see at all).
+          const lenSupportsK = unitLen > 0 && majL > 0 && majL >= (k - 0.5) * unitLen;
+          const thickSupportsK = peaks[l] >= 1.35 * radiusEst;
+          const massSupportsK = massVote && massVote.v === k;
+          const corroboratedRise = k > a.unitsSum && massSupportsK
+            && (lenSupportsK || thickSupportsK);
           const agreed = ks.length >= 2 && independent && !distancePairVsMass
             && !massContradicts && !belowLenFloor && k >= regs.length
-            && (broadAmbiguity || k === a.unitsSum);
+            && (broadAmbiguity || k === a.unitsSum || corroboratedRise);
           opts.debug?.({ stage: 'panel', blob: l, votes, k, agreed, base: a.unitsSum });
           if (!agreed) {
             // Keep the baseline count for this blob. If some independent

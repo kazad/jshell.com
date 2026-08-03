@@ -759,9 +759,35 @@ async function renderHistory() {
         <div class="history-sub">${e.med ? e.med + ' · ' : ''}${when}${target}</div>
         ${note}
       </div>
+      <button class="icon-btn history-debug" data-id="${e.id || ''}" aria-label="See what ValEye saw">◧</button>
       <button class="icon-btn history-note" data-id="${e.id || ''}" aria-label="Fix count or add note">📝</button>
     </div>`;
   }).join('');
+
+  // Any past photo can be re-inspected: pull the stored original from R2 and
+  // run the pipeline again with stage capture. This is how a miscount from
+  // last week gets diagnosed without having to reproduce it.
+  els.historyList.querySelectorAll('.history-debug').forEach((b) => {
+    b.addEventListener('click', async () => {
+      const id = b.dataset.id;
+      if (!id) return;
+      b.disabled = true;
+      try {
+        const blob = await (await fetch(`api/photo/${id}`)).blob();
+        const bmp = await createImageBitmap(blob);
+        const c = document.createElement('canvas');
+        c.width = bmp.width; c.height = bmp.height;
+        c.getContext('2d').drawImage(bmp, 0, 0);
+        state.debugSource = c;   // renderDebugSheet reads this
+        document.getElementById('debug-sheet').hidden = false;
+        requestAnimationFrame(() => requestAnimationFrame(renderDebugSheet));
+      } catch {
+        alert('Could not load that photo.');
+      } finally {
+        b.disabled = false;
+      }
+    });
+  });
 
   els.historyList.querySelectorAll('.history-note').forEach((b) => {
     b.addEventListener('click', () => {
@@ -1030,6 +1056,20 @@ const STAGE_NOTES = {
   markers: ['7 · Seeds', 'One dot per pill. Two touching pills MUST show two dots here.'],
 };
 
+// Render a stage as hard monochrome (pure white on black) instead of the
+// green tint. Subtle anti-aliasing hides exactly the ragged edges and pinched
+// necks we are hunting, so the mask stages get a crisp two-tone view.
+function paintMono(canvas, img) {
+  const g = canvas.getContext('2d');
+  const out = g.createImageData(img.width, img.height);
+  for (let i = 0, p = 0; i < img.width * img.height; i++, p += 4) {
+    const on = img.data[p + 1] > 100 ? 255 : 0;
+    out.data[p] = out.data[p + 1] = out.data[p + 2] = on;
+    out.data[p + 3] = 255;
+  }
+  g.putImageData(out, 0, 0);
+}
+
 function renderDebugSheet() {
   const host = document.getElementById('debug-stages');
   const trace = document.getElementById('debug-trace');
@@ -1037,7 +1077,9 @@ function renderDebugSheet() {
   host.innerHTML = '';
   trace.textContent = '';
 
-  const src = state.croppedCanvas || state.sourceCanvas;
+  // debugSource is set when inspecting a photo from history; otherwise use
+  // whatever is currently on the result screen.
+  const src = state.debugSource || state.croppedCanvas || state.sourceCanvas;
   if (!src || !state.cv) { sub.textContent = 'No photo to inspect yet.'; return; }
 
   sub.textContent = 'Re-running the pipeline…';
@@ -1069,7 +1111,11 @@ function renderDebugSheet() {
     c.height = img.height;
     // bgcolor is a flat swatch, not a full frame — paint it directly.
     if (img.data) {
-      c.getContext('2d').putImageData(new ImageData(img.data, img.width, img.height), 0, 0);
+      // Mask stages are binary: show them as hard black/white when mono is on,
+      // so ragged edges and pinched necks are unmistakable.
+      const isMask = key === 'mask-otsu' || key === 'mask-final' || key === 'markers';
+      if (state.debugMono && isMask) paintMono(c, img);
+      else c.getContext('2d').putImageData(new ImageData(img.data, img.width, img.height), 0, 0);
     } else {
       c.width = 240; c.height = 48;
       const g = c.getContext('2d');
@@ -1094,9 +1140,14 @@ function renderDebugSheet() {
 
 const debugSheet = document.getElementById('debug-sheet');
 document.getElementById('debug-btn')?.addEventListener('click', () => {
+  state.debugSource = null;   // inspect the CURRENT photo, not a history one
   debugSheet.hidden = false;
   // Paint the sheet first, then do the expensive re-run.
   requestAnimationFrame(() => requestAnimationFrame(renderDebugSheet));
+});
+document.getElementById('debug-mono')?.addEventListener('change', (e) => {
+  state.debugMono = e.target.checked;
+  renderDebugSheet();   // re-render in the new palette
 });
 document.getElementById('debug-close')?.addEventListener('click', () => { debugSheet.hidden = true; });
 debugSheet?.addEventListener('click', (e) => { if (e.target === debugSheet) debugSheet.hidden = true; });
