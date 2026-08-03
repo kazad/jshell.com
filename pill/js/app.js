@@ -641,9 +641,20 @@ function saveCurrentCount() {
   saveHistory(h.slice(0, 200));
   els.medName.value = '';
 
-  // Saving IS labeling: the final (possibly +/- adjusted) count is human
-  // ground truth. Attach it to the auto-uploaded photo.
-  annotate({ adjusted: state.count, med: entry.name, target: entry.target });
+  // Saving only counts as LABELING if the human actually changed the number.
+  // Tapping Save on an untouched count means "fine, whatever" far more often
+  // than "I verified this" — recording it as ground truth writes the machine's
+  // own answer back as truth, which silently poisons the regression corpus and
+  // makes a wrong count look confirmed. (Seen in the wild: a photo of 19 pills
+  // counted as 30, saved with the note "Way off", stored as adjusted=30.)
+  // Explicit confirmation lives on the thumbs-up; corrections on the report
+  // sheet. Both send `adjusted` themselves.
+  const humanEdited = state.result && state.count !== state.result.count;
+  annotate({
+    adjusted: humanEdited ? state.count : undefined,
+    med: entry.name,
+    target: entry.target,
+  });
 
   showScreen('camera');
 }
