@@ -111,8 +111,17 @@
 
     async function loadManifest() {
       manifest = Object.entries(await (await fetch('testdata/expected.json', { cache: 'no-store' })).json())
-        .map(([file, expected]) => ({ file, expected, synthetic: file.startsWith('synthetic-') || file.startsWith('test-pills') }))
-        .sort((a, b) => a.file.localeCompare(b.file));
+        // Generated images are named synth2-*/synthetic-*/test-pills*; anything
+        // else came from a real camera. Getting this wrong silently broke the
+        // "Synthetic only" / "Real only" filters, which both matched everything.
+        .map(([file, expected]) => ({
+          file, expected,
+          synthetic: /^(synth2-|synthetic-|test-pills)/.test(file),
+        }))
+        // REAL photos first: they are the ones with live bugs, and the suite
+        // takes ~3 minutes, so the results worth reading must not sit behind
+        // 240 synthetics. Within each group, sort by name for stable diffing.
+        .sort((a, b) => (a.synthetic - b.synthetic) || a.file.localeCompare(b.file));
     }
 
     async function init() {
