@@ -118,6 +118,27 @@
       </div>
       <button id="report-btn" class="pill-btn subtle report-btn">⚠︎ Count is wrong — report it</button>
     </div>
+
+    <!-- Report sheet: slides up from the bottom, stepper for the true count,
+         optional note, explicit submit. No browser alerts. -->
+    <div class="sheet-scrim" id="report-sheet" hidden>
+      <div class="sheet" role="dialog" aria-label="Report a wrong count">
+        <div class="sheet-grab"></div>
+        <h3 class="sheet-title">What’s the real count?</h3>
+        <p class="sheet-sub" id="sheet-machine">ValEye counted 0</p>
+        <div class="stepper">
+          <button class="icon-btn big" id="sheet-minus" aria-label="Decrease">−</button>
+          <div class="stepper-value" id="sheet-value">0</div>
+          <button class="icon-btn big" id="sheet-plus" aria-label="Increase">+</button>
+        </div>
+        <textarea id="sheet-note" class="sheet-note" rows="2"
+          placeholder="What went wrong? (optional — e.g. “missed the sideways pill”)"></textarea>
+        <div class="sheet-actions">
+          <button class="pill-btn" id="sheet-cancel">Cancel</button>
+          <button class="pill-btn primary" id="sheet-submit">Send report</button>
+        </div>
+      </div>
+    </div>
   </main>
 
   <!-- History screen -->

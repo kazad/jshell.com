@@ -829,23 +829,47 @@ els.targetInput.addEventListener('input', updateCountUI);
 // Report a wrong count WITHOUT saving it as a good one: asks for the true
 // count (pre-filled with the current, possibly +/- adjusted number) and an
 // optional note, then labels the already-uploaded photo as a failure case.
-els.reportBtn.addEventListener('click', async () => {
-  const machine = state.result?.count ?? state.count;
-  const truth = prompt(`ValEye counted ${machine}. How many pills are actually there?`, String(state.count));
-  if (truth == null) return;
-  const n = parseInt(truth, 10);
-  if (!Number.isFinite(n)) return;
-  const note = prompt('What went wrong? (optional — e.g. "missed 3 under the shadow")', '') || null;
+// ---------- report sheet (replaces browser prompts) ----------
+const sheet = {
+  el: document.getElementById('report-sheet'),
+  value: 0,
+  machine: 0,
+};
+
+function openReportSheet() {
+  sheet.machine = state.result?.count ?? state.count;
+  sheet.value = state.count;
+  document.getElementById('sheet-machine').textContent = `ValEye counted ${sheet.machine}`;
+  document.getElementById('sheet-value').textContent = sheet.value;
+  document.getElementById('sheet-note').value = '';
+  sheet.el.hidden = false;
+}
+function closeReportSheet() { sheet.el.hidden = true; }
+function bumpSheet(d) {
+  sheet.value = Math.max(0, sheet.value + d);
+  document.getElementById('sheet-value').textContent = sheet.value;
+}
+
+els.reportBtn.addEventListener('click', openReportSheet);
+document.getElementById('sheet-minus').addEventListener('click', () => bumpSheet(-1));
+document.getElementById('sheet-plus').addEventListener('click', () => bumpSheet(1));
+document.getElementById('sheet-cancel').addEventListener('click', closeReportSheet);
+sheet.el.addEventListener('click', (e) => { if (e.target === sheet.el) closeReportSheet(); });
+
+document.getElementById('sheet-submit').addEventListener('click', () => {
+  const n = sheet.value;
+  const note = document.getElementById('sheet-note').value.trim() || null;
+  closeReportSheet();
 
   if (!state.submissionId) {
-    // The photo upload failed or is still in flight — queue it with labels
-    // so the report is never lost.
+    // Upload failed or still in flight: queue the photo WITH its labels so
+    // the report is never lost.
     els.photoCanvas.toBlob((blob) => {
       if (!blob) return;
       const q = loadQueue();
       q.push({
         dataUrl: els.photoCanvas.toDataURL('image/jpeg', 0.8),
-        meta: { count: machine, adjusted: n, lowConfidence: state.result?.lowConfidence ?? 0,
+        meta: { count: sheet.machine, adjusted: n, lowConfidence: state.result?.lowConfidence ?? 0,
                 variant: 'consensus', build: state.build || null, note: note || 'reported wrong' },
       });
       saveQueue(q);
@@ -861,6 +885,7 @@ els.reportBtn.addEventListener('click', async () => {
   els.reportBtn.classList.add('sent');
   els.helperReact.textContent = 'Got it — I saved this one so I can learn from it. 🐾';
 });
+
 
 // ---------- crop editor: adjust the counted area, recount live ----------
 // The count is the feedback: drag the box and the number updates in ~300ms,
