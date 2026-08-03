@@ -1895,7 +1895,29 @@ export function countPills(cv, source, opts = {}) {
         // tiny exposure changes, which is what made live counts unstable.
         const regionAreas = regions.map((r) => r.area / Math.max(1, r.units)).sort((a, b) => a - b);
         const medRegion = regionAreas.length ? regionAreas[regionAreas.length >> 1] : 0;
-        const maxPill = medRegion ? medRegion * 3 : Infinity;
+        let maxPill = medRegion ? medRegion * 3 : Infinity;
+
+        // The size guard calibrates against the median COUNTED REGION, which
+        // is circular when engraving has shattered every pill: the median is
+        // then a fragment, and the real pill — several times larger — is
+        // rejected as "too big to be one pill". Measured on r-90dbe20e (three
+        // close-up PFE/3CL/PHK caplets on fabric): pills of ~46k px against a
+        // maxPill of ~32k, so all three stayed fragmented and 3 counted as 11.
+        //
+        // When EVERY smooth-outline contour is bigger than the cap, the cap
+        // is the thing that is wrong, not the contours. Those contours passed
+        // solidity, ellipse-fill and the neck-cusp test, so they are single
+        // pills whatever the fragment median says. Raise the cap to admit
+        // them, but only in that unanimous case — a mixed scene, where some
+        // pills do match the median, keeps the original clump protection.
+        if (cid && medRegion) {
+          const smoothAreas = ells.slice(1).map((e) => e.area);
+          if (smoothAreas.length && smoothAreas.every((a) => a > maxPill)) {
+            const medSmooth = median(smoothAreas);
+            maxPill = medSmooth * 1.5;
+            opts.debug?.({ stage: 'consolidate-cap', from: medRegion * 3, to: maxPill, contours: smoothAreas.length });
+          }
+        }
 
         const im = idMask.data;
         const merged = new Map();

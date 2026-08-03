@@ -759,14 +759,13 @@ async function renderHistory() {
         <div class="history-sub">${e.med ? e.med + ' · ' : ''}${when}${target}</div>
         ${note}
       </div>
-      <button class="icon-btn history-debug" data-id="${e.id || ''}" aria-label="See what ValEye saw">◧</button>
+      <button class="icon-btn history-debug" data-id="${e.id || ''}" data-ts="${e.ts || ''}" aria-label="See what ValEye saw">◧</button>
       <button class="icon-btn history-note" data-id="${e.id || ''}" aria-label="Fix count or add note">📝</button>
     </div>`;
   }).join('');
 
   // Any past photo can be re-inspected: pull the stored original from R2 and
-  // run the pipeline again with stage capture. This is how a miscount from
-  // last week gets diagnosed without having to reproduce it.
+  // hand it to the SAME debug sheet the result screen uses.
   els.historyList.querySelectorAll('.history-debug').forEach((b) => {
     b.addEventListener('click', async () => {
       const id = b.dataset.id;
@@ -778,11 +777,9 @@ async function renderHistory() {
         const c = document.createElement('canvas');
         c.width = bmp.width; c.height = bmp.height;
         c.getContext('2d').drawImage(bmp, 0, 0);
-        state.debugSource = c;   // renderDebugSheet reads this
-        document.getElementById('debug-sheet').hidden = false;
-        requestAnimationFrame(() => requestAnimationFrame(renderDebugSheet));
+        openDebugSheet(c, `History · ${new Date(Number(b.dataset.ts) || Date.now()).toLocaleString()}`);
       } catch {
-        alert('Could not load that photo.');
+        openDebugSheet(null, 'Could not load that photo.');
       } finally {
         b.disabled = false;
       }
@@ -1070,6 +1067,19 @@ function paintMono(canvas, img) {
   g.putImageData(out, 0, 0);
 }
 
+// SINGLE entry point for the debug sheet. Every caller — the result screen,
+// a history entry, anything added later — goes through here, so there is one
+// place that decides what gets inspected and one place that opens the sheet.
+//   canvas: the image to analyze (null = show `label` as an error)
+//   label:  where this photo came from, shown under the title
+function openDebugSheet(canvas, label) {
+  state.debugSource = canvas || null;
+  state.debugLabel = label || '';
+  document.getElementById('debug-sheet').hidden = false;
+  // Paint the sheet first, then run the expensive pipeline pass.
+  requestAnimationFrame(() => requestAnimationFrame(renderDebugSheet));
+}
+
 function renderDebugSheet() {
   const host = document.getElementById('debug-stages');
   const trace = document.getElementById('debug-trace');
@@ -1080,7 +1090,10 @@ function renderDebugSheet() {
   // debugSource is set when inspecting a photo from history; otherwise use
   // whatever is currently on the result screen.
   const src = state.debugSource || state.croppedCanvas || state.sourceCanvas;
-  if (!src || !state.cv) { sub.textContent = 'No photo to inspect yet.'; return; }
+  if (!src || !state.cv) {
+    sub.textContent = state.debugLabel || 'No photo to inspect yet.';
+    return;
+  }
 
   sub.textContent = 'Re-running the pipeline…';
   const stages = {};
@@ -1099,7 +1112,9 @@ function renderDebugSheet() {
   }
 
   sub.textContent = `${result.count} pills · ${result.regions.length} regions`
-    + (result.lowConfidence ? ` · ${result.lowConfidence} uncertain` : '');
+    + (result.lowConfidence ? ` · ${result.lowConfidence} uncertain` : '')
+    + (state.debugLabel ? `\n${state.debugLabel}` : '');
+  sub.style.whiteSpace = 'pre-line';
 
   for (const [key, [name, note]] of Object.entries(STAGE_NOTES)) {
     const img = stages[key];
@@ -1139,11 +1154,9 @@ function renderDebugSheet() {
 }
 
 const debugSheet = document.getElementById('debug-sheet');
+// null source = "use the photo currently on the result screen".
 document.getElementById('debug-btn')?.addEventListener('click', () => {
-  state.debugSource = null;   // inspect the CURRENT photo, not a history one
-  debugSheet.hidden = false;
-  // Paint the sheet first, then do the expensive re-run.
-  requestAnimationFrame(() => requestAnimationFrame(renderDebugSheet));
+  openDebugSheet(null, 'Current photo');
 });
 document.getElementById('debug-mono')?.addEventListener('change', (e) => {
   state.debugMono = e.target.checked;
