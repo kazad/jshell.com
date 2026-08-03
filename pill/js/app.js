@@ -707,7 +707,16 @@ function showScreen(name) {
 
 // One tap = photo. If the in-page stream is live, capture from it instantly
 // (no OS camera UI, no confirm step). Otherwise open the camera directly.
-els.shutter.addEventListener('click', () => {
+els.shutter.addEventListener('click', async () => {
+  // Prefer the in-app viewfinder: it is the only path that shows the square
+  // framing guide. If the stream is merely still warming up, wait briefly
+  // rather than dropping the user into the guide-less native camera.
+  if (els.video.readyState < 2 && state.stream) {
+    els.helperTip.textContent = 'One moment — warming up the camera… 🐾';
+    for (let i = 0; i < 12 && els.video.readyState < 2; i++) {
+      await new Promise((r) => setTimeout(r, 120));
+    }
+  }
   if (els.video.readyState >= 2) {
     const frame = grabFrame();
     if (isBlank(frame)) { els.helperTip.textContent = 'Camera’s still waking up — try that again in a second. 🐾'; return; }
@@ -754,10 +763,17 @@ els.libraryInput.addEventListener('change', () => {
 function loadPhotoFile(file) {
   const img = new Image();
   img.onload = () => {
+    // Photos from the NATIVE camera (or the library) never saw our on-screen
+    // guide, so apply the same centered-square rule here. That keeps frame
+    // edges/corners — a known source of phantom "pills" — out of the count
+    // regardless of which capture path produced the image.
+    const side = Math.round(Math.min(img.naturalWidth, img.naturalHeight) * CAPTURE_INSET);
+    const sx = Math.round((img.naturalWidth - side) / 2);
+    const sy = Math.round((img.naturalHeight - side) / 2);
     const c = document.createElement('canvas');
-    c.width = img.naturalWidth;
-    c.height = img.naturalHeight;
-    c.getContext('2d').drawImage(img, 0, 0);
+    c.width = side;
+    c.height = side;
+    c.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, side, side);
     URL.revokeObjectURL(img.src);
     analyze(c);
   };
