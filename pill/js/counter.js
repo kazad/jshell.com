@@ -964,10 +964,23 @@ export function countPills(cv, source, opts = {}) {
     const minArea = Math.max(absFloor, med * 0.3);
 
     const medPeak = median([...stats.values()].filter((s) => s.area >= minArea).map((s) => s.peak));
+    opts.debug?.({ stage: 'wsstats', med, minArea, absFloor, nStats: stats.size, all: [...stats.values()].map((s) => ({ a: Math.round(s.area), pk: +s.peak.toFixed(1), x: Math.round(s.sx / s.area), y: Math.round(s.sy / s.area) })) });
     let regions = [];
     let count = 0;
     for (const [lbl, s] of stats) {
-      if (s.area < minArea) continue;
+      // The relative area floor assumes a discarded region is a sliver of
+      // texture. That is wrong for a clump the watershed SHATTERED — most
+      // often one running off the FRAME EDGE, where pills are cut and the
+      // distance transform has no clean interior maximum to seed from. Such
+      // fragments are small in AREA but retain a pill's THICKNESS, and
+      // thickness is the property that texture slivers never have. Measured
+      // on a real photo: a frame-edge clump split into 1213/1065/710/... px
+      // against a 1109px floor, and the 1065px piece — peak 41.6 vs the
+      // population's ~22 — was thrown away, losing a whole pill upstream of
+      // every later stage. Keep a sub-floor fragment only when it is as thick
+      // as a real pill and still carries real mass.
+      const thickCore = s.peak >= medPeak && s.area >= Math.max(absFloor, 0.25 * med);
+      if (s.area < minArea && !thickCore) continue;
       if (s.peak < MIN_PEAK) continue; // thin artifact (rim, engraving), not a pill
       // Oversized region => watershed under-split; estimate pills by area
       // ratio. 1.5x catches merged PAIRS (the most common under-split; any
@@ -988,6 +1001,7 @@ export function countPills(cv, source, opts = {}) {
       count += units;
       regions.push({ cx: s.sx / s.area, cy: s.sy / s.area, area: s.area, units, label: lbl });
     }
+
 
     // Population-geometry veto ("splotch filter"). Pixel statistics alone
     // (color distance + area + thickness) cannot separate pills from patches

@@ -1173,6 +1173,18 @@ if ('serviceWorker' in navigator && !new URLSearchParams(location.search).has('n
 initEngine();
 initCamera();
 showScreen('camera');
+// Pin the app height to the ACTUAL visible viewport. In installed PWA mode
+// iOS can report 100dvh taller than what's on screen, which left a dead gap
+// below the bottom dock. visualViewport is the most reliable source.
+function setAppHeight() {
+  const h = Math.round(window.visualViewport?.height || window.innerHeight);
+  document.documentElement.style.setProperty('--app-h', h + 'px');
+}
+setAppHeight();
+window.addEventListener('resize', setAppHeight);
+window.visualViewport?.addEventListener('resize', setAppHeight);
+window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 250));
+
 flushQueue(); // retry anything that failed to upload previously
 
 // Build stamp beside the logo, read from the DEPLOYED service worker's cache

@@ -16,10 +16,15 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
-  /* dvh tracks the real viewport as iOS chrome shows/hides, so the control
-     row never gets pushed off-screen or left floating. */
+  /* dvh tracks iOS chrome in Safari. In an INSTALLED PWA there is no chrome,
+     and iOS can report a dvh taller than the visible area, leaving a gap
+     under the dock — so JS pins --app-h to the real innerHeight and that
+     wins wherever it's available. */
   height: 100dvh;
   max-height: 100dvh;
+  height: var(--app-h, 100dvh);
+  max-height: var(--app-h, 100dvh);
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
@@ -324,7 +329,10 @@ body {
   padding-bottom: min(env(safe-area-inset-bottom), 12px);
 }
 @media (display-mode: standalone) {
-  .camera-dock { padding-bottom: min(env(safe-area-inset-bottom), 8px); }
+  /* Installed app: the dock is already flush with the screen edge, and iOS
+     draws the home indicator over it harmlessly. Extra inset here just
+     creates a dead strip, so keep it minimal. */
+  .camera-dock { padding-bottom: 4px; }
 }
 
 .controls {
