@@ -588,7 +588,13 @@ export function countPills(cv, source, opts = {}) {
     cv.GaussianBlur(distBg, distBg, new cv.Size(5, 5), 0);
     if (emit) emit('distmap', grayToStage(distBg));
     const bw = track(new cv.Mat());
-    const otsuThr = cv.threshold(distBg, bw, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
+    let otsuThr = cv.threshold(distBg, bw, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
+    // Live mode passes the previous frame's threshold: blending it in stops
+    // auto-exposure flicker from yanking the global cut frame to frame.
+    if (opts.thrHint > 0) {
+      otsuThr = 0.65 * opts.thrHint + 0.35 * otsuThr;
+      cv.threshold(distBg, bw, otsuThr, 255, cv.THRESH_BINARY);
+    }
 
     // If pills fill the frame, the border isn't background — fall back to gray Otsu.
     let usedColorDist = true;
@@ -1446,7 +1452,7 @@ export function countPills(cv, source, opts = {}) {
       for (let i = 0; i < activeMd.length; i++) if (activeMd[i] === -1) boundaries[i] = 1;
     }
 
-    const out = { count, regions, scale, boundaries, width: w, height: h, unitArea };
+    const out = { count, regions, scale, boundaries, width: w, height: h, unitArea, thr: otsuThr };
     if (opts.variant === 'consensus') out.lowConfidence = lowConfidence;
     if (opts.variant === 'consensus' && consensusEligible <= 2 && regions.length) {
       // With <=2 countable blobs, the unit area is calibrated from the very

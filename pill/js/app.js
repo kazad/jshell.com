@@ -163,12 +163,16 @@ function liveMapping() {
   return { box, s, ox: (box.width - vw * s) / 2, oy: (box.height - vh * s) / 2 };
 }
 
+let liveThr = 0;
+let lastWildReport = 0;
+
 function liveTick() {
   if (!state.cv || state.busy || els.video.readyState < 2 || document.hidden) return;
   let r;
   try {
-    r = countPills(state.cv, grabFrame(), { maxDim: 640, overlay: false, variant: 'baseline' });
+    r = countPills(state.cv, grabFrame(), { maxDim: 640, overlay: false, variant: 'baseline', thrHint: liveThr });
   } catch { return; }
+  liveThr = r.thr || 0; // temporal threshold smoothing across frames
 
   liveCounts.push(r.count);
   if (liveCounts.length > LIVE_WINDOW) liveCounts.shift();
@@ -176,6 +180,14 @@ function liveTick() {
   const med = sorted[sorted.length >> 1];
   const spread = sorted[sorted.length - 1] - sorted[0];
   const stable = liveCounts.length === LIVE_WINDOW && spread <= Math.max(1, med * 0.02);
+
+  // Wild variation while the window is full: auto-document it (3-frame
+  // session tagged for review), at most once a minute.
+  if (liveCounts.length === LIVE_WINDOW && spread > Math.max(4, med * 0.4)
+      && Date.now() - lastWildReport > 60000) {
+    lastWildReport = Date.now();
+    reportSession('wild-variation');
+  }
 
   if (stable !== liveLocked) {
     liveLocked = stable;
@@ -210,7 +222,7 @@ function liveTick() {
 // "Report count": when the live number is misbehaving, capture 3 consecutive
 // frames as one marked session for offline review — deliberate uploads only,
 // so continuous live view never floods storage.
-async function reportSession() {
+async function reportSession(tag = 'session') {
   const sid = Math.random().toString(36).slice(2, 8);
   const btn = document.getElementById('session-btn');
   btn.disabled = true;
@@ -228,7 +240,7 @@ async function reportSession() {
       fd.append('meta', JSON.stringify({
         count: liveCounts[liveCounts.length - 1] ?? null,
         variant: 'session',
-        note: `session ${sid} frame ${k}/3`,
+        note: `session ${sid} ${tag} frame ${k}/3`,
       }));
       fetch('api/submit', { method: 'POST', body: fd }).catch(() => {}).finally(res);
     }, 'image/jpeg', 0.85));
@@ -248,6 +260,7 @@ function setLive(on) {
   els.useCount.hidden = true;
   liveCounts.length = 0;
   liveLocked = false;
+  liveThr = 0;
   els.liveCount.classList.remove('stable');
   clearInterval(state.liveTimer);
   if (on) state.liveTimer = setInterval(liveTick, 500);
