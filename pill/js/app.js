@@ -499,23 +499,56 @@ function saveCurrentCount() {
 
 // ---------- telemetry: every photo is a future test case ----------
 
+// Uploads are durable: a failed send (offline, flaky signal) is queued in
+// localStorage as a data URL and retried on the next app open / next photo,
+// so no real-world test case is ever lost.
+const QUEUE_KEY = 'valeye-upload-queue';
+const loadQueue = () => { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; } };
+const saveQueue = (q) => { try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q.slice(-20))); } catch {} };
+
+async function postPhoto(blobOrDataUrl, meta) {
+  const blob = typeof blobOrDataUrl === 'string'
+    ? await (await fetch(blobOrDataUrl)).blob()
+    : blobOrDataUrl;
+  const fd = new FormData();
+  fd.append('photo', blob, 'photo.jpg');
+  fd.append('meta', JSON.stringify(meta));
+  const res = await fetch('api/submit', { method: 'POST', body: fd });
+  if (!res.ok) throw new Error('http ' + res.status);
+  return res.json();
+}
+
+async function flushQueue() {
+  const q = loadQueue();
+  if (!q.length) return;
+  const left = [];
+  for (const item of q) {
+    try { await postPhoto(item.dataUrl, item.meta); } catch { left.push(item); }
+  }
+  saveQueue(left);
+}
+
 function autoUpload(result) {
   state.submissionId = null;
-  els.photoCanvas.toBlob((blob) => {
+  const meta = {
+    count: result.count,
+    lowConfidence: result.lowConfidence ?? 0,
+    variant: 'consensus',
+  };
+  els.photoCanvas.toBlob(async (blob) => {
     if (!blob) return;
-    const fd = new FormData();
-    fd.append('photo', blob, 'photo.jpg');
-    fd.append('meta', JSON.stringify({
-      count: result.count,
-      lowConfidence: result.lowConfidence ?? 0,
-      variant: 'consensus',
-    }));
-    fetch('api/submit', { method: 'POST', body: fd })
-      .then((r) => r.json())
-      .then((j) => { if (j.ok) state.submissionId = j.id; })
-      .catch(() => {}); // offline/local dev: silently skip
+    try {
+      const j = await postPhoto(blob, meta);
+      if (j.ok) state.submissionId = j.id;
+      flushQueue(); // good connection — drain anything stranded earlier
+    } catch {
+      const q = loadQueue();
+      q.push({ dataUrl: els.photoCanvas.toDataURL('image/jpeg', 0.8), meta });
+      saveQueue(q);
+    }
   }, 'image/jpeg', 0.85);
 }
+window.addEventListener('online', flushQueue);
 
 function annotate(fields, sid = state.submissionId) {
   if (!sid) return;
@@ -645,3 +678,19 @@ if ('serviceWorker' in navigator && !new URLSearchParams(location.search).has('n
 initEngine();
 initCamera();
 showScreen('camera');
+flushQueue(); // retry anything that failed to upload previously
+
+// iOS re-prompts for camera on every Safari *tab* visit, but an installed
+// (Add to Home Screen) PWA keeps the grant. Nudge once, only where it helps.
+(() => {
+  const tip = document.getElementById('install-tip');
+  const installed = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  if (!installed && iOS && !localStorage.getItem('valeye-install-tip-seen')) {
+    tip.hidden = false;
+    document.getElementById('install-dismiss').addEventListener('click', () => {
+      tip.hidden = true;
+      localStorage.setItem('valeye-install-tip-seen', '1');
+    });
+  }
+})();
