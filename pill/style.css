@@ -52,6 +52,16 @@ body {
 
 .brand-icon { width: 28px; height: 28px; border-radius: 8px; }
 
+.build-tag {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text-dim);
+  align-self: flex-end;
+  padding-bottom: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
 .engine-status {
   margin-left: auto;
   font-size: 12px;

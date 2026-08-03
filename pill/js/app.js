@@ -534,6 +534,7 @@ function autoUpload(result) {
     count: result.count,
     lowConfidence: result.lowConfidence ?? 0,
     variant: 'consensus',
+    build: state.build || null, // which deployed build produced this count
   };
   els.photoCanvas.toBlob(async (blob) => {
     if (!blob) return;
@@ -679,6 +680,24 @@ initEngine();
 initCamera();
 showScreen('camera');
 flushQueue(); // retry anything that failed to upload previously
+
+// Build stamp beside the logo, read from the DEPLOYED service worker's cache
+// name (deploy.sh rewrites it per build) — so it can never claim a version
+// the running code isn't. Shown as MMDD-HHMM.
+fetch('sw.js', { cache: 'no-store' })
+  .then((r) => r.text())
+  .then((t) => {
+    const tag = document.getElementById('build-tag');
+    const dated = t.match(/valeye-v(\d{4})(\d{4})-(\d{4})/); // deployed: vYYYYMMDD-HHMM
+    if (dated) {
+      tag.textContent = `${dated[2]}·${dated[3]}`;
+      state.build = `v${dated[1]}${dated[2]}-${dated[3]}`;
+      return;
+    }
+    const local = t.match(/valeye-(v[\w-]+)/); // dev: whatever sw.js says
+    if (local) { tag.textContent = local[1]; state.build = local[1]; }
+  })
+  .catch(() => {});
 
 // iOS Safari ignores user-scalable=no, so page zoom must be suppressed
 // explicitly: block the proprietary gesture events (pinch) and swallow the
