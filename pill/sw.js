@@ -1,4 +1,4 @@
-const CACHE = 'valeye-v20260803-1146';
+const CACHE = 'valeye-v20260803-1149';
 const ASSETS = [
   './',
   'index.html',
@@ -15,7 +15,14 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
+  // Never let a stale shell survive: the new worker takes over immediately
+  // and pre-caches the new build's assets.
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+});
+
+// The page asks for an immediate takeover after it detects a new worker.
+self.addEventListener('message', (e) => {
+  if (e.data === 'skip-waiting') self.skipWaiting();
 });
 
 self.addEventListener('activate', (e) => {

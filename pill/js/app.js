@@ -674,7 +674,31 @@ els.historyClear.addEventListener('click', () => {
 // ---------- boot ----------
 
 if ('serviceWorker' in navigator && !new URLSearchParams(location.search).has('nosw')) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js').then((reg) => {
+    // Auto-update: check for a new build on launch and whenever the app is
+    // brought back to the foreground, then activate + reload once so the
+    // phone can never sit on a stale build.
+    const check = () => reg.update().catch(() => {});
+    check();
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+    setInterval(check, 5 * 60 * 1000);
+
+    reg.addEventListener('updatefound', () => {
+      const nw = reg.installing;
+      if (!nw) return;
+      nw.addEventListener('statechange', () => {
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+          nw.postMessage('skip-waiting');
+        }
+      });
+    });
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
+  }).catch(() => {});
 }
 initEngine();
 initCamera();
