@@ -15,11 +15,11 @@
 <body>
 
   <header class="topbar">
-    <div class="brand">
+    <button class="brand" id="brand-btn" title="Tap to force update">
       <img src="icons/icon.svg" alt="" class="brand-icon" />
       <span>ValEye</span>
-      <span id="build-tag" class="build-tag" title="deployed build"></span>
-    </div>
+      <span id="build-tag" class="build-tag"></span>
+    </button>
     <div id="engine-status" class="engine-status">Loading…</div>
     <a href="about.html" class="icon-btn" aria-label="How it works" style="text-decoration:none;display:grid;place-items:center;font-size:15px;font-weight:700">?</a>
     <button id="history-btn" class="icon-btn" aria-label="History">
@@ -59,10 +59,10 @@
         <button id="session-btn" class="pill-btn subtle" hidden>Report count</button>
         <button id="upload-btn" class="pill-btn subtle">Import</button>
       </div>
-      <!-- capture="environment": one tap opens the camera directly (no
-           library picker, no source sheet) when the in-page stream is
-           unavailable. The library remains reachable via Import. -->
-      <input id="file-input" type="file" accept="image/*" capture="environment" hidden />
+      <!-- Camera path: accept a CONCRETE type (not image/*) so iOS honours
+           `capture` and opens the camera directly instead of showing the
+           Photo Library / Take Photo / Choose File sheet. -->
+      <input id="file-input" type="file" accept="image/jpeg,image/png" capture="environment" hidden />
       <input id="library-input" type="file" accept="image/*" hidden />
     </div>
   </main>

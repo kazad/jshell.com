@@ -632,7 +632,34 @@ els.shutter.addEventListener('click', () => {
 
 // Import = library picker; the fallback panel and shutter open the camera
 // directly (capture="environment"), so taking a photo stays ONE tap.
-els.uploadBtn.addEventListener('click', () => els.libraryInput.click());
+// "Import" opens the CAMERA by default (concrete accept + capture makes iOS
+// skip the Photo Library / Take Photo / Choose File sheet). Long-press it to
+// reach the photo library instead.
+els.uploadBtn.addEventListener('click', () => els.fileInput.click());
+{
+  let holdTimer = null;
+  const startHold = () => { holdTimer = setTimeout(() => { holdTimer = null; els.libraryInput.click(); }, 550); };
+  const endHold = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } };
+  els.uploadBtn.addEventListener('touchstart', startHold, { passive: true });
+  els.uploadBtn.addEventListener('touchend', endHold);
+  els.uploadBtn.addEventListener('touchcancel', endHold);
+  els.uploadBtn.addEventListener('contextmenu', (e) => { e.preventDefault(); els.libraryInput.click(); });
+}
+
+// Tapping the logo forces an update: re-check the worker, drop caches, reload.
+document.getElementById('brand-btn').addEventListener('click', async () => {
+  const tag = document.getElementById('build-tag');
+  tag.textContent = 'updating…';
+  try {
+    const regs = await navigator.serviceWorker?.getRegistrations?.() ?? [];
+    await Promise.all(regs.map((r) => r.update().catch(() => {})));
+    const keys = await caches.keys();
+    // Keep the big wasm cache warm only if it is the current build's.
+    await Promise.all(keys.map((k) => caches.delete(k)));
+    await Promise.all(regs.map((r) => r.unregister().catch(() => {})));
+  } catch { /* proceed to reload regardless */ }
+  location.reload();
+});
 els.cameraFallback.addEventListener('click', () => els.fileInput.click());
 els.libraryInput.addEventListener('change', () => {
   const file = els.libraryInput.files[0];
