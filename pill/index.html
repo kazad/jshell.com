@@ -85,6 +85,14 @@
       <div class="zoom-wrap" id="zoom-wrap">
         <canvas id="photo-canvas"></canvas>
         <canvas id="overlay-canvas"></canvas>
+        <!-- Crop editor: drag inside to move, drag a corner to resize. The
+             count recounts live as the area changes. -->
+        <div class="crop-box" id="crop-box" hidden>
+          <div class="crop-handle tl" data-h="tl"></div>
+          <div class="crop-handle tr" data-h="tr"></div>
+          <div class="crop-handle bl" data-h="bl"></div>
+          <div class="crop-handle br" data-h="br"></div>
+        </div>
       </div>
     </div>
 
@@ -105,6 +113,7 @@
       <input id="med-name" type="text" placeholder="Medication name (optional)" autocomplete="off" />
       <div class="result-actions">
         <button id="retake-btn" class="pill-btn">Retake</button>
+        <button id="adjust-btn" class="pill-btn">Adjust area</button>
         <button id="save-btn" class="pill-btn primary">Save count</button>
       </div>
       <button id="report-btn" class="pill-btn subtle report-btn">⚠︎ Count is wrong — report it</button>

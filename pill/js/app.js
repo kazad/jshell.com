@@ -37,6 +37,7 @@ const els = {
   reportBtn: $('#report-btn'),
   zoomWrap: $('#zoom-wrap'),
   resultPhoto: $('#result-photo'),
+  adjustBtn: $('#adjust-btn'),
 };
 
 const TIPS = [
@@ -365,6 +366,8 @@ async function analyze(sourceCanvas) {
   await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30))); // let UI paint
 
   try {
+    state.sourceCanvas = sourceCanvas; // full-res original, for re-cropping
+    state.croppedCanvas = null;
     const result = countPills(state.cv, sourceCanvas, { maxDim: 1280, variant: 'consensus' });
     state.result = result;
     state.count = result.count;
@@ -393,6 +396,11 @@ function showPhoto(sourceCanvas) {
   els.overlayCanvas.getContext('2d').clearRect(0, 0, dw, dh);
   els.reportBtn.textContent = '⚠︎ Count is wrong — report it';
   els.reportBtn.classList.remove('sent');
+  // A new photo always starts un-cropped.
+  crop.on = false;
+  document.getElementById('crop-box').hidden = true;
+  els.adjustBtn.classList.remove('adjusting');
+  els.adjustBtn.textContent = 'Adjust area';
   resetZoom();
   requestAnimationFrame(syncOverlayBox); // after the screen is visible
 }
@@ -827,7 +835,119 @@ els.reportBtn.addEventListener('click', async () => {
   els.helperReact.textContent = 'Got it — I saved this one so I can learn from it. 🐾';
 });
 
-els.retake.addEventListener('click', () => showScreen('camera'));
+// ---------- crop editor: adjust the counted area, recount live ----------
+// The count is the feedback: drag the box and the number updates in ~300ms,
+// so the user is never cropping blind. The ORIGINAL full-res capture is kept,
+// so repeated adjustments never compound quality loss.
+const crop = { on: false, x: 0, y: 0, w: 0, h: 0, drag: null, timer: null };
+
+function cropToPhotoScale() {
+  // photo canvas pixels per source pixel
+  return els.photoCanvas.width / (state.sourceCanvas?.width || els.photoCanvas.width);
+}
+
+function drawCropBox() {
+  const box = document.getElementById('crop-box');
+  const s = cropToPhotoScale();
+  const disp = els.photoCanvas.getBoundingClientRect();
+  const wrap = els.zoomWrap.getBoundingClientRect();
+  const k = disp.width / els.photoCanvas.width; // css px per canvas px
+  box.style.left = `${(els.photoCanvas.offsetLeft) + crop.x * s * k}px`;
+  box.style.top = `${(els.photoCanvas.offsetTop) + crop.y * s * k}px`;
+  box.style.width = `${crop.w * s * k}px`;
+  box.style.height = `${crop.h * s * k}px`;
+}
+
+function recountCropped() {
+  if (!state.sourceCanvas) return;
+  const c = document.createElement('canvas');
+  c.width = Math.max(16, Math.round(crop.w));
+  c.height = Math.max(16, Math.round(crop.h));
+  c.getContext('2d').drawImage(state.sourceCanvas,
+    Math.round(crop.x), Math.round(crop.y), Math.round(crop.w), Math.round(crop.h),
+    0, 0, c.width, c.height);
+  try {
+    const r = countPills(state.cv, c, { maxDim: 1280, variant: 'consensus' });
+    state.result = r;
+    state.count = r.count;
+    state.croppedCanvas = c;
+    els.countValue.textContent = r.count;
+  } catch { /* keep previous count */ }
+}
+
+function setAdjust(on) {
+  crop.on = on;
+  const box = document.getElementById('crop-box');
+  box.hidden = !on;
+  els.adjustBtn.classList.toggle('adjusting', on);
+  els.adjustBtn.textContent = on ? 'Done' : 'Adjust area';
+  if (on) {
+    const src = state.sourceCanvas;
+    crop.x = 0; crop.y = 0; crop.w = src.width; crop.h = src.height;
+    drawCropBox();
+    els.helperReact.textContent = 'Drag the box to include just the pills — I’ll recount as you go. 🐾';
+  } else {
+    // Commit: re-render the result from the cropped image.
+    if (state.croppedCanvas) showPhoto(state.croppedCanvas);
+    if (state.result) showResult(state.croppedCanvas || state.sourceCanvas, state.result);
+    updateCountUI();
+  }
+}
+
+els.adjustBtn.addEventListener('click', () => setAdjust(!crop.on));
+
+{
+  const box = document.getElementById('crop-box');
+  const pt = (e) => ({ x: e.clientX, y: e.clientY });
+  let start = null, orig = null;
+  const onDown = (e) => {
+    if (!crop.on) return;
+    e.preventDefault();
+    e.stopPropagation(); // don't let the photo-zoom handler steal it
+    box.setPointerCapture(e.pointerId);
+    crop.drag = e.target.dataset.h || 'move';
+    start = pt(e);
+    orig = { x: crop.x, y: crop.y, w: crop.w, h: crop.h };
+  };
+  const onMove = (e) => {
+    if (!crop.drag || !start) return;
+    e.preventDefault();
+    const s = cropToPhotoScale();
+    const k = els.photoCanvas.getBoundingClientRect().width / els.photoCanvas.width;
+    const dx = (e.clientX - start.x) / (s * k);
+    const dy = (e.clientY - start.y) / (s * k);
+    const src = state.sourceCanvas;
+    const MIN = Math.max(40, src.width * 0.1);
+    let { x, y, w, h } = orig;
+    if (crop.drag === 'move') {
+      x = Math.min(Math.max(0, orig.x + dx), src.width - w);
+      y = Math.min(Math.max(0, orig.y + dy), src.height - h);
+    } else {
+      if (crop.drag.includes('l')) { x = Math.max(0, orig.x + dx); w = orig.w - (x - orig.x); }
+      if (crop.drag.includes('r')) { w = Math.min(src.width - orig.x, orig.w + dx); }
+      if (crop.drag.includes('t')) { y = Math.max(0, orig.y + dy); h = orig.h - (y - orig.y); }
+      if (crop.drag.includes('b')) { h = Math.min(src.height - orig.y, orig.h + dy); }
+      if (w < MIN) w = MIN;
+      if (h < MIN) h = MIN;
+    }
+    crop.x = x; crop.y = y; crop.w = w; crop.h = h;
+    drawCropBox();
+    clearTimeout(crop.timer);
+    crop.timer = setTimeout(recountCropped, 220); // live count, debounced
+  };
+  const onUp = (e) => {
+    if (!crop.drag) return;
+    crop.drag = null;
+    clearTimeout(crop.timer);
+    recountCropped();
+  };
+  box.addEventListener('pointerdown', onDown);
+  box.addEventListener('pointermove', onMove);
+  box.addEventListener('pointerup', onUp);
+  box.addEventListener('pointercancel', onUp);
+}
+
+els.retake.addEventListener('click', () => { setAdjust(false); showScreen('camera'); });
 els.save.addEventListener('click', saveCurrentCount);
 els.historyBtn.addEventListener('click', () => showScreen('history'));
 els.historyBack.addEventListener('click', () => showScreen('camera'));
