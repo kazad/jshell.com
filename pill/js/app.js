@@ -374,6 +374,7 @@ async function reportSession(tag = 'session') {
 document.getElementById('session-btn')?.addEventListener('click', reportSession);
 
 function setLive(on) {
+  const hadStream = !!state.stream;   // was the camera actually running?
   state.live = on;
   // Live counting analyses ~2 frames/sec; pausing stops BOTH the analysis and
   // the preview repaint so the camera work stops draining battery.
@@ -395,7 +396,10 @@ function setLive(on) {
     els.preview.hidden = true;
     els.liveOverlay.hidden = true;
     els.liveCount.hidden = true;
-    document.getElementById('camera-paused').hidden = false; // not an error
+    // Only show "paused" for a DELIBERATE pause — i.e. a camera that was
+    // actually running. At startup (no stream yet) this panel must stay
+    // hidden or it appears before the camera has even been requested.
+    document.getElementById('camera-paused').hidden = !hadStream;
     els.helperTip.textContent = 'Camera paused — tap the play button to start counting again. 🐾';
   } else {
     document.getElementById('camera-paused').hidden = true;
@@ -563,7 +567,7 @@ function syncOverlayBox() {
   if (!cw || !ch) return;
   const box = els.resultPhoto.getBoundingClientRect();
   const availW = box.width || window.innerWidth - 28;
-  const availH = Math.min(window.innerHeight * 0.62, box.height || Infinity);
+  const availH = Math.min(window.innerHeight * 0.52, box.height || Infinity);
   const s = Math.min(availW / cw, availH / ch);
   els.zoomWrap.style.width = Math.round(cw * s) + 'px';
   els.zoomWrap.style.height = Math.round(ch * s) + 'px';
@@ -1011,6 +1015,91 @@ document.getElementById('sheet-submit').addEventListener('click', () => {
   els.helperReact.textContent = 'Got it — I saved this one so I can learn from it. 🐾';
 });
 
+
+// ---------- debug view: the pipeline's own intermediate images ----------
+// A wrong count is almost always one bad stage. Re-running with stage capture
+// (only when asked — it costs memory) shows exactly where reality diverged.
+
+const STAGE_NOTES = {
+  input: ['1 · Input', 'The photo after downscaling and lighting flattening.'],
+  bgcolor: ['2 · Background color', 'Sampled from the border — what ValEye thinks the tray is.'],
+  distmap: ['3 · Color distance', 'Brightness = how unlike the tray each pixel is. Pills should glow.'],
+  'mask-otsu': ['4 · First threshold', 'The automatic cut into foreground/background. Rough.'],
+  'mask-final': ['5 · Cleaned mask', 'After rescue, hole-filling and shape filters. This is what gets counted.'],
+  disttransform: ['6 · Distance transform', 'Bright = deep inside a blob. Peaks mark pill centres.'],
+  markers: ['7 · Seeds', 'One dot per pill. Two touching pills MUST show two dots here.'],
+};
+
+function renderDebugSheet() {
+  const host = document.getElementById('debug-stages');
+  const trace = document.getElementById('debug-trace');
+  const sub = document.getElementById('debug-sub');
+  host.innerHTML = '';
+  trace.textContent = '';
+
+  const src = state.croppedCanvas || state.sourceCanvas;
+  if (!src || !state.cv) { sub.textContent = 'No photo to inspect yet.'; return; }
+
+  sub.textContent = 'Re-running the pipeline…';
+  const stages = {};
+  const lines = [];
+  let result;
+  try {
+    result = countPills(state.cv, src, {
+      maxDim: 1280,
+      variant: 'consensus',
+      stages: (k, v) => { stages[k] = v; },
+      debug: (d) => lines.push(d),
+    });
+  } catch (e) {
+    sub.textContent = `Pipeline error: ${e.message}`;
+    return;
+  }
+
+  sub.textContent = `${result.count} pills · ${result.regions.length} regions`
+    + (result.lowConfidence ? ` · ${result.lowConfidence} uncertain` : '');
+
+  for (const [key, [name, note]] of Object.entries(STAGE_NOTES)) {
+    const img = stages[key];
+    if (!img) continue;
+    const fig = document.createElement('figure');
+    fig.className = 'debug-stage';
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    // bgcolor is a flat swatch, not a full frame — paint it directly.
+    if (img.data) {
+      c.getContext('2d').putImageData(new ImageData(img.data, img.width, img.height), 0, 0);
+    } else {
+      c.width = 240; c.height = 48;
+      const g = c.getContext('2d');
+      g.fillStyle = `rgb(${img[0] | 0},${img[1] | 0},${img[2] | 0})`;
+      g.fillRect(0, 0, c.width, c.height);
+    }
+    const cap = document.createElement('figcaption');
+    cap.innerHTML = `<span class="stage-name">${name}</span><br>${note}`;
+    fig.append(c, cap);
+    host.appendChild(fig);
+  }
+
+  // The numeric trace: which filters fired, and how much they removed.
+  trace.textContent = lines.length
+    ? lines.map((d) => {
+        const { stage, ...rest } = d;
+        const kv = Object.entries(rest).map(([k, v]) => `${k}=${v}`).join(' ');
+        return `${String(stage).padEnd(13)} ${kv}`;
+      }).join('\n')
+    : '(no filters reported — clean run)';
+}
+
+const debugSheet = document.getElementById('debug-sheet');
+document.getElementById('debug-btn')?.addEventListener('click', () => {
+  debugSheet.hidden = false;
+  // Paint the sheet first, then do the expensive re-run.
+  requestAnimationFrame(() => requestAnimationFrame(renderDebugSheet));
+});
+document.getElementById('debug-close')?.addEventListener('click', () => { debugSheet.hidden = true; });
+debugSheet?.addEventListener('click', (e) => { if (e.target === debugSheet) debugSheet.hidden = true; });
 
 // ---------- crop editor: adjust the counted area, recount live ----------
 // The count is the feedback: drag the box and the number updates in ~300ms,

@@ -43,7 +43,7 @@
         <p class="sub">Tap here to choose a photo of pills on a plain, contrasting tray.</p>
       </div>
       <!-- Deliberate pause is a normal state, not an error — its own panel. -->
-      <div id="camera-paused" class="camera-paused" hidden>
+      <div id="camera-paused" class="camera-paused" hidden aria-hidden="true">
         <svg viewBox="0 0 24 24" width="34" height="34" fill="none" aria-hidden="true">
           <path d="M8 5.2v13.6c0 .8.9 1.3 1.6.9l10.2-6.8c.6-.4.6-1.4 0-1.8L9.6 4.3c-.7-.4-1.6.1-1.6.9z" fill="currentColor"/>
         </svg>
@@ -160,6 +160,7 @@
         <button id="save-btn" class="pill-btn primary">Save count</button>
       </div>
       <button id="report-btn" class="pill-btn subtle report-btn">⚠︎ Count is wrong — report it</button>
+      <button id="debug-btn" class="pill-btn subtle debug-btn">◧ See what ValEye saw</button>
 
       <!-- Shown after a save: one tap to say whether the count was right.
            Cheap signal, and it labels the photo for the test corpus. -->
@@ -168,6 +169,21 @@
         <div class="rating-btns">
           <button class="rate-btn" data-rate="good" aria-label="Count was correct">👍</button>
           <button class="rate-btn" data-rate="bad" aria-label="Count was wrong">👎</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Debug sheet: the pipeline's own intermediate images, in order, so a
+         wrong count can be traced to the stage that broke it. -->
+    <div class="sheet-scrim" id="debug-sheet" hidden>
+      <div class="sheet debug-sheet" role="dialog" aria-label="Pipeline debug view">
+        <div class="sheet-grab"></div>
+        <h3 class="sheet-title">What ValEye saw</h3>
+        <p class="sheet-sub" id="debug-sub">Each step of the pipeline, in order.</p>
+        <div class="debug-stages" id="debug-stages"></div>
+        <pre class="debug-trace" id="debug-trace"></pre>
+        <div class="sheet-actions">
+          <button class="pill-btn primary" id="debug-close">Done</button>
         </div>
       </div>
     </div>

@@ -487,9 +487,11 @@ body {
   display: grid;
   place-items: center;
   /* The photo is the working surface (badges must be readable, the crop box
-     must be draggable), so give it most of the screen. */
-  max-height: 62vh;
-  min-height: 42vh;
+     must be draggable) — but it must YIELD space so the action row below is
+     never pushed off-screen. */
+  flex: 0 1 auto;
+  max-height: 52vh;
+  min-height: 0;
 }
 .result-photo { touch-action: none; } /* pinch/pan belongs to the photo */
 
@@ -516,12 +518,19 @@ body {
   pointer-events: none;
 }
 
+/* The panel must always be fully reachable: the page height is fixed and
+   body overflow is hidden, so without its own scroll the Save/Adjust row
+   was sliced off the bottom on tall photos (user-reported). */
 .result-panel {
-  padding: 18px 24px calc(22px + env(safe-area-inset-bottom));
+  padding: 16px 24px calc(16px + min(env(safe-area-inset-bottom), 10px));
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   align-items: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .count-row {
@@ -672,6 +681,53 @@ body {
 .sheet-actions .pill-btn { flex: 1; }
 
 .report-btn { font-size: 13px; margin-top: -4px; }
+.debug-btn { font-size: 13px; margin-top: -8px; }
+
+/* Debug sheet: the pipeline's intermediate images. Deliberately a dark,
+   instrument-panel look — these are machine-vision masks, and white pills on
+   black read far better than the app's warm paper palette. */
+.debug-sheet { background: #0e120e; color: #cfe8cf; max-height: 88vh; overflow-y: auto; }
+.debug-sheet .sheet-title { color: #eafbe8; }
+.debug-sheet .sheet-sub { color: #7fa87f; }
+.debug-sheet .sheet-grab { background: #33452f; }
+
+.debug-stages { display: flex; flex-direction: column; gap: 14px; margin: 4px 0 12px; }
+.debug-stage { display: flex; flex-direction: column; gap: 6px; }
+.debug-stage canvas {
+  width: 100%;
+  /* Cap the height so all seven stages can be compared by scrolling a
+     little, rather than one full-bleed image per screen. */
+  max-height: 34vh;
+  object-fit: contain;
+  border-radius: 8px;
+  display: block;
+  background: #000;
+  border: 1px solid #26331f;
+  image-rendering: crisp-edges;
+}
+.debug-stage figcaption {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #8fd18f;
+}
+.debug-stage .stage-name { color: #d7ffd0; font-weight: 700; }
+
+.debug-trace {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #7ae07a;
+  background: #060906;
+  border: 1px solid #26331f;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+  max-height: 30vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 .rating {
   display: flex;

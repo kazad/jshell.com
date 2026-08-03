@@ -726,9 +726,7 @@ export function countPills(cv, source, opts = {}) {
 
     const kernel = track(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3)));
     const anchor = new cv.Point(-1, -1);
-    if (opts.probe) opts.probe('pre-open', bw);
     cv.morphologyEx(bw, bw, cv.MORPH_OPEN, kernel, anchor, 2);
-    if (opts.probe) opts.probe('post-open', bw);
     // Closing seals interior speckle, but 2 iterations dilate by ~2px on
     // every side, which BRIDGES pills that merely lie near each other. That
     // bridge is unrecoverable downstream: two pills become one blob with no
@@ -767,7 +765,6 @@ export function countPills(cv, source, opts = {}) {
       }
       opts.debug?.({ stage: 'closeguard', nPre, nPost });
     }
-    if (opts.probe) opts.probe('post-close', bw);
     const preFill = track(bw.clone()); // pre-fill state: crevices between touching pills still open
     fillHoles(cv, bw, opts.debug); // highlights/engravings punch holes in solid pills
 
@@ -964,7 +961,6 @@ export function countPills(cv, source, opts = {}) {
     const minArea = Math.max(absFloor, med * 0.3);
 
     const medPeak = median([...stats.values()].filter((s) => s.area >= minArea).map((s) => s.peak));
-    opts.debug?.({ stage: 'wsstats', med, minArea, absFloor, nStats: stats.size, all: [...stats.values()].map((s) => ({ a: Math.round(s.area), pk: +s.peak.toFixed(1), x: Math.round(s.sx / s.area), y: Math.round(s.sy / s.area) })) });
     let regions = [];
     let count = 0;
     for (const [lbl, s] of stats) {
@@ -1450,11 +1446,47 @@ export function countPills(cv, source, opts = {}) {
       }
       const unitLen = estimateUnitLength(blobList.map((l) => (blobAxis.get(l) || {}).major || 0).filter((m) => m > 0));
 
+      // LENGTH-GATED UNIT RECALIBRATION.
+      // estimateUnitArea assumes clusters land on integer multiples of the
+      // unit, so its refinement passes can divide a clump's area by the wrong
+      // integer and settle on an inflated "unit". Measured on the real corpus:
+      // on r-cc7a2ada the unit came out 1.31x too big (1109 vs 849 px) and on
+      // r-90dbe20e 160x too big, which deflates every mass ratio in the image
+      // — a 6-pill clump read as massR 4.05 and was counted 3 short.
+      //
+      // Length is the honest arbiter (see estimateUnitLength): a blob no
+      // longer than ~1 pill IS one pill, whatever its area does. So calibrate
+      // the unit from the AREAS OF LENGTH-CONFIRMED SINGLES only. Clumps are
+      // excluded by construction, so no integer-multiple guessing is needed.
+      // Applied only when enough singles exist to form a stable median, and
+      // only when it disagrees materially (>15%) with the incumbent — on 20 of
+      // 22 real photos the two agree within 2% and this is a no-op.
+      if (unitLen > 0) {
+        const singleAreas = blobList
+          .filter((l) => {
+            const m = (blobAxis.get(l) || {}).major || 0;
+            return m > 0 && m <= 1.35 * unitLen;
+          })
+          .map((l) => blobAreas[l]);
+        if (singleAreas.length >= 5) {
+          const unitSingle = median(singleAreas);
+          if (unitSingle >= absFloor && Math.abs(unitSingle - unit) > 0.15 * unitSingle) {
+            opts.debug?.({ stage: 'unitfix', from: unit, to: unitSingle, singles: singleAreas.length });
+            unit = unitSingle;
+          }
+        }
+      }
+
       opts.debug?.({ stage: 'lengthcal', unitLen, unit });
-      for (const l of blobList) {
-        const ax = blobAxis.get(l) || {};
-        const bx = blobBox.get(l) || {};
-        opts.debug?.({ stage: 'blobgeo', l, area: blobAreas[l], major: +(ax.major || 0).toFixed(1), minor: +(ax.minor || 0).toFixed(1), lenR: +((ax.major || 0) / unitLen).toFixed(2), massR: +(blobAreas[l] / unit).toFixed(2), cx: Math.round(((bx.x0 || 0) + (bx.x1 || 0)) / 2), cy: Math.round(((bx.y0 || 0) + (bx.y1 || 0)) / 2), peak: +(peaks[l] || 0).toFixed(1) });
+      if (opts.debug) {
+        for (const l of blobList) {
+          const ax = blobAxis.get(l) || {};
+          opts.debug({ stage: 'blobgeo', blob: l, area: blobAreas[l],
+            massR: +(blobAreas[l] / Math.max(1, unit)).toFixed(2),
+            major: +(ax.major || 0).toFixed(1), minor: +(ax.minor || 0).toFixed(1),
+            lenR: +((ax.major || 0) / Math.max(1, unitLen)).toFixed(2),
+            peak: +peaks[l].toFixed(1), radiusEst: +radiusEst.toFixed(1) });
+        }
       }
 
       // -- Map watershed regions to blobs (majority pixel vote). --
@@ -1765,8 +1797,23 @@ export function countPills(cv, source, opts = {}) {
         // in the gap and is robust to browser-vs-Node JPEG decode drift.
         const minorHalf = Math.min(e.size.width, e.size.height) / 2;
         const smoothOutline = maxDefect <= 0.5 * minorHalf;
-        opts.debug?.({ stage: 'contour', area: Math.round(area), solidity: +solidity.toFixed(3), fillR: +fillR.toFixed(3), aspect: +aspect.toFixed(2), maxDefect: +maxDefect.toFixed(1), minorHalf: +minorHalf.toFixed(1) });
-        if (solidity >= 0.92 && fillR >= 0.85 && fillR <= 1.15 && aspect <= 3.5 && smoothOutline) {
+        // Frame-edge guard. Consolidation's whole premise is that the OUTLINE
+        // cannot lie: a smooth convex outline means one pill, and a clump of
+        // touching pills betrays itself with neck cusps. That premise fails
+        // where the FRAME cuts the blob — the image border slices the necks
+        // off, so a clump of several pills running out of shot presents a
+        // smooth arc and gets merged into one. Measured on a real photo: a
+        // frame-edge clump of three pills consolidated to a single count, and
+        // no later stage could recover it. A blob riding the border has not
+        // shown enough of itself for the outline argument to hold.
+        let touchesFrame = false;
+        {
+          const r = cv.boundingRect(c);
+          touchesFrame = r.x <= 1 || r.y <= 1
+            || r.x + r.width >= src.cols - 1 || r.y + r.height >= src.rows - 1;
+        }
+        opts.debug?.({ stage: 'contour', area: Math.round(area), solidity: +solidity.toFixed(3), fillR: +fillR.toFixed(3), aspect: +aspect.toFixed(2), maxDefect: +maxDefect.toFixed(1), minorHalf: +minorHalf.toFixed(1), touchesFrame });
+        if (!touchesFrame && solidity >= 0.92 && fillR >= 0.85 && fillR <= 1.15 && aspect <= 3.5 && smoothOutline) {
           cid++;
           cv.drawContours(idMask, contoursC, i, new cv.Scalar(cid), -1);
           ells.push({ cx: e.center.x, cy: e.center.y, rx: e.size.width / 2, ry: e.size.height / 2, angle: e.angle, area });
@@ -1830,6 +1877,55 @@ export function countPills(cv, source, opts = {}) {
 // Draw detection results onto a 2D canvas. By default clears first (for a
 // dedicated overlay canvas stacked on the photo); pass {clear:false} to draw
 // on top of an already-rendered photo.
+// Number pills the way a person actually counts them: finish one cluster
+// before moving to the next, and read each cluster left-to-right in rows.
+//
+// Sorting by raw y made numbering jump, because two pills side by side differ
+// by a few pixels of y. Pure row-banding is better but still walks straight
+// through the gap between two separate groups. Pills come in clumps, so
+// cluster first (single-link on centre distance, ~1.6 pill widths), then place
+// the clusters in that same banded reading order by their centres.
+export function readingOrder(regions) {
+  if (regions.length < 2) return [...regions];
+
+  const sizes = regions.map((r) => Math.sqrt(Math.max(1, r.area))).sort((a, b) => a - b);
+  const unit = sizes[sizes.length >> 1] || 24;   // typical pill width
+  const near = unit * 1.6;                       // same-cluster if closer
+  const band = Math.max(12, unit * 0.75);        // one row of pills
+
+  const parent = regions.map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) i = parent[i] = parent[parent[i]]; return i; };
+  for (let i = 0; i < regions.length; i++) {
+    for (let j = i + 1; j < regions.length; j++) {
+      const dx = regions[i].cx - regions[j].cx, dy = regions[i].cy - regions[j].cy;
+      if (dx * dx + dy * dy <= near * near) parent[find(i)] = find(j);
+    }
+  }
+
+  const groups = new Map();
+  regions.forEach((r, i) => {
+    const k = find(i);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  });
+
+  const byRow = (a, b) => {
+    const rowA = Math.round(a.cy / band), rowB = Math.round(b.cy / band);
+    return rowA !== rowB ? rowA - rowB : a.cx - b.cx;
+  };
+
+  const clusters = [...groups.values()].map((members) => {
+    members.sort(byRow);
+    return {
+      members,
+      cx: members.reduce((s, r) => s + r.cx, 0) / members.length,
+      cy: members.reduce((s, r) => s + r.cy, 0) / members.length,
+    };
+  });
+  clusters.sort(byRow);
+  return clusters.flatMap((c) => c.members);
+}
+
 export function drawOverlay(ctx, result, displayScale, opts = {}) {
   const { regions, boundaries, width } = result;
   if (opts.clear !== false) ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -1843,9 +1939,10 @@ export function drawOverlay(ctx, result, displayScale, opts = {}) {
     }
   }
 
-  // Numbered badge per pill (reading order); a region covering N pills gets
-  // a range badge like "12–14" with an amber ring.
-  const ordered = [...regions].sort((a, b) => (a.cy - b.cy) || (a.cx - b.cx));
+  // Numbered badge per pill; a region covering N pills gets a range badge
+  // like "12–14" with an amber ring. Numbering follows CLUSTER reading order
+  // (see readingOrder below) so one group is finished before the next starts.
+  const ordered = readingOrder(regions);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
