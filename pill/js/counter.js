@@ -1426,6 +1426,53 @@ export function countPills(cv, source, opts = {}) {
         regByBlob.get(b).push(r);
       }
 
+      // -- Length-anchored junk veto (surface splotches). --
+      // The major axis is the one dimension a pill cannot lose: tipping a
+      // caplet onto its narrow side collapses the MINOR axis (and ~3x of the
+      // area) but preserves LENGTH. So the discriminator is asymmetric:
+      //   - short in the major axis AND unremarkable in the minor  -> junk
+      //   - full length, thin minor axis                           -> ON-EDGE
+      // Measured here: every real pill sits at lenR 0.90-1.10 even when its
+      // area ratio drops to 0.6; the board splotch is lenR 0.66. Requiring a
+      // sub-unit AREA as well keeps this from ever touching a real pill that
+      // is merely foreshortened, and needing several length-confirmed pills
+      // present means a photo of one odd object can't self-veto.
+      if (unitLen > 0 && blobList.length >= 6) {
+        const confirmed = blobList.filter((l) => {
+          const m = (blobAxis.get(l) || {}).major || 0;
+          return m >= 0.85 * unitLen;
+        }).length;
+        if (confirmed >= 5) {
+          const junk = new Set();
+          for (const l of blobList) {
+            const ax = blobAxis.get(l) || {};
+            const maj = ax.major || 0, min = ax.minor || 0;
+            if (!maj) continue;
+            // Small in BOTH axes. Length alone cannot carry this test: a real
+            // pill seen at a steep angle foreshortens to ~0.76 of the median
+            // length while a splotch measured 0.66 — too narrow a gap. What
+            // separates them is that the foreshortened pill stays ELONGATED
+            // (it keeps a pill's aspect), whereas the splotch is a blob that
+            // is stubby in both directions.
+            const shortAxis = maj < 0.80 * unitLen;
+            const stubby = min > 0 && maj / min < 1.6;
+            const lightMass = unitOk && blobAreas[l] < 0.8 * unit;
+            if (shortAxis && stubby && lightMass) junk.add(l);
+          }
+          if (junk.size) {
+            const before = regions.length;
+            regions = regions.filter((r) => {
+              const b = labelBlob.get(r.label) || 0;
+              if (!junk.has(b)) return true;
+              count -= r.units;
+              return false;
+            });
+            opts.debug?.({ stage: 'lenjunk', removed: before - regions.length, unitLen });
+            for (const l of junk) regByBlob.delete(l);
+          }
+        }
+      }
+
       // -- Ambiguity test per blob (cheap; most blobs are CLEAR). --
       const ambiguous = [];
       let eligible = 0;

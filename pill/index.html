@@ -53,15 +53,15 @@
       </div>
     </div>
 
-    <!-- Below the viewport, never over it: the camera preview stays clear. -->
-    <button id="use-count" class="pill-btn primary use-count" hidden>Use this count ✓</button>
-
     <div class="helper helper-below">
       <img src="icons/doodle.svg" alt="Goldendoodle helper" class="helper-dog" />
       <div id="helper-tip" class="helper-bubble">Spread the pills out flat — no piles! — and I’ll count them. 🐾</div>
     </div>
 
-    <div class="controls">
+    <!-- Anchored bottom dock: primary action + controls own the bottom. -->
+    <div class="camera-dock">
+      <button id="use-count" class="pill-btn primary use-count" hidden>Use this count ✓</button>
+      <div class="controls">
       <!-- Left: live control. Center: shutter. Right: target. Symmetric,
            thumb-reachable, one primary action. -->
       <div class="control-slot">
@@ -104,6 +104,7 @@
            Photo Library / Take Photo / Choose File sheet. -->
       <input id="file-input" type="file" accept="image/jpeg,image/png" capture="environment" hidden />
       <input id="library-input" type="file" accept="image/*" hidden />
+    </div>
     </div>
   </main>
 
