@@ -1,0 +1,12 @@
+name = "jshell"
+compatibility_date = "2026-07-01"
+pages_build_output_dir = "."
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "valeye-photos"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "valeye"
+database_id = "394c0844-4cc4-42c3-bdd7-3a90bdac8ab5"

@@ -284,6 +284,27 @@ function saveCurrentCount() {
   h.unshift(entry);
   saveHistory(h.slice(0, 200));
   els.medName.value = '';
+
+  // Opt-in contribution: photo + counts (the user's adjusted count is a
+  // human-verified label). Fire-and-forget; failures are silent by design.
+  const toggle = document.getElementById('contribute-toggle');
+  if (toggle?.checked) {
+    els.photoCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const fd = new FormData();
+      fd.append('photo', blob, 'photo.jpg');
+      fd.append('meta', JSON.stringify({
+        count: state.result?.count ?? null,
+        adjusted: state.count,
+        target: entry.target,
+        lowConfidence: state.result?.lowConfidence ?? 0,
+        variant: 'consensus',
+      }));
+      fetch('api/submit', { method: 'POST', body: fd }).catch(() => {});
+    }, 'image/jpeg', 0.85);
+    toggle.checked = false;
+  }
+
   showScreen('camera');
 }
 
