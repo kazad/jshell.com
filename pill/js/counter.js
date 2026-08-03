@@ -550,6 +550,56 @@ function estimateUnitArea(areas) {
   return unit;
 }
 
+// Second-moment axes of a labelled blob, in pixels. For an ellipse-like
+// region the eigenvalues of the covariance matrix give semi-axes 2*sqrt(l);
+// this is the same quantity fitEllipse reports, without needing contours.
+// Returns {major, minor} full-axis lengths.
+function blobAxes(bl, w, l, box) {
+  let n = 0, sx = 0, sy = 0;
+  for (let y = box.y0; y <= box.y1; y++) {
+    const row = y * w;
+    for (let x = box.x0; x <= box.x1; x++) {
+      if (bl[row + x] !== l) continue;
+      n++; sx += x; sy += y;
+    }
+  }
+  if (n < 2) return { major: 0, minor: 0 };
+  const mx = sx / n, my = sy / n;
+  let cxx = 0, cyy = 0, cxy = 0;
+  for (let y = box.y0; y <= box.y1; y++) {
+    const row = y * w;
+    for (let x = box.x0; x <= box.x1; x++) {
+      if (bl[row + x] !== l) continue;
+      const dx = x - mx, dy = y - my;
+      cxx += dx * dx; cyy += dy * dy; cxy += dx * dy;
+    }
+  }
+  cxx /= n; cyy /= n; cxy /= n;
+  const tr = cxx + cyy, det = cxx * cyy - cxy * cxy;
+  const disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+  const l1 = tr / 2 + disc, l2 = Math.max(0, tr / 2 - disc);
+  return { major: 4 * Math.sqrt(Math.max(0, l1)), minor: 4 * Math.sqrt(l2) };
+}
+
+// Single-pill LENGTH for a same-medication population. An oblong caplet keeps
+// its MAJOR axis when it tips onto its narrow side — only the minor axis (and
+// hence the projected AREA) collapses, by roughly 3x. Area-based calibration
+// therefore has a documented failure mode on these photos: when enough pills
+// lie on edge, the raw area median lands in the on-edge subpopulation and
+// estimateUnitArea's refinement passes divide the FLAT pills by 2, dragging
+// the unit down until every flat pill reads as two. Length has no such
+// bimodality (measured: area spans 2.3x within one photo while the major axis
+// stays within 0.90-1.09 of its median), so it is the reliable anchor for
+// "is this blob one pill or several".
+function estimateUnitLength(majors) {
+  if (!majors.length) return 0;
+  const sorted = [...majors].sort((a, b) => a - b);
+  // Lower-half median: merged multi-pill blobs are long outliers, and singles
+  // (flat or on-edge) share the same length, so the short half is pure.
+  const half = sorted.slice(0, Math.max(1, Math.ceil(sorted.length / 2)));
+  return median(half);
+}
+
 // Erosion-split core counter (consensus panel method). Thresholding a blob's
 // distance transform at depth t is exactly erosion by a disk of radius t, so
 // sweep t across the blob's depth range and count the cores at each level.
@@ -1325,6 +1375,28 @@ export function countPills(cv, source, opts = {}) {
       if (pieces.length >= blobList.length * 2 && unit2 >= Math.max(absFloor, minPlausibleUnit)) unit = unit2;
       const unitOk = unit >= absFloor;
 
+      // -- Length calibration (on-edge-proof; see estimateUnitLength). --
+      // Blob bounding boxes, needed for the second-moment axes below.
+      const blobBox = new Map();
+      for (let i = 0; i < bl.length; i++) {
+        const l = bl[i];
+        if (!l) continue;
+        const x = i % w, y = (i / w) | 0;
+        let b = blobBox.get(l);
+        if (!b) { b = { x0: x, y0: y, x1: x, y1: y }; blobBox.set(l, b); }
+        if (x < b.x0) b.x0 = x;
+        if (x > b.x1) b.x1 = x;
+        if (y < b.y0) b.y0 = y;
+        if (y > b.y1) b.y1 = y;
+      }
+      const blobAxis = new Map();
+      for (const l of blobList) {
+        const b = blobBox.get(l);
+        if (b) blobAxis.set(l, blobAxes(bl, w, l, b));
+      }
+      const unitLen = estimateUnitLength(blobList.map((l) => (blobAxis.get(l) || {}).major || 0).filter((m) => m > 0));
+      opts.debug?.({ stage: 'lengthcal', unitLen, unit });
+
       // -- Map watershed regions to blobs (majority pixel vote). --
       const labelBlob = new Map();
       {
@@ -1410,10 +1482,20 @@ export function countPills(cv, source, opts = {}) {
           // failure mode (invisible seams / no separating neck). Abstain.
           const singleable = blobAreas[l] <= 4 * Math.PI * peaks[l] * peaks[l];
 
+          // Length veto on the mass vote. A blob no longer than one pill
+          // cannot contain two of them end to end, whatever its area says.
+          // This is what catches the on-edge population: when many pills lie
+          // on their narrow side, the area-calibrated unit collapses toward
+          // the on-edge area and mass reads 2 on every FLAT single pill. The
+          // major axis does not collapse, so it arbitrates. Only applied to
+          // shrink an over-reading mass vote, never to raise one.
+          const majL = (blobAxis.get(l) || {}).major || 0;
+          const lenSingle = unitLen > 0 && majL > 0 && majL <= 1.35 * unitLen;
+          const massV = lenSingle ? 1 : Math.max(1, a.k0);
           // Panel votes (each method abstains when it has no evidence).
           const votes = [];
           if (regs.length >= 1) votes.push({ m: 'ws', v: regs.length }); // 1. watershed markers
-          if (unitPlausible) votes.push({ m: 'mass', v: Math.max(1, a.k0) }); // 2. pixel mass
+          if (unitPlausible) votes.push({ m: 'mass', v: massV }); // 2. pixel mass
           const blobPieces = unitOk
             ? pieces.filter((p) => p.blob === l && p.area >= 0.5 * unit) : [];
           if (blobPieces.length >= 2 || (blobPieces.length === 1 && singleable)) {

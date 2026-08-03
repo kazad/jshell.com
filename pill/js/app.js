@@ -372,7 +372,10 @@ function setLive(on) {
   state.live = on;
   // Live counting analyses ~2 frames/sec; pausing stops BOTH the analysis and
   // the preview repaint so the camera work stops draining battery.
-  els.liveToggle.textContent = on ? '⏸ Pause' : '▶ Live';
+  els.liveToggle.classList.toggle('paused', !on);
+  els.liveToggle.setAttribute('aria-label', on ? 'Pause live counting' : 'Resume live counting');
+  const lbl = document.getElementById('live-label');
+  if (lbl) lbl.textContent = on ? 'Live' : 'Paused';
   if (!on) {
     // Stop analysis, stop the preview repaint, and RELEASE the camera so the
     // hardware powers down (this is what actually saves battery, and it turns

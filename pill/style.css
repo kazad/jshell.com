@@ -16,7 +16,10 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
-  height: 100%;
+  /* dvh tracks the real viewport as iOS chrome shows/hides, so the control
+     row never gets pushed off-screen or left floating. */
+  height: 100dvh;
+  max-height: 100dvh;
   background: var(--bg);
   color: var(--text);
   font-family: ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
@@ -179,19 +182,20 @@ body {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
 }
 
+/* The only thing allowed over the camera image: a compact, translucent HUD
+   chip in the corner, so the framing area itself stays unobstructed. */
 .live-count {
   position: absolute;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(255, 255, 255, 0.92);
+  top: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.78);
   color: var(--accent-dark);
-  font-size: 26px;
+  font-size: 20px;
   font-weight: 800;
-  padding: 6px 22px;
+  padding: 3px 14px;
   border-radius: 999px;
   backdrop-filter: blur(6px);
-  z-index: 2;
+  z-index: 6;
   transition: background 0.3s, color 0.3s;
 }
 .live-count.stable {
@@ -212,12 +216,10 @@ body {
   z-index: 4; /* badges draw on top of the preview */
 }
 
+/* Sits BELOW the viewfinder in normal flow — never over the camera image. */
 .use-count {
-  position: absolute;
-  bottom: 84px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 3;
+  align-self: center;
+  margin: 10px auto 0;
 }
 
 /* ---------- goldendoodle helper ---------- */
@@ -291,38 +293,66 @@ body {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  padding: 18px 24px calc(18px + env(safe-area-inset-bottom));
+  justify-items: center;
+  padding: 14px 24px 6px;
   gap: 12px;
 }
 
-.target-field {
-  justify-self: start;
+.control-slot {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-dim);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
+  align-items: center;
+  gap: 5px;
 }
-.target-field input {
-  width: 74px;
+.control-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.round-btn {
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  border: none;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.round-btn:active { background: var(--surface-2); }
+.round-btn:disabled { opacity: 0.4; }
+/* One icon shows at a time: pause while live, play while paused. */
+.round-btn .icon-play { display: none; }
+.round-btn.paused { color: var(--accent-dark); }
+.round-btn.paused .icon-play { display: block; }
+.round-btn.paused .icon-pause { display: none; }
+
+.target-input {
+  width: 62px;
+  height: 52px;
   background: var(--surface);
   border: 1.5px solid var(--surface-2);
   box-shadow: var(--shadow);
   color: var(--text);
-  font-size: 18px;
-  font-weight: 700;
+  font: inherit;
+  font-size: 19px;
+  font-weight: 800;
   text-align: center;
-  padding: 9px 6px;
-  border-radius: 12px;
+  border-radius: 16px;
+  -moz-appearance: textfield;
 }
-.target-field input:focus { outline: 2.5px solid var(--accent); border-color: transparent; }
+.target-input::-webkit-outer-spin-button,
+.target-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.target-input:focus { outline: 2.5px solid var(--accent); border-color: transparent; }
 
 .shutter {
-  width: 78px;
-  height: 78px;
+  width: 74px;
+  height: 74px;
   border-radius: 999px;
   border: 4px solid var(--surface);
   box-shadow: var(--shadow);
@@ -332,8 +362,8 @@ body {
   cursor: pointer;
 }
 .shutter-ring {
-  width: 60px;
-  height: 60px;
+  width: 58px;
+  height: 58px;
   border-radius: 999px;
   background: var(--accent);
   transition: transform 0.12s;
@@ -347,11 +377,13 @@ body {
   50% { transform: scale(0.8); opacity: 0.6; }
 }
 
-.side-controls {
-  justify-self: end;
+/* Secondary row: quiet, evenly spaced, never competing with the shutter. */
+.control-extras {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 2px 24px calc(10px + env(safe-area-inset-bottom));
 }
 
 .fps-select {
@@ -361,7 +393,6 @@ body {
   font: inherit;
   font-size: 12px;
   font-weight: 600;
-  text-align: center;
   padding: 2px;
   cursor: pointer;
 }

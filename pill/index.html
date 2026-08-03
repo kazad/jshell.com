@@ -38,7 +38,6 @@
       <canvas id="preview-canvas" class="preview-canvas" hidden></canvas>
       <canvas id="live-overlay" class="live-overlay" hidden></canvas>
       <div id="live-count" class="live-count" hidden>~ 0</div>
-      <button id="use-count" class="pill-btn primary use-count" hidden>Use this count ✓</button>
       <div id="camera-fallback" class="camera-fallback" hidden>
         <p>Camera unavailable.</p>
         <p class="sub">Tap here to choose a photo of pills on a plain, contrasting tray.</p>
@@ -54,31 +53,49 @@
       </div>
     </div>
 
-    <!-- Helper sits BELOW the viewport: the camera preview must stay clear. -->
+    <!-- Below the viewport, never over it: the camera preview stays clear. -->
+    <button id="use-count" class="pill-btn primary use-count" hidden>Use this count ✓</button>
+
     <div class="helper helper-below">
       <img src="icons/doodle.svg" alt="Goldendoodle helper" class="helper-dog" />
       <div id="helper-tip" class="helper-bubble">Spread the pills out flat — no piles! — and I’ll count them. 🐾</div>
     </div>
 
     <div class="controls">
-      <div class="target-field">
-        <label for="target-input">Target</label>
-        <input id="target-input" type="number" inputmode="numeric" min="1" placeholder="—" />
+      <!-- Left: live control. Center: shutter. Right: target. Symmetric,
+           thumb-reachable, one primary action. -->
+      <div class="control-slot">
+        <button id="live-toggle" class="round-btn" aria-label="Pause live counting" disabled>
+          <svg class="icon-pause" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <rect x="7" y="5" width="3.6" height="14" rx="1.4" fill="currentColor"/>
+            <rect x="13.4" y="5" width="3.6" height="14" rx="1.4" fill="currentColor"/>
+          </svg>
+          <svg class="icon-play" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path d="M8 5.2v13.6c0 .8.9 1.3 1.6.9l10.2-6.8c.6-.4.6-1.4 0-1.8L9.6 4.3c-.7-.4-1.6.1-1.6.9z" fill="currentColor"/>
+          </svg>
+        </button>
+        <span class="control-label" id="live-label">Live</span>
       </div>
+
       <button id="shutter" class="shutter" aria-label="Count pills" disabled>
         <span class="shutter-ring"></span>
       </button>
-      <div class="side-controls">
-        <button id="live-toggle" class="pill-btn" disabled>Live</button>
-        <select id="live-fps" class="fps-select" title="Live counting rate">
-          <option value="0.5">0.5 fps</option>
-          <option value="1">1 fps</option>
-          <option value="2" selected>2 fps</option>
-          <option value="4">4 fps</option>
-        </select>
-        <button id="session-btn" class="pill-btn subtle" hidden>Report count</button>
-        <button id="upload-btn" class="pill-btn subtle">Take photo</button>
+
+      <div class="control-slot">
+        <input id="target-input" class="target-input" type="number" inputmode="numeric" min="1" placeholder="—" aria-label="Target count" />
+        <span class="control-label">Target</span>
       </div>
+    </div>
+
+    <div class="control-extras">
+      <button id="upload-btn" class="pill-btn subtle">Take photo</button>
+      <select id="live-fps" class="fps-select" title="Live counting rate" aria-label="Live counting rate">
+        <option value="0.5">0.5 fps</option>
+        <option value="1">1 fps</option>
+        <option value="2" selected>2 fps</option>
+        <option value="4">4 fps</option>
+      </select>
+      <button id="session-btn" class="pill-btn subtle" hidden>Report count</button>
       <!-- Camera path: accept a CONCRETE type (not image/*) so iOS honours
            `capture` and opens the camera directly instead of showing the
            Photo Library / Take Photo / Choose File sheet. -->
