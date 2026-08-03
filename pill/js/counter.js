@@ -189,6 +189,26 @@ function refineOversizedBlobs(cv, src, bw, absFloor, debug) {
   const d = src.data, mask = bw.data;
   let refined = 0;
 
+  // SAME-MEDICATION SCALE PRIOR. One photo holds one medication, so every pill
+  // has the same area. The blobs that are ALREADY pill-sized (not oversized,
+  // above the absolute floor) are therefore a direct measurement of the unit
+  // area — and any refinement of an oversized blob must yield pieces on that
+  // same scale. Without this anchor the refine step has no idea how big a pill
+  // is, and on a dense raft of touching same-colour tablets it re-thresholds
+  // the raft against its OWN median colour (which is the tablet colour), so
+  // the only pixels that survive are the ones LEAST like a tablet: the
+  // specular glare on each glossy dome and the printed imprint. Measured on
+  // t2-advil-scatter-dark-1.jpg: a 230522-px raft of 28 tablets, median colour
+  // [207,133,110] (the tablet orange, not a tray), distance peak 54px, refined
+  // into 19 "pill-like" pieces of area 1605/582/546/492/450/399/386/359...
+  // against real isolated tablets of 8306/8626/8912/9645/9829 px. Those pieces
+  // are the glare specks, ~20x too small, and they went on to calibrate the
+  // unit area at 359 px and inflate the count 28 -> 48.
+  const unitAreas = [...areas.entries()]
+    .filter(([, a]) => a >= absFloor && a <= total * SURFACE_FRACTION)
+    .map(([, a]) => a);
+  const unitArea = unitAreas.length >= 3 ? median(unitAreas) : 0;
+
   for (const blob of big) {
     // Dominant (median) color of the blob = the surface color.
     const rs = [], gs = [], bs = [];
@@ -291,9 +311,20 @@ function refineOversizedBlobs(cv, src, bw, absFloor, debug) {
       + 0.25 * ramp(pillRatio, 0.15, 0.5)
       // A real surface keeps only a minority of its own area as pills.
       + 0.20 * (1 - ramp(keptRatio, 0.4, 0.7));
-    const accept = pillLike.length >= 3 && score >= 0.5;
+    // Scale veto (see unitArea above). If this image contains isolated
+    // pill-sized blobs, the refinement's own pieces must be on that scale. A
+    // refinement whose typical piece is a small fraction of a known pill has
+    // not found pills on a surface — it has found sub-features (glare,
+    // imprint) inside a mass of pills, and adopting it destroys the mass.
+    // Kept deliberately loose (1/4 of a unit) so genuine tray refinements,
+    // where the pieces ARE pills and match within a factor of two, sail
+    // through; only the ~20x mismatch of a glare-speck shatter is vetoed.
+    const pieceMed = pillLike.length ? median(pillLike.map((p) => p.area)) : 0;
+    const scaleVeto = unitArea > 0 && pieceMed > 0 && pieceMed < 0.25 * unitArea;
+    const accept = pillLike.length >= 3 && score >= 0.5 && !scaleVeto;
     debug?.({ stage: 'refine', blobArea, kept, keptRatio: +keptRatio.toFixed(3),
-      pillLike: pillLike.length, pillRatio: +pillRatio.toFixed(3), score: +score.toFixed(3), thr, accept });
+      pillLike: pillLike.length, pillRatio: +pillRatio.toFixed(3), score: +score.toFixed(3), thr,
+      unitArea, pieceMed, scaleVeto, accept });
     if (accept) {
       refined++;
     } else {
