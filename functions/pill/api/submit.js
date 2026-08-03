@@ -13,7 +13,9 @@ export async function onRequestPost({ request, env }) {
     }
     const buf = await photo.arrayBuffer();
     if (buf.byteLength > 8 * 1024 * 1024) return json({ error: 'photo too large' }, 413);
-    if (buf.byteLength < 1024) return json({ error: 'photo too small' }, 400);
+    // A blank/black frame compresses to a tiny JPEG. Real pill photos are far
+    // larger; rejecting these keeps unsatisfiable images out of the corpus.
+    if (buf.byteLength < 40 * 1024) return json({ error: 'photo blank or too small' }, 400);
 
     const id = crypto.randomUUID();
     const day = new Date().toISOString().slice(0, 10);

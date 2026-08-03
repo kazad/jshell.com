@@ -176,7 +176,7 @@ function otsuFromHist(hist, total) {
 // sitting on it become the foreground.
 const SURFACE_FRACTION = 0.12;
 
-function refineOversizedBlobs(cv, src, bw, absFloor) {
+function refineOversizedBlobs(cv, src, bw, absFloor, debug) {
   const w = bw.cols, h = bw.rows, total = w * h;
   const lab = new cv.Mat();
   cv.connectedComponents(bw, lab);
@@ -212,7 +212,27 @@ function refineOversizedBlobs(cv, src, bw, absFloor) {
       hist[distAt(i)]++;
       n++;
     }
-    const thr = Math.max(12, otsuFromHist(hist, n));
+    // Otsu on this distance histogram is BISTABLE: the surface pixels form a
+    // huge near-zero spike and the pills a long thin tail, so the between-
+    // class optimum sits between two nearly-equal maxima. A ~1% exposure
+    // shift tips it, and the cut jumps 13 <-> 25 on a static scene. That
+    // swings the kept area 4x (4k <-> 16k px), which thickens the surviving
+    // blobs and inflates radiusEst (6.5 -> 8.4) downstream.
+    //
+    // Anchor it to a PERCENTILE of the same distribution instead: the pill
+    // fraction of a tray is roughly fixed by geometry, so the percentile cut
+    // tracks exposure smoothly rather than snapping between modes. Otsu is
+    // still consulted, but only within a band around that anchor, so it can
+    // refine the cut without being free to jump to the far mode.
+    let cum = 0, pct = 12;
+    for (let v = 0; v < 256; v++) {
+      cum += hist[v];
+      // Pills cover a minority of a tray/plate; the top ~18% of the
+      // distance distribution is the stable side of that split.
+      if (cum >= n * 0.82) { pct = v; break; }
+    }
+    const rawOtsu = otsuFromHist(hist, n);
+    const thr = Math.max(12, Math.min(Math.max(rawOtsu, 0.7 * pct), 1.4 * pct));
     for (let i = 0; i < ll.length; i++) {
       if (ll[i] === blob) mask[i] = distAt(i) > thr ? 255 : 0;
     }
@@ -243,7 +263,38 @@ function refineOversizedBlobs(cv, src, bw, absFloor) {
     );
     const pillArea = pillLike.reduce((a, p) => a + p.area, 0);
     const blobArea = areas.get(blob);
-    if (pillLike.length >= 3 && pillArea >= 0.4 * kept && kept <= 0.5 * blobArea) {
+
+    // BISTABILITY GUARD. This decision used to be a hard AND of three
+    // knife-edge predicates:
+    //   pillLike.length >= 3 && pillArea >= 0.4*kept && kept <= 0.5*blobArea
+    // On a static scene, sub-Otsu (`thr`) drifts a couple of units with
+    // exposure, which swings `kept` by 4x (3.9k <-> 16.6k px on the same
+    // tray). That drags pillArea/kept across the 0.40 line — observed at
+    // 0.393 vs 0.456 on consecutive frames — and rejecting the refine
+    // restores the whole 87k-px tray blob, inflating radiusEst 6.5 -> 51
+    // and collapsing the count from ~60 to ~12.
+    //
+    // Fix: score the evidence instead of ANDing thresholds, and weight the
+    // signal that does NOT move with `thr`. The pill-like PIECE COUNT is
+    // that signal (it read 4/5/6 across every frame, flipped or not);
+    // pillArea/kept is the thr-sensitive one, so it gets a soft ramp with a
+    // wide margin rather than a cliff.
+    const keptRatio = kept / Math.max(1, blobArea);
+    const pillRatio = pillArea / Math.max(1, kept);
+    // Each term in [0,1]; ramps span a wide band so a 1-unit `thr` change
+    // moves the score by a few percent, never across the accept line.
+    const ramp = (v, lo, hi) => Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+    const score =
+      // Stable evidence, dominant weight: several chunky pill-sized pieces.
+      0.55 * ramp(pillLike.length, 2, 4)
+      // thr-sensitive evidence, soft and low-weight: pill mass vs kept mass.
+      + 0.25 * ramp(pillRatio, 0.15, 0.5)
+      // A real surface keeps only a minority of its own area as pills.
+      + 0.20 * (1 - ramp(keptRatio, 0.4, 0.7));
+    const accept = pillLike.length >= 3 && score >= 0.5;
+    debug?.({ stage: 'refine', blobArea, kept, keptRatio: +keptRatio.toFixed(3),
+      pillLike: pillLike.length, pillRatio: +pillRatio.toFixed(3), score: +score.toFixed(3), thr, accept });
+    if (accept) {
       refined++;
     } else {
       for (let i = 0; i < ll.length; i++) if (ll[i] === blob) mask[i] = 255;
@@ -614,7 +665,7 @@ export function countPills(cv, source, opts = {}) {
 
     // Plates/trays segment as one huge blob; re-segment those against their
     // own surface color (twice, for nested surfaces like table -> plate).
-    if (refineOversizedBlobs(cv, src, bw, absFloor)) refineOversizedBlobs(cv, src, bw, absFloor);
+    if (refineOversizedBlobs(cv, src, bw, absFloor, opts.debug)) refineOversizedBlobs(cv, src, bw, absFloor, opts.debug);
 
     // Faint pills hidden below a bimodal Otsu split (white pills next to
     // colored ones on a light tray) get a second chance.
@@ -776,6 +827,8 @@ export function countPills(cv, source, opts = {}) {
         sf[i] = dd[i] >= pileFloor && dd[i] >= dm[i] ? 255 : 0;
       }
     }
+    opts.debug?.({ stage: 'markers2', radiusEst, kk, maskArea: cv.countNonZero(bw),
+      candN: candPeaks.length, mkPix: cv.countNonZero(sureFg) });
     cv.dilate(sureFg, sureFg, kernel, anchor, 1); // fatten point seeds
     if (emit) emit('markers', grayToStage(sureFg));
 

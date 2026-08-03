@@ -122,6 +122,26 @@ function grabFrame() {
   return c;
 }
 
+// A canvas can come back entirely black when iOS hasn't delivered a frame
+// yet (app backgrounded, camera warming up). Uploading those wastes storage
+// and poisons the test corpus with unsatisfiable images, so every capture is
+// checked before it is analyzed or sent.
+function isBlank(canvas) {
+  const s = 32;
+  const t = document.createElement('canvas');
+  t.width = s; t.height = s;
+  const ctx = t.getContext('2d');
+  ctx.drawImage(canvas, 0, 0, s, s);
+  const d = ctx.getImageData(0, 0, s, s).data;
+  let max = 0, min = 255;
+  for (let i = 0; i < d.length; i += 4) {
+    const l = (d[i] + d[i + 1] + d[i + 2]) / 3;
+    if (l > max) max = l;
+    if (l < min) min = l;
+  }
+  return max < 12 || max - min < 4; // all black, or a flat featureless frame
+}
+
 // ---------- camera preview ----------
 // The preview is CANVAS frames (~8fps), not the <video> element: iOS can
 // refuse to render the element while still delivering frames to drawImage.
@@ -250,6 +270,7 @@ async function reportSession(tag = 'session') {
   btn.disabled = true;
   for (let k = 1; k <= 3; k++) {
     const frame = grabFrame();
+    if (isBlank(frame)) continue; // never upload an empty frame
     const small = document.createElement('canvas');
     const s = Math.min(1, 900 / frame.width);
     small.width = Math.round(frame.width * s);
@@ -629,8 +650,11 @@ function showScreen(name) {
 // One tap = photo. If the in-page stream is live, capture from it instantly
 // (no OS camera UI, no confirm step). Otherwise open the camera directly.
 els.shutter.addEventListener('click', () => {
-  if (els.video.readyState >= 2) analyze(grabFrame());
-  else els.fileInput.click();
+  if (els.video.readyState >= 2) {
+    const frame = grabFrame();
+    if (isBlank(frame)) { els.helperTip.textContent = 'Camera’s still waking up — try that again in a second. 🐾'; return; }
+    analyze(frame);
+  } else els.fileInput.click();
 });
 
 // Import = library picker; the fallback panel and shutter open the camera
