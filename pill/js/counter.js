@@ -675,7 +675,11 @@ export function countPills(cv, source, opts = {}) {
       }
       let fg = 0, big = null;
       for (const s of st.values()) { fg += s.a; if (!big || s.a > big.a) big = s; }
-      if (big && big.a >= 0.45 * fg && big.mx >= 40) {
+      // Decisive dominance only. At a bare 0.45 majority this branch is
+      // BISTABLE: a few percent of exposure change flips it on and off
+      // between frames, which is what made live counts swing 11<->56 on
+      // textured backgrounds. Require the cluster to clearly own the frame.
+      if (big && big.a >= 0.7 * fg && big.mx >= 40) {
         // Chromaticity (shading-invariant): a real pill in shade keeps the
         // cluster's color RATIOS; wood streaks and towel folds don't. Pills
         // washed by a scene-wide color cast CAN drift, so pill-THICK blobs
@@ -1007,9 +1011,11 @@ export function countPills(cv, source, opts = {}) {
             regions3.push({ cx: s.sx / s.area, cy: s.sy / s.area, area: s.area, units });
           }
           opts.debug?.({ stage: 'collapse2', rN, markers: stats3.size, count3, massCap });
-          // Only adopt a real improvement — a rescue that lands back at 1-3
-          // regions means the structure mask had no per-pill signal either.
-          if (count3 > count + 2) {
+          // Only adopt a DECISIVE improvement. A marginal rescue is bistable:
+          // tiny exposure changes flip it on and off between frames, which is
+          // what made live counts swing wildly on textured backgrounds. The
+          // rescue must find several times more pills than the plain tally.
+          if (count3 >= Math.max(count * 3, count + 5)) {
             count = Math.min(count3, massCap);
             regions = regions3;
             activeMd = md3;
@@ -1428,12 +1434,21 @@ export function countPills(cv, source, opts = {}) {
       }
       contoursC.delete();
       if (cid) {
+        // Size sanity: consolidation says "this smooth ellipse is ONE pill".
+        // A contour many times larger than the typical counted region is a
+        // tangent CLUMP whose outline happens to look smooth — merging it
+        // would erase dozens of pills, and (worse) it flips on and off with
+        // tiny exposure changes, which is what made live counts unstable.
+        const regionAreas = regions.map((r) => r.area / Math.max(1, r.units)).sort((a, b) => a - b);
+        const medRegion = regionAreas.length ? regionAreas[regionAreas.length >> 1] : 0;
+        const maxPill = medRegion ? medRegion * 3 : Infinity;
+
         const im = idMask.data;
         const merged = new Map();
         const keep = [];
         for (const r of regions) {
           const k = im[Math.round(r.cy) * w + Math.round(r.cx)];
-          if (!k) { keep.push(r); continue; }
+          if (!k || ells[k].area > maxPill) { keep.push(r); continue; }
           merged.set(k, (merged.get(k) || 0) + r.units);
         }
         for (const [k, unitsSum] of merged) {

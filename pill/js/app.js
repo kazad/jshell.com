@@ -33,6 +33,7 @@ const els = {
   liveOverlay: $('#live-overlay'),
   useCount: $('#use-count'),
   preview: $('#preview-canvas'),
+  libraryInput: $('#library-input'),
   zoomWrap: $('#zoom-wrap'),
   resultPhoto: $('#result-photo'),
 };
@@ -151,7 +152,12 @@ function startPreview() {
 // The count is smoothed over recent analyses; when it holds steady the chip
 // locks green and "Use this count" commits it as a full-res record.
 
-const LIVE_WINDOW = 5;
+// Live counting is intentionally CONSERVATIVE. On textured backgrounds the
+// pipeline can be bistable frame to frame (a rescue branch toggling), so a
+// single frame is never trusted: we keep a longer window, report the MODE
+// (the value the scene keeps reproducing) rather than the latest reading,
+// and only call it stable when a strong majority of recent frames agree.
+const LIVE_WINDOW = 9;
 const liveCounts = [];
 let liveLocked = false;
 
@@ -176,10 +182,22 @@ function liveTick() {
 
   liveCounts.push(r.count);
   if (liveCounts.length > LIVE_WINDOW) liveCounts.shift();
+
+  // Mode with a tolerance band: cluster frames whose counts are within 2% of
+  // each other and take the largest cluster's median. A bistable pipeline
+  // branch produces a minority of wild outliers — they lose the vote.
   const sorted = [...liveCounts].sort((a, b) => a - b);
-  const med = sorted[sorted.length >> 1];
+  let best = { size: 0, val: sorted[0] };
+  for (let i = 0; i < sorted.length; i++) {
+    const tol = Math.max(1, sorted[i] * 0.02);
+    const grp = sorted.filter((v) => Math.abs(v - sorted[i]) <= tol);
+    if (grp.length > best.size) best = { size: grp.length, val: grp[grp.length >> 1] };
+  }
+  const med = best.val;
+  const agreement = best.size / liveCounts.length;
   const spread = sorted[sorted.length - 1] - sorted[0];
-  const stable = liveCounts.length === LIVE_WINDOW && spread <= Math.max(1, med * 0.02);
+  // Stable = most frames agree, not merely "the last few were close".
+  const stable = liveCounts.length === LIVE_WINDOW && agreement >= 0.7;
 
   // Wild variation while the window is full: auto-document it (3-frame
   // session tagged for review), at most once a minute.
@@ -203,6 +221,9 @@ function liveTick() {
     }
   }
   els.liveCount.textContent = stable ? `${med}` : `~ ${med}`;
+  // Honest signal: churn means "hold still / improve the background", not a
+  // number to trust. The chip says so instead of flickering silently.
+  els.liveCount.classList.toggle('unsure', !stable && spread > Math.max(3, med * 0.15));
 
   // Badges on the glass (light: no boundaries, just numbered circles).
   const { box, s, ox, oy } = liveMapping();
@@ -310,7 +331,7 @@ function showPhoto(sourceCanvas) {
   els.overlayCanvas.height = dh;
   els.overlayCanvas.getContext('2d').clearRect(0, 0, dw, dh);
   resetZoom();
-  syncOverlayBox();
+  requestAnimationFrame(syncOverlayBox); // after the screen is visible
 }
 
 function showResult(sourceCanvas, result) {
@@ -387,18 +408,21 @@ if (els.resultPhoto) {
   els.resultPhoto.addEventListener('pointercancel', endPt);
 }
 
-// CSS may scale the photo canvas (max-width/max-height) — pin the overlay's
-// on-screen box to the photo's measured rectangle so the two layers can
-// never drift apart, on any screen size or orientation.
+// Size the zoom wrapper to the photo's aspect within the visible frame.
+// Both canvases fill the wrapper (CSS 100%/100%), so overlay alignment is
+// structural — there is no independent scaling left to disagree about.
 function syncOverlayBox() {
-  requestAnimationFrame(() => {
-    const r = els.photoCanvas.getBoundingClientRect();
-    if (!r.width) return;
-    els.overlayCanvas.style.width = r.width + 'px';
-    els.overlayCanvas.style.height = r.height + 'px';
-  });
+  const cw = els.photoCanvas.width, ch = els.photoCanvas.height;
+  if (!cw || !ch) return;
+  const box = els.resultPhoto.getBoundingClientRect();
+  const availW = box.width || window.innerWidth - 28;
+  const availH = Math.min(window.innerHeight * 0.55, box.height || Infinity);
+  const s = Math.min(availW / cw, availH / ch);
+  els.zoomWrap.style.width = Math.round(cw * s) + 'px';
+  els.zoomWrap.style.height = Math.round(ch * s) + 'px';
 }
 window.addEventListener('resize', syncOverlayBox);
+window.addEventListener('orientationchange', () => setTimeout(syncOverlayBox, 200));
 
 function updateCountUI() {
   els.countValue.textContent = state.count;
@@ -565,13 +589,23 @@ function showScreen(name) {
 
 // ---------- wiring ----------
 
-els.shutter.addEventListener('click', () => analyze(grabFrame()));
+// One tap = photo. If the in-page stream is live, capture from it instantly
+// (no OS camera UI, no confirm step). Otherwise open the camera directly.
+els.shutter.addEventListener('click', () => {
+  if (els.video.readyState >= 2) analyze(grabFrame());
+  else els.fileInput.click();
+});
 
-els.uploadBtn.addEventListener('click', () => els.fileInput.click());
+// Import = library picker; the fallback panel and shutter open the camera
+// directly (capture="environment"), so taking a photo stays ONE tap.
+els.uploadBtn.addEventListener('click', () => els.libraryInput.click());
 els.cameraFallback.addEventListener('click', () => els.fileInput.click());
-els.fileInput.addEventListener('change', () => {
-  const file = els.fileInput.files[0];
-  if (!file) return;
+els.libraryInput.addEventListener('change', () => {
+  const file = els.libraryInput.files[0];
+  if (file) loadPhotoFile(file);
+  els.libraryInput.value = '';
+});
+function loadPhotoFile(file) {
   const img = new Image();
   img.onload = () => {
     const c = document.createElement('canvas');
@@ -582,6 +616,11 @@ els.fileInput.addEventListener('change', () => {
     analyze(c);
   };
   img.src = URL.createObjectURL(file);
+}
+
+els.fileInput.addEventListener('change', () => {
+  const file = els.fileInput.files[0];
+  if (file) loadPhotoFile(file);
   els.fileInput.value = '';
 });
 

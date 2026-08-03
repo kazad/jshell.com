@@ -58,7 +58,11 @@
         <button id="session-btn" class="pill-btn subtle" hidden>Report count</button>
         <button id="upload-btn" class="pill-btn subtle">Import</button>
       </div>
-      <input id="file-input" type="file" accept="image/*" hidden />
+      <!-- capture="environment": one tap opens the camera directly (no
+           library picker, no source sheet) when the in-page stream is
+           unavailable. The library remains reachable via Import. -->
+      <input id="file-input" type="file" accept="image/*" capture="environment" hidden />
+      <input id="library-input" type="file" accept="image/*" hidden />
     </div>
   </main>
 
