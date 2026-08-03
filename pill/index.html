@@ -42,6 +42,14 @@
         <p>Camera unavailable.</p>
         <p class="sub">Tap here to choose a photo of pills on a plain, contrasting tray.</p>
       </div>
+      <!-- Deliberate pause is a normal state, not an error — its own panel. -->
+      <div id="camera-paused" class="camera-paused" hidden>
+        <svg viewBox="0 0 24 24" width="34" height="34" fill="none" aria-hidden="true">
+          <path d="M8 5.2v13.6c0 .8.9 1.3 1.6.9l10.2-6.8c.6-.4.6-1.4 0-1.8L9.6 4.3c-.7-.4-1.6.1-1.6.9z" fill="currentColor"/>
+        </svg>
+        <p>Camera paused</p>
+        <p class="sub">Tap to start counting again</p>
+      </div>
       <!-- Square capture area: sides dimmed so the tray is centered with a
            margin, and no pill is sliced by the frame edge. -->
       <div class="capture-guide" id="capture-guide">
@@ -84,11 +92,6 @@
         <span class="control-label">Snap</span>
       </div>
 
-      <div class="control-slot">
-        <input id="target-input" class="target-input" type="number" inputmode="numeric" min="1" placeholder="—"
-          aria-label="Expected count" title="How many pills should be there? ValEye tells you if the count is over or short." />
-        <span class="control-label">Expected</span>
-      </div>
     </div>
 
     <div class="control-extras">
@@ -107,6 +110,8 @@
           </select>
         </label>
         <button id="session-btn" class="more-row as-btn">Send 3 frames for review</button>
+        <button id="feedback-btn" class="more-row as-btn">Send feedback</button>
+        <a class="more-row as-btn" href="about.html">How it works</a>
       </div>
       <!-- Camera path: accept a CONCRETE type (not image/*) so iOS honours
            `capture` and opens the camera directly instead of showing the
@@ -155,6 +160,16 @@
         <button id="save-btn" class="pill-btn primary">Save count</button>
       </div>
       <button id="report-btn" class="pill-btn subtle report-btn">⚠︎ Count is wrong — report it</button>
+
+      <!-- Shown after a save: one tap to say whether the count was right.
+           Cheap signal, and it labels the photo for the test corpus. -->
+      <div class="rating" id="rating" hidden>
+        <span class="rating-q">Was that count right?</span>
+        <div class="rating-btns">
+          <button class="rate-btn" data-rate="good" aria-label="Count was correct">👍</button>
+          <button class="rate-btn" data-rate="bad" aria-label="Count was wrong">👎</button>
+        </div>
+      </div>
     </div>
 
     <!-- Report sheet: slides up from the bottom, stepper for the true count,

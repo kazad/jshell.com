@@ -294,6 +294,24 @@ body {
 }
 .camera-fallback .sub { color: var(--text-dim); font-size: 13px; font-weight: 400; max-width: 260px; }
 
+/* Paused is a normal, chosen state — calm and inviting, not an error. */
+.camera-paused {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+  background: var(--surface-2);
+  color: var(--accent-dark);
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+  z-index: 2;
+}
+.camera-paused .sub { color: var(--text-dim); font-size: 13px; font-weight: 500; }
+
 /* Anchored bottom bar: the controls own the bottom of the screen instead of
    floating mid-page with dead space beneath them. */
 .camera-dock {
@@ -646,6 +664,32 @@ body {
 .sheet-actions .pill-btn { flex: 1; }
 
 .report-btn { font-size: 13px; margin-top: -4px; }
+
+.rating {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  animation: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.rating[hidden] { display: none; }
+.rating-q { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.rating-btns { display: flex; gap: 8px; }
+.rate-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: none;
+  background: var(--surface-2);
+  font-size: 19px;
+  cursor: pointer;
+  line-height: 1;
+}
+.rate-btn:active { transform: scale(0.92); }
 .report-btn.sent { color: var(--accent-dark); }
 
 .contribute {

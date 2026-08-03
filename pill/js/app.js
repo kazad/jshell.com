@@ -309,7 +309,7 @@ function liveTick() {
     els.liveCount.classList.toggle('stable', stable);
     els.useCount.hidden = !stable;
     if (stable) {
-      const target = parseInt(els.targetInput.value, 10);
+      const target = parseInt(els.targetInput?.value ?? '', 10);
       els.helperTip.textContent = Number.isFinite(target) && target > 0
         ? (med === target ? `${med} — that’s your target! 🎾` :
            med < target ? `${med} so far — ${target - med} more to reach ${target}.` :
@@ -395,12 +395,15 @@ function setLive(on) {
     els.preview.hidden = true;
     els.liveOverlay.hidden = true;
     els.liveCount.hidden = true;
-    els.helperTip.textContent = 'Camera paused — tap ▶ Live to start counting again. 🐾';
-  } else if (!state.stream) {
-    initCamera(); // re-acquire; it calls setLive(true) once frames flow
-    return;
-  } else if (!previewTimer) {
-    startPreview();
+    document.getElementById('camera-paused').hidden = false; // not an error
+    els.helperTip.textContent = 'Camera paused — tap the play button to start counting again. 🐾';
+  } else {
+    document.getElementById('camera-paused').hidden = true;
+    if (!state.stream) {
+      initCamera(); // re-acquire; it calls setLive(true) once frames flow
+      return;
+    }
+    if (!previewTimer) startPreview();
   }
   els.liveToggle.classList.toggle('active', on);
   els.liveCount.hidden = !on;
@@ -465,6 +468,8 @@ function showPhoto(sourceCanvas) {
   els.overlayCanvas.getContext('2d').clearRect(0, 0, dw, dh);
   els.reportBtn.textContent = '⚠︎ Count is wrong — report it';
   els.reportBtn.classList.remove('sent');
+  const rating = document.getElementById('rating');
+  if (rating) rating.hidden = true;
   // A new photo always starts un-cropped.
   crop.on = false;
   document.getElementById('crop-box').hidden = true;
@@ -482,6 +487,8 @@ function showResult(sourceCanvas, result) {
   drawOverlay(els.overlayCanvas.getContext('2d'), result, overlayScale);
   updateCountUI();
   syncOverlayBox();
+  const rating = document.getElementById('rating');
+  if (rating) rating.hidden = false;   // ask for the cheap confirmation
 }
 
 // ---------- result photo zoom (pinch / pan / double-tap) ----------
@@ -567,7 +574,7 @@ window.addEventListener('orientationchange', () => setTimeout(syncOverlayBox, 20
 function updateCountUI() {
   els.countValue.textContent = state.count;
   const flagged = state.result?.lowConfidence || 0;
-  const target = parseInt(els.targetInput.value, 10);
+  const target = parseInt(els.targetInput?.value ?? '', 10);
   if (flagged > 0) {
     els.helperReact.textContent = flagged === 1
       ? 'One group has a “?” badge — I’m not sure about it. Mind double-checking that spot for me? 🐾'
@@ -615,7 +622,7 @@ function saveCurrentCount() {
   tctx.drawImage(els.photoCanvas, 0, 0, thumb.width, thumb.height);
   tctx.drawImage(els.overlayCanvas, 0, 0, thumb.width, thumb.height);
 
-  const target = parseInt(els.targetInput.value, 10);
+  const target = parseInt(els.targetInput?.value ?? '', 10);
   const entry = {
     ts: Date.now(),
     count: state.count,
@@ -852,6 +859,7 @@ document.getElementById('brand-btn').addEventListener('click', async () => {
   location.reload();
 });
 els.cameraFallback.addEventListener('click', () => els.fileInput.click());
+document.getElementById('camera-paused').addEventListener('click', () => setLive(true));
 els.libraryInput.addEventListener('change', () => {
   const file = els.libraryInput.files[0];
   if (file) loadPhotoFile(file);
@@ -887,6 +895,42 @@ els.liveToggle.addEventListener('click', () => setLive(!state.live));
 // Changing the rate restarts the loop at the new interval.
 els.liveFps.addEventListener('change', () => { if (state.live) setLive(true); });
 
+// ---------- rating + feedback ----------
+// A thumbs-up is the cheapest possible confirmation that a count was right —
+// and it labels that photo as CORRECT in the corpus, which is just as useful
+// for testing as a reported failure.
+{
+  const rating = document.getElementById('rating');
+  rating.querySelectorAll('.rate-btn').forEach((b) => {
+    b.addEventListener('click', () => {
+      const good = b.dataset.rate === 'good';
+      if (good) {
+        annotate({ adjusted: state.count, note: 'confirmed correct' });
+        els.helperReact.textContent = 'Thank you! I logged this one as correct. 🎾';
+        rating.hidden = true;
+      } else {
+        rating.hidden = true;
+        openReportSheet(); // straight into "what's the real count?"
+      }
+    });
+  });
+
+  document.getElementById('feedback-btn')?.addEventListener('click', () => {
+    document.getElementById('more-menu').hidden = true;
+    const msg = prompt('What would you like to tell us? (bug, idea, anything)');
+    if (!msg || !msg.trim()) return;
+    fetch('api/submit', {
+      method: 'POST',
+      body: (() => {
+        const fd = new FormData();
+        fd.append('meta', JSON.stringify({ note: 'FEEDBACK: ' + msg.trim(), variant: 'feedback', build: state.build || null }));
+        return fd;
+      })(),
+    }).catch(() => {});
+    els.helperTip.textContent = 'Thanks — feedback sent! 🐾';
+  });
+}
+
 // ⋯ menu holds diagnostics so the camera bar stays to one everyday action.
 {
   const btn = document.getElementById('more-btn');
@@ -906,7 +950,7 @@ els.liveFps.addEventListener('change', () => { if (state.live) setLive(true); })
 els.useCount.addEventListener('click', () => analyze(grabFrame())); // full-res commit
 els.adjustMinus.addEventListener('click', () => { state.count = Math.max(0, state.count - 1); updateCountUI(); });
 els.adjustPlus.addEventListener('click', () => { state.count += 1; updateCountUI(); });
-els.targetInput.addEventListener('input', updateCountUI);
+els.targetInput?.addEventListener('input', updateCountUI);
 // Report a wrong count WITHOUT saving it as a good one: asks for the true
 // count (pre-filled with the current, possibly +/- adjusted number) and an
 // optional note, then labels the already-uploaded photo as a failure case.
