@@ -82,11 +82,18 @@ async function initCamera() {
       video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
       audio: false,
     });
+    // Stream acquired = camera works. Do NOT gate on play(): iOS Safari can
+    // reject play() (Low Power Mode, autoplay policy) while frames still
+    // flow — the preview just needs a retry, often on the first touch.
     els.video.srcObject = state.stream;
-    await els.video.play();
     els.cameraFallback.hidden = true;
     els.shutter.disabled = false;
     els.liveToggle.disabled = false;
+    els.video.play().catch(() => { /* retried below on user gesture */ });
+    const unlockPreview = () => els.video.play().catch(() => {});
+    document.addEventListener('touchend', unlockPreview, { once: true, passive: true });
+    document.addEventListener('click', unlockPreview, { once: true });
+    els.video.addEventListener('loadeddata', () => { els.cameraFallback.hidden = true; }, { once: true });
     setLive(true); // live counting is the default state
   } catch (e) {
     console.warn('Camera unavailable:', e.name);
