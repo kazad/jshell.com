@@ -38,6 +38,7 @@ const els = {
   zoomWrap: $('#zoom-wrap'),
   resultPhoto: $('#result-photo'),
   adjustBtn: $('#adjust-btn'),
+  liveFps: $('#live-fps'),
 };
 
 const TIPS = [
@@ -104,16 +105,32 @@ async function initCamera() {
     setLive(true); // live counting is the default state
   } catch (e) {
     console.warn('Camera unavailable:', e.name);
-    els.cameraFallback.hidden = false;
-    els.cameraFallback.querySelector('.sub').textContent =
-      `Tap here to choose a photo instead. (${e.name})`;
-    els.shutter.disabled = true;
-    els.liveToggle.disabled = true;
-    // iOS occasionally fails transiently right after permission grant.
+    // Only claim "unavailable" if we truly have no working stream. A retry
+    // (or a second init) must never hide a camera that is already running —
+    // this produced the reported "Camera unavailable while counting" state.
+    if (!state.stream) {
+      els.cameraFallback.hidden = false;
+      els.cameraFallback.querySelector('.sub').textContent =
+        `Tap here to choose a photo instead. (${e.name})`;
+      els.shutter.disabled = true;
+      els.liveToggle.disabled = true;
+    }
     if (!retried) { retried = true; setTimeout(initCamera, 1500); }
   }
 }
 let retried = false;
+
+// Single source of truth: the panel may only be visible when there is no
+// live stream AND no frames are arriving. Any other state is a bug, so this
+// watchdog corrects it continuously rather than relying on event ordering.
+setInterval(() => {
+  const framesFlowing = els.video.readyState >= 2 && els.video.videoWidth > 0;
+  if ((state.stream || framesFlowing) && !els.cameraFallback.hidden) {
+    els.cameraFallback.hidden = true;
+    els.shutter.disabled = false;
+    els.liveToggle.disabled = false;
+  }
+}, 400);
 
 // The square capture region, in VIDEO pixel coordinates. It is the largest
 // centered square inset by a margin — matching the on-screen guide, so what
@@ -231,13 +248,21 @@ let liveThr = 0;
 let lastWildReport = 0;
 
 function liveTick() {
-  if (!state.cv || state.busy || els.video.readyState < 2 || document.hidden) return;
-  // Counting means frames are arriving: the "Camera unavailable" panel must
-  // never coexist with live results (reported by the user).
-  if (!els.cameraFallback.hidden) els.cameraFallback.hidden = true;
+  // Analyze ONLY real camera frames. Without this the loop counted an empty
+  // canvas and produced phantom counts (observed: "~57" over a blank screen
+  // while the camera was not running).
+  if (!state.cv || state.busy || document.hidden) return;
+  if (!state.stream || els.video.readyState < 2 || !els.video.videoWidth) {
+    els.liveCount.hidden = true;
+    els.liveOverlay.hidden = true;
+    return;
+  }
+  const probe = grabFrame();
+  els.liveCount.hidden = false;
+  els.liveOverlay.hidden = false;
   let r;
   try {
-    r = countPills(state.cv, grabFrame(), { maxDim: 640, overlay: false, variant: 'baseline', thrHint: liveThr });
+    r = countPills(state.cv, probe, { maxDim: 640, overlay: false, variant: 'baseline', thrHint: liveThr });
   } catch { return; }
   liveThr = r.thr || 0; // temporal threshold smoothing across frames
 
@@ -373,7 +398,10 @@ function setLive(on) {
   liveThr = 0;
   els.liveCount.classList.remove('stable');
   clearInterval(state.liveTimer);
-  if (on) state.liveTimer = setInterval(liveTick, 500);
+  if (on) {
+    const fps = parseFloat(els.liveFps?.value || '2');
+    state.liveTimer = setInterval(liveTick, Math.round(1000 / fps));
+  }
 }
 
 // ---------- counting ----------
@@ -822,6 +850,8 @@ els.fileInput.addEventListener('change', () => {
 });
 
 els.liveToggle.addEventListener('click', () => setLive(!state.live));
+// Changing the rate restarts the loop at the new interval.
+els.liveFps.addEventListener('change', () => { if (state.live) setLive(true); });
 els.useCount.addEventListener('click', () => analyze(grabFrame())); // full-res commit
 els.adjustMinus.addEventListener('click', () => { state.count = Math.max(0, state.count - 1); updateCountUI(); });
 els.adjustPlus.addEventListener('click', () => { state.count += 1; updateCountUI(); });
