@@ -102,10 +102,15 @@ async function initCamera() {
   } catch (e) {
     console.warn('Camera unavailable:', e.name);
     els.cameraFallback.hidden = false;
+    els.cameraFallback.querySelector('.sub').textContent =
+      `Tap here to choose a photo instead. (${e.name})`;
     els.shutter.disabled = true;
     els.liveToggle.disabled = true;
+    // iOS occasionally fails transiently right after permission grant.
+    if (!retried) { retried = true; setTimeout(initCamera, 1500); }
   }
 }
+let retried = false;
 
 function grabFrame() {
   const c = document.createElement('canvas');
@@ -124,6 +129,10 @@ function startPreview() {
   clearInterval(previewTimer);
   previewTimer = setInterval(() => {
     if (els.video.readyState < 2 || document.hidden) return;
+    // Frames are flowing => the camera works. Make the contradictory
+    // "Camera unavailable" state impossible regardless of init race.
+    if (!els.cameraFallback.hidden) els.cameraFallback.hidden = true;
+    if (els.shutter.disabled) { els.shutter.disabled = false; els.liveToggle.disabled = false; }
     const box = els.preview.parentElement.getBoundingClientRect();
     const vw = els.video.videoWidth, vh = els.video.videoHeight;
     if (!vw || !box.width) return;
