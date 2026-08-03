@@ -21,12 +21,13 @@ export async function onRequestPost({ request, env }) {
 
     await env.PHOTOS.put(key, buf, { httpMetadata: { contentType: 'image/jpeg' } });
     await env.DB.prepare(
-      `INSERT INTO submissions (id, r2_key, ts, count, adjusted, target, low_confidence, variant, build, ua)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO submissions (id, r2_key, ts, count, adjusted, target, low_confidence, variant, build, ua, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       id, key, Date.now(),
       int(meta.count), int(meta.adjusted), int(meta.target), int(meta.lowConfidence),
-      str(meta.variant), str(meta.build), str(request.headers.get('user-agent'))
+      str(meta.variant), str(meta.build), str(request.headers.get('user-agent')),
+      meta.note == null ? null : String(meta.note).slice(0, 500)
     ).run();
 
     return json({ ok: true, id });

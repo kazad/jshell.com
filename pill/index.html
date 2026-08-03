@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#faf7f2" />
   <title>ValEye — Pill Counter</title>
   <link rel="manifest" href="manifest.webmanifest" />
@@ -30,12 +30,13 @@
   <main id="camera-screen" class="screen">
     <div class="viewport">
       <video id="viewfinder" playsinline muted autoplay></video>
+      <canvas id="preview-canvas" class="preview-canvas" hidden></canvas>
       <canvas id="live-overlay" class="live-overlay" hidden></canvas>
       <div id="live-count" class="live-count" hidden>~ 0</div>
       <button id="use-count" class="pill-btn primary use-count" hidden>Use this count ✓</button>
       <div id="camera-fallback" class="camera-fallback" hidden>
         <p>Camera unavailable.</p>
-        <p class="sub">Upload a photo of pills on a plain, contrasting tray.</p>
+        <p class="sub">Tap here to choose a photo of pills on a plain, contrasting tray.</p>
       </div>
       <div class="frame-guide"></div>
       <div class="helper">
@@ -54,7 +55,8 @@
       </button>
       <div class="side-controls">
         <button id="live-toggle" class="pill-btn" disabled>Live</button>
-        <button id="upload-btn" class="pill-btn">Photo</button>
+        <button id="session-btn" class="pill-btn subtle" hidden>Report count</button>
+        <button id="upload-btn" class="pill-btn subtle">Import</button>
       </div>
       <input id="file-input" type="file" accept="image/*" hidden />
     </div>
@@ -62,9 +64,11 @@
 
   <!-- Result screen -->
   <main id="result-screen" class="screen" hidden>
-    <div class="result-photo">
-      <canvas id="photo-canvas"></canvas>
-      <canvas id="overlay-canvas"></canvas>
+    <div class="result-photo" id="result-photo">
+      <div class="zoom-wrap" id="zoom-wrap">
+        <canvas id="photo-canvas"></canvas>
+        <canvas id="overlay-canvas"></canvas>
+      </div>
     </div>
 
     <div class="result-panel">
@@ -82,7 +86,6 @@
         <div id="helper-react" class="helper-bubble">Counting done!</div>
       </div>
       <input id="med-name" type="text" placeholder="Medication name (optional)" autocomplete="off" />
-      <label class="contribute"><input type="checkbox" id="contribute-toggle" /> Share this photo to help improve ValEye’s counting</label>
       <div class="result-actions">
         <button id="retake-btn" class="pill-btn">Retake</button>
         <button id="save-btn" class="pill-btn primary">Save count</button>

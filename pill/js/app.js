@@ -32,6 +32,9 @@ const els = {
   helperReact: $('#helper-react'),
   liveOverlay: $('#live-overlay'),
   useCount: $('#use-count'),
+  preview: $('#preview-canvas'),
+  zoomWrap: $('#zoom-wrap'),
+  resultPhoto: $('#result-photo'),
 };
 
 const TIPS = [
@@ -94,6 +97,7 @@ async function initCamera() {
     document.addEventListener('touchend', unlockPreview, { once: true, passive: true });
     document.addEventListener('click', unlockPreview, { once: true });
     els.video.addEventListener('loadeddata', () => { els.cameraFallback.hidden = true; }, { once: true });
+    startPreview();
     setLive(true); // live counting is the default state
   } catch (e) {
     console.warn('Camera unavailable:', e.name);
@@ -109,6 +113,28 @@ function grabFrame() {
   c.height = els.video.videoHeight;
   c.getContext('2d').drawImage(els.video, 0, 0);
   return c;
+}
+
+// ---------- camera preview ----------
+// The preview is CANVAS frames (~8fps), not the <video> element: iOS can
+// refuse to render the element while still delivering frames to drawImage.
+let previewTimer = null;
+function startPreview() {
+  els.preview.hidden = false;
+  clearInterval(previewTimer);
+  previewTimer = setInterval(() => {
+    if (els.video.readyState < 2 || document.hidden) return;
+    const box = els.preview.parentElement.getBoundingClientRect();
+    const vw = els.video.videoWidth, vh = els.video.videoHeight;
+    if (!vw || !box.width) return;
+    if (els.preview.width !== Math.round(box.width) || els.preview.height !== Math.round(box.height)) {
+      els.preview.width = Math.round(box.width);
+      els.preview.height = Math.round(box.height);
+    }
+    const s = Math.max(box.width / vw, box.height / vh);
+    const ctx = els.preview.getContext('2d');
+    ctx.drawImage(els.video, (box.width - vw * s) / 2, (box.height - vh * s) / 2, vw * s, vh * s);
+  }, 125);
 }
 
 // ---------- live mode ----------
@@ -172,11 +198,44 @@ function liveTick() {
   ctx.restore();
 }
 
+// "Report count": when the live number is misbehaving, capture 3 consecutive
+// frames as one marked session for offline review — deliberate uploads only,
+// so continuous live view never floods storage.
+async function reportSession() {
+  const sid = Math.random().toString(36).slice(2, 8);
+  const btn = document.getElementById('session-btn');
+  btn.disabled = true;
+  for (let k = 1; k <= 3; k++) {
+    const frame = grabFrame();
+    const small = document.createElement('canvas');
+    const s = Math.min(1, 900 / frame.width);
+    small.width = Math.round(frame.width * s);
+    small.height = Math.round(frame.height * s);
+    small.getContext('2d').drawImage(frame, 0, 0, small.width, small.height);
+    await new Promise((res) => small.toBlob((blob) => {
+      if (!blob) return res();
+      const fd = new FormData();
+      fd.append('photo', blob, 'frame.jpg');
+      fd.append('meta', JSON.stringify({
+        count: liveCounts[liveCounts.length - 1] ?? null,
+        variant: 'session',
+        note: `session ${sid} frame ${k}/3`,
+      }));
+      fetch('api/submit', { method: 'POST', body: fd }).catch(() => {}).finally(res);
+    }, 'image/jpeg', 0.85));
+    if (k < 3) await new Promise((r) => setTimeout(r, 400));
+  }
+  btn.disabled = false;
+  els.helperTip.textContent = 'Got it — 3 frames sent for review. Thank you! 🐾';
+}
+document.getElementById('session-btn')?.addEventListener('click', reportSession);
+
 function setLive(on) {
   state.live = on;
   els.liveToggle.classList.toggle('active', on);
   els.liveCount.hidden = !on;
   els.liveOverlay.hidden = !on;
+  document.getElementById('session-btn').hidden = !on;
   els.useCount.hidden = true;
   liveCounts.length = 0;
   liveLocked = false;
@@ -191,6 +250,14 @@ async function analyze(sourceCanvas) {
   if (!state.cv) { els.status.classList.remove('fade'); els.status.textContent = 'Engine still loading…'; return; }
   state.busy = true;
   els.shutter.classList.add('working');
+
+  // Perceived speed: show the captured photo IMMEDIATELY; the count and
+  // overlay fill in when analysis lands a moment later.
+  showPhoto(sourceCanvas);
+  els.countValue.textContent = '…';
+  els.targetInfo.textContent = '';
+  els.helperReact.textContent = 'Counting… 👀';
+  showScreen('result');
   await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30))); // let UI paint
 
   try {
@@ -198,6 +265,7 @@ async function analyze(sourceCanvas) {
     state.result = result;
     state.count = result.count;
     showResult(sourceCanvas, result);
+    autoUpload(result); // every analyzed photo feeds the regression suite
   } catch (e) {
     console.error('count failed', e);
     alert('Could not analyze that image.');
@@ -207,7 +275,7 @@ async function analyze(sourceCanvas) {
   }
 }
 
-function showResult(sourceCanvas, result) {
+function showPhoto(sourceCanvas) {
   const maxW = Math.min(900, els.resultScreen.clientWidth || window.innerWidth);
   const displayScaleFromSource = Math.min(1, maxW / sourceCanvas.width);
   const dw = Math.round(sourceCanvas.width * displayScaleFromSource);
@@ -216,16 +284,99 @@ function showResult(sourceCanvas, result) {
   els.photoCanvas.width = dw;
   els.photoCanvas.height = dh;
   els.photoCanvas.getContext('2d').drawImage(sourceCanvas, 0, 0, dw, dh);
-
   els.overlayCanvas.width = dw;
   els.overlayCanvas.height = dh;
+  els.overlayCanvas.getContext('2d').clearRect(0, 0, dw, dh);
+  resetZoom();
+  syncOverlayBox();
+}
+
+function showResult(sourceCanvas, result) {
+  // Photo is already on screen (showPhoto); add the overlay + numbers.
+  const dw = els.photoCanvas.width;
   // result coords are in processed-resolution space; map to display px
   const overlayScale = dw / result.width;
   drawOverlay(els.overlayCanvas.getContext('2d'), result, overlayScale);
-
   updateCountUI();
-  showScreen('result');
+  syncOverlayBox();
 }
+
+// ---------- result photo zoom (pinch / pan / double-tap) ----------
+// Page zoom is locked (PWA feel); the photo itself zooms. Both canvases live
+// in #zoom-wrap so they transform together and can never misalign.
+const zoom = { s: 1, tx: 0, ty: 0 };
+const zoomPts = new Map();
+let lastDist = 0, lastTap = 0;
+
+function applyZoom() {
+  els.zoomWrap.style.transform = `translate(${zoom.tx}px, ${zoom.ty}px) scale(${zoom.s})`;
+}
+function resetZoom() {
+  zoom.s = 1; zoom.tx = 0; zoom.ty = 0;
+  applyZoom();
+}
+function scaleAround(px, py, k) {
+  const newS = Math.min(5, Math.max(1, zoom.s * k));
+  const kEff = newS / zoom.s;
+  zoom.s = newS;
+  zoom.tx = px - (px - zoom.tx) * kEff;
+  zoom.ty = py - (py - zoom.ty) * kEff;
+  if (zoom.s === 1) { zoom.tx = 0; zoom.ty = 0; }
+  applyZoom();
+}
+if (els.resultPhoto) {
+  els.resultPhoto.addEventListener('pointerdown', (e) => {
+    els.resultPhoto.setPointerCapture(e.pointerId);
+    zoomPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (zoomPts.size === 1) {
+      const now = Date.now();
+      if (now - lastTap < 300) { // double-tap: toggle 2.5x at tap point
+        const r = els.resultPhoto.getBoundingClientRect();
+        if (zoom.s > 1) resetZoom();
+        else scaleAround(e.clientX - r.left, e.clientY - r.top, 2.5);
+      }
+      lastTap = now;
+    }
+    if (zoomPts.size === 2) {
+      const [a, b] = [...zoomPts.values()];
+      lastDist = Math.hypot(a.x - b.x, a.y - b.y);
+    }
+  });
+  els.resultPhoto.addEventListener('pointermove', (e) => {
+    if (!zoomPts.has(e.pointerId)) return;
+    const prev = zoomPts.get(e.pointerId);
+    zoomPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (zoomPts.size === 2) {
+      const [a, b] = [...zoomPts.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (lastDist > 0) {
+        const r = els.resultPhoto.getBoundingClientRect();
+        scaleAround((a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top, d / lastDist);
+      }
+      lastDist = d;
+    } else if (zoom.s > 1) {
+      zoom.tx += e.clientX - prev.x;
+      zoom.ty += e.clientY - prev.y;
+      applyZoom();
+    }
+  });
+  const endPt = (e) => { zoomPts.delete(e.pointerId); lastDist = 0; };
+  els.resultPhoto.addEventListener('pointerup', endPt);
+  els.resultPhoto.addEventListener('pointercancel', endPt);
+}
+
+// CSS may scale the photo canvas (max-width/max-height) — pin the overlay's
+// on-screen box to the photo's measured rectangle so the two layers can
+// never drift apart, on any screen size or orientation.
+function syncOverlayBox() {
+  requestAnimationFrame(() => {
+    const r = els.photoCanvas.getBoundingClientRect();
+    if (!r.width) return;
+    els.overlayCanvas.style.width = r.width + 'px';
+    els.overlayCanvas.style.height = r.height + 'px';
+  });
+}
+window.addEventListener('resize', syncOverlayBox);
 
 function updateCountUI() {
   els.countValue.textContent = state.count;
@@ -287,32 +438,46 @@ function saveCurrentCount() {
     name: els.medName.value.trim() || null,
     thumb: thumb.toDataURL('image/jpeg', 0.7),
   };
+  entry.sid = state.submissionId || null;
   const h = loadHistory();
   h.unshift(entry);
   saveHistory(h.slice(0, 200));
   els.medName.value = '';
 
-  // Opt-in contribution: photo + counts (the user's adjusted count is a
-  // human-verified label). Fire-and-forget; failures are silent by design.
-  const toggle = document.getElementById('contribute-toggle');
-  if (toggle?.checked) {
-    els.photoCanvas.toBlob((blob) => {
-      if (!blob) return;
-      const fd = new FormData();
-      fd.append('photo', blob, 'photo.jpg');
-      fd.append('meta', JSON.stringify({
-        count: state.result?.count ?? null,
-        adjusted: state.count,
-        target: entry.target,
-        lowConfidence: state.result?.lowConfidence ?? 0,
-        variant: 'consensus',
-      }));
-      fetch('api/submit', { method: 'POST', body: fd }).catch(() => {});
-    }, 'image/jpeg', 0.85);
-    toggle.checked = false;
-  }
+  // Saving IS labeling: the final (possibly +/- adjusted) count is human
+  // ground truth. Attach it to the auto-uploaded photo.
+  annotate({ adjusted: state.count, med: entry.name, target: entry.target });
 
   showScreen('camera');
+}
+
+// ---------- telemetry: every photo is a future test case ----------
+
+function autoUpload(result) {
+  state.submissionId = null;
+  els.photoCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const fd = new FormData();
+    fd.append('photo', blob, 'photo.jpg');
+    fd.append('meta', JSON.stringify({
+      count: result.count,
+      lowConfidence: result.lowConfidence ?? 0,
+      variant: 'consensus',
+    }));
+    fetch('api/submit', { method: 'POST', body: fd })
+      .then((r) => r.json())
+      .then((j) => { if (j.ok) state.submissionId = j.id; })
+      .catch(() => {}); // offline/local dev: silently skip
+  }, 'image/jpeg', 0.85);
+}
+
+function annotate(fields, sid = state.submissionId) {
+  if (!sid) return;
+  fetch('api/annotate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: sid, ...fields }),
+  }).catch(() => {});
 }
 
 function renderHistory() {
@@ -328,15 +493,30 @@ function renderHistory() {
       ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
     const adjusted = e.count !== e.detected ? ' (adjusted)' : '';
     const target = e.target ? ` · target ${e.target}` : '';
+    const note = e.note ? `<div class="history-sub">📝 ${e.note}</div>` : '';
     return `<div class="history-item">
       <img src="${e.thumb}" alt="" />
       <div class="history-meta">
         <div class="history-count">${e.count} pills${adjusted}</div>
         <div class="history-sub">${e.name ? e.name + ' · ' : ''}${when}${target}</div>
+        ${note}
       </div>
+      <button class="icon-btn history-note" data-i="${i}" aria-label="Add note">📝</button>
       <button class="icon-btn history-del" data-i="${i}" aria-label="Delete">✕</button>
     </div>`;
   }).join('');
+  els.historyList.querySelectorAll('.history-note').forEach((b) => {
+    b.addEventListener('click', () => {
+      const h2 = loadHistory();
+      const entry = h2[parseInt(b.dataset.i, 10)];
+      const note = prompt('What did the counter miss or get wrong?', entry.note || '');
+      if (note == null) return;
+      entry.note = note.trim() || null;
+      saveHistory(h2);
+      if (entry.sid) annotate({ note: entry.note }, entry.sid);
+      renderHistory();
+    });
+  });
   els.historyList.querySelectorAll('.history-del').forEach((b) => {
     b.addEventListener('click', () => {
       const h2 = loadHistory();
@@ -366,6 +546,7 @@ function showScreen(name) {
 els.shutter.addEventListener('click', () => analyze(grabFrame()));
 
 els.uploadBtn.addEventListener('click', () => els.fileInput.click());
+els.cameraFallback.addEventListener('click', () => els.fileInput.click());
 els.fileInput.addEventListener('change', () => {
   const file = els.fileInput.files[0];
   if (!file) return;
