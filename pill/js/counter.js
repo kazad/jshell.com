@@ -827,8 +827,6 @@ export function countPills(cv, source, opts = {}) {
         sf[i] = dd[i] >= pileFloor && dd[i] >= dm[i] ? 255 : 0;
       }
     }
-    opts.debug?.({ stage: 'markers2', radiusEst, kk, maskArea: cv.countNonZero(bw),
-      candN: candPeaks.length, mkPix: cv.countNonZero(sureFg) });
     cv.dilate(sureFg, sureFg, kernel, anchor, 1); // fatten point seeds
     if (emit) emit('markers', grayToStage(sureFg));
 
@@ -890,6 +888,60 @@ export function countPills(cv, source, opts = {}) {
         ? Math.max(1, Math.round(s.area / med)) : 1;
       count += units;
       regions.push({ cx: s.sx / s.area, cy: s.sy / s.area, area: s.area, units, label: lbl });
+    }
+
+    // Population-geometry veto ("splotch filter"). Pixel statistics alone
+    // (color distance + area + thickness) cannot separate pills from patches
+    // of a mottled surface: a cutting-board splotch reaches pill-like area.
+    // Object identity can: one medication => one convex shape at one size.
+    // Measured on real photos — pills: solidity .93-.98, circularity .60-.70;
+    // splotches: solidity ~.72, circularity ~.42 at ~0.5x the pill area.
+    // A real pill is never BOTH mis-shapen AND undersized (an on-edge pill is
+    // small but well-formed, so it survives this test).
+    if (regions.length >= 4) {
+      const contV = new cv.MatVector();
+      const hierV = track(new cv.Mat());
+      cv.findContours(bw, contV, hierV, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+      const shapeAt = new Map(); // pixel index -> {solidity, circularity, area}
+      const idOf = track(cv.Mat.zeros(src.rows, src.cols, cv.CV_32S));
+      const shapes = [null];
+      for (let i = 0; i < contV.size() && shapes.length < 4000; i++) {
+        const c = contV.get(i);
+        const a = cv.contourArea(c);
+        if (a >= absFloor) {
+          const peri = cv.arcLength(c, true);
+          const hull = new cv.Mat();
+          cv.convexHull(c, hull);
+          const ha = cv.contourArea(hull);
+          hull.delete();
+          shapes.push({
+            area: a,
+            solidity: ha ? a / ha : 0,
+            circularity: peri ? (4 * Math.PI * a) / (peri * peri) : 0,
+          });
+          cv.drawContours(idOf, contV, i, new cv.Scalar(shapes.length - 1), -1);
+        }
+        c.delete();
+      }
+      contV.delete();
+
+      const io = idOf.data32S;
+      const wellFormed = shapes.filter((s) => s && s.solidity >= 0.90 && s.circularity >= 0.55);
+      if (wellFormed.length >= 3) {
+        const medGood = median(wellFormed.map((s) => s.area));
+        const kept = [];
+        for (const r of regions) {
+          const sh = shapes[io[Math.round(r.cy) * w + Math.round(r.cx)] || 0];
+          const misshapen = sh && (sh.solidity < 0.88 || sh.circularity < 0.50);
+          const undersized = sh && sh.area < 0.75 * medGood;
+          if (misshapen && undersized) { count -= r.units; continue; } // splotch
+          kept.push(r);
+        }
+        if (kept.length !== regions.length) {
+          opts.debug?.({ stage: 'splotch', removed: regions.length - kept.length, medGood });
+        }
+        regions = kept;
+      }
     }
 
     let activeMd = md;

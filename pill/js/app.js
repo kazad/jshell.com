@@ -584,48 +584,67 @@ function annotate(fields, sid = state.submissionId) {
   }).catch(() => {});
 }
 
-function renderHistory() {
-  const h = loadHistory();
-  els.historyClear.hidden = h.length === 0;
-  if (!h.length) {
-    els.historyList.innerHTML = '<p class="empty">No saved counts yet.</p>';
+async function renderHistory() {
+  // History is CLOUD-BACKED: every analyzed photo is uploaded, so the list
+  // shows everything counted (not just the ones explicitly saved), survives
+  // reinstalls, and is identical on every device. Local entries are merged in
+  // as a fallback for anything not yet uploaded.
+  els.historyList.innerHTML = '<p class="empty">Loading…</p>';
+  let rows = [];
+  try {
+    const r = await fetch('api/history?limit=60', { cache: 'no-store' });
+    const j = await r.json();
+    if (j.ok) rows = j.rows;
+  } catch { /* offline: fall back to local */ }
+
+  const local = loadHistory();
+  if (!rows.length) {
+    rows = local.map((e) => ({ id: e.sid, ts: e.ts, count: e.detected ?? e.count,
+      adjusted: e.count, target: e.target, med: e.name, note: e.note, thumb: e.thumb }));
+  } else {
+    const byId = new Map(local.filter((e) => e.sid).map((e) => [e.sid, e]));
+    for (const row of rows) {
+      const l = byId.get(row.id);
+      if (l?.thumb) row.thumb = l.thumb; // instant local thumbnail if we have it
+    }
+  }
+
+  els.historyClear.hidden = rows.length === 0;
+  if (!rows.length) {
+    els.historyList.innerHTML = '<p class="empty">No counts yet.</p>';
     return;
   }
-  els.historyList.innerHTML = h.map((e, i) => {
+
+  els.historyList.innerHTML = rows.map((e) => {
     const d = new Date(e.ts);
     const when = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
       ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-    const adjusted = e.count !== e.detected ? ' (adjusted)' : '';
+    const shown = e.adjusted ?? e.count;
+    const corrected = e.adjusted != null && e.adjusted !== e.count
+      ? ` <span class="history-fix">(counted ${e.count})</span>` : '';
     const target = e.target ? ` · target ${e.target}` : '';
     const note = e.note ? `<div class="history-sub">📝 ${e.note}</div>` : '';
-    return `<div class="history-item">
-      <img src="${e.thumb}" alt="" />
+    const img = e.thumb ? e.thumb : (e.id ? `api/photo/${e.id}` : '');
+    return `<div class="history-item" data-id="${e.id || ''}">
+      ${img ? `<img src="${img}" alt="" loading="lazy" />` : '<div class="history-nothumb"></div>'}
       <div class="history-meta">
-        <div class="history-count">${e.count} pills${adjusted}</div>
-        <div class="history-sub">${e.name ? e.name + ' · ' : ''}${when}${target}</div>
+        <div class="history-count">${shown} pills${corrected}</div>
+        <div class="history-sub">${e.med ? e.med + ' · ' : ''}${when}${target}</div>
         ${note}
       </div>
-      <button class="icon-btn history-note" data-i="${i}" aria-label="Add note">📝</button>
-      <button class="icon-btn history-del" data-i="${i}" aria-label="Delete">✕</button>
+      <button class="icon-btn history-note" data-id="${e.id || ''}" aria-label="Fix count or add note">📝</button>
     </div>`;
   }).join('');
+
   els.historyList.querySelectorAll('.history-note').forEach((b) => {
     b.addEventListener('click', () => {
-      const h2 = loadHistory();
-      const entry = h2[parseInt(b.dataset.i, 10)];
-      const note = prompt('What did the counter miss or get wrong?', entry.note || '');
-      if (note == null) return;
-      entry.note = note.trim() || null;
-      saveHistory(h2);
-      if (entry.sid) annotate({ note: entry.note }, entry.sid);
-      renderHistory();
-    });
-  });
-  els.historyList.querySelectorAll('.history-del').forEach((b) => {
-    b.addEventListener('click', () => {
-      const h2 = loadHistory();
-      h2.splice(parseInt(b.dataset.i, 10), 1);
-      saveHistory(h2);
+      const id = b.dataset.id;
+      const truth = prompt('How many pills were actually there? (blank to skip)', '');
+      const n = parseInt(truth, 10);
+      const note = prompt('What went wrong? (optional)', '') || null;
+      if (id && (Number.isFinite(n) || note)) {
+        annotate({ adjusted: Number.isFinite(n) ? n : undefined, note }, id);
+      }
       renderHistory();
     });
   });
@@ -758,7 +777,12 @@ els.save.addEventListener('click', saveCurrentCount);
 els.historyBtn.addEventListener('click', () => showScreen('history'));
 els.historyBack.addEventListener('click', () => showScreen('camera'));
 els.historyClear.addEventListener('click', () => {
-  if (confirm('Delete all saved counts?')) { saveHistory([]); renderHistory(); }
+  // Cloud history is the record of truth for testing/backtests, so this only
+  // clears the local thumbnail cache — it never deletes uploaded evidence.
+  if (confirm('Clear locally cached thumbnails? (Cloud history is kept for testing.)')) {
+    saveHistory([]);
+    renderHistory();
+  }
 });
 
 // ---------- boot ----------

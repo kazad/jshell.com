@@ -481,3 +481,9 @@ body {
 .history-del { width: 34px; height: 34px; font-size: 13px; color: var(--text-dim); box-shadow: none; background: transparent; }
 
 .empty { color: var(--text-dim); text-align: center; padding: 48px 0; }
+
+.history-fix { font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.history-nothumb {
+  width: 54px; height: 54px; border-radius: 10px;
+  background: var(--surface-2); flex: 0 0 54px;
+}
