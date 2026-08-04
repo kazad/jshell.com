@@ -2119,6 +2119,100 @@ export function countPills(cv, source, opts = {}) {
         }
       }
 
+      // ALL-CLUMPS UNIT RESCUE.
+      //
+      // Every calibration above learns the unit from whole BLOBS, so all of
+      // them assume at least a few blobs are single pills. When a photo has
+      // pills in separated GROUPS that each touch internally, that assumption
+      // fails completely: there is no isolated specimen to learn from, the
+      // "unit" is measured on a 2-pill clump, and every mass ratio downstream
+      // is halved. Measured on the user-reported c-2448027d (19 caplets in six
+      // touching groups): 7 blobs for 19 pills, unit 1626 against a true 924
+      // (1.76x), and the photo counted 10.
+      //
+      // The distance transform's RIDGE is the way out. A pixel that is a
+      // strict local maximum of the distance transform sits on the medial axis,
+      // and its depth there is HALF THE PILL'S WIDTH — a property of one pill
+      // that no amount of side-by-side touching changes, because each pill in a
+      // clump keeps its own ridge crest. The median crest depth is therefore a
+      // single-pill measurement taken from a photo with no single pills in it.
+      //
+      // Measured across the 24 hand-annotated photos, a pill's true area
+      // tracks the square of that half-width closely: area / pk^2 runs 6.7-13.8
+      // with a median of 8.8, a 2.1x spread across pills from 7.4px to 85.7px
+      // half-width. That is far tighter than the 3.0x spread that caps the
+      // mass-division family (docs/splitting-bakeoff.md), because it is a
+      // shape constant rather than a per-photo scale.
+      //
+      // DETECTOR, NOT ESTIMATOR. This must never touch a photo whose unit is
+      // already right, so it fires only on a hard contradiction: the incumbent
+      // unit claiming more than 2.4x the area that the ridge width says one
+      // pill can cover. Measured across all 24 annotated photos, that ratio is
+      // 1.41-2.01 on the 22 photos whose unit is within 30% of truth, and
+      // 2.78-3.07 on exactly the three whose unit is clump-inflated. No photo
+      // that currently counts correctly is touched.
+      let ridgePk = 0;
+      let clumpUnitFired = false;
+      if (unit > 0 && blobList.length >= 3) {
+        // Ridge crest depths over the whole mask. `dd` is the distance
+        // transform already computed for the watershed; `bl` labels the blobs.
+        const crests = [];
+        for (let y = 1; y < h - 1; y++) {
+          for (let x = 1; x < w - 1; x++) {
+            const i = y * w + x;
+            if (!bl[i]) continue;
+            const dv = dd[i];
+            if (dv < 3) continue;
+            let isMax = true;
+            for (let ky = -1; ky <= 1 && isMax; ky++) {
+              for (let kx = -1; kx <= 1; kx++) {
+                if (!kx && !ky) continue;
+                if (dd[i + ky * w + kx] > dv) { isMax = false; break; }
+              }
+            }
+            if (isMax) crests.push(dv);
+          }
+        }
+        if (crests.length >= 8) {
+          const pk = median(crests);
+          ridgePk = pk;
+          // 8.8 is the measured median of (true single-pill area) / pk^2 across
+          // the 24 hand-annotated photos, where it ranges 6.7-13.8 -- a 2.1x
+          // spread across pills from 7.4px to 85.7px half-width. It is a SHAPE
+          // constant, which is why it is so much tighter than the 3.0x spread
+          // that caps the mass-division family in docs/splitting-bakeoff.md.
+          const rescued = 8.8 * pk * pk;
+          // HOW MANY PILLS DOES THE AVERAGE BLOB HOLD? Total foreground divided
+          // by (blob count x one pill's ridge-derived area). This is the
+          // discriminator, and it must be measured this way rather than by any
+          // per-blob shape test.
+          //
+          // Measured: photos whose unit is clump-inflated sit at 2.95-3.52
+          // implied pills per blob (c-2448027d 3.52, lined-503b3041 3.20,
+          // lined-bfdbfef9 2.95). Every photo that currently counts correctly,
+          // AND every dense synthetic in the manifest, sits at 1.13-1.97
+          // (r-295482c1 1.13, r-dbe1f2d8 1.21, synthetic-wood-mixed-35 1.97).
+          //
+          // The dense synthetics are the reason a shape-based test will not do:
+          // synthetic-blur-20 and synthetic-noise-25 have plenty of merged
+          // blobs and a LOW fraction of single-looking ones (0.29-0.50, the
+          // same range as c-2448027d), yet their unit is already correct.
+          // Nothing local to a blob separates them; only the image-wide ratio
+          // of material to blobs does.
+          let fgTotal = 0;
+          for (const l of blobList) fgTotal += blobAreas[l];
+          const impliedPerBlob = rescued > 0 && blobList.length
+            ? fgTotal / (blobList.length * rescued) : 0;
+          if (rescued >= absFloor && impliedPerBlob >= 2.5 && unit > 1.3 * rescued) {
+            opts.debug?.({ stage: 'clumpunit', from: unit, to: +rescued.toFixed(0),
+              pk: +pk.toFixed(1), impliedPerBlob: +impliedPerBlob.toFixed(2),
+              blobs: blobList.length });
+            unit = rescued;
+            clumpUnitFired = true;
+          }
+        }
+      }
+
       opts.debug?.({ stage: 'lengthcal', unitLen, unit });
       if (opts.debug) {
         for (const l of blobList) {
@@ -2583,8 +2677,41 @@ export function countPills(cv, source, opts = {}) {
             // its half-width), so the 2x headroom keeps genuine end-to-end
             // chains and overlapping clumps intact; it only bites when a
             // claim exceeds what the pixels can physically contain.
+            //
+            // THE PEAK MUST BE ONE PILL'S, NOT THE CLUMP'S. capacity scales as
+            // 1/peak^2, so an over-large peak caps the count too low. A blob's
+            // own peak is exactly that when pills touch SIDE BY SIDE: the two
+            // pills' material merges at the junction and the distance transform
+            // there runs well above one pill's half-width. Measured on
+            // c-2448027d, whose 19 caplets sit in six touching groups: blob 6
+            // holds 5 pills but peaks at 25 against a real half-width of 9, so
+            // capacity came out 4 and capped a correct mass vote of 5; blob 7
+            // holds 4, capped at 3. The photo counted 7.
+            //
+            // The ridge median measured above IS one pill's half-width (it is
+            // the median crest of the medial axis, which each pill keeps in a
+            // clump), so it is the honest denominator.
+            //
+            // NARROWLY SCOPED. Relaxing this invariant for every blob is not
+            // safe -- it is the only thing standing between a corrupted unit
+            // and an invented count, and measured on the full corpus a blanket
+            // relaxation broke 6 exact images (t2-advil-scatter-dark-1 28->31,
+            // lined-69204ff4 19->38) for 3 fixed, a net -3.
+            //
+            // So it applies only where the side-by-side geometry it targets is
+            // actually present, which requires BOTH:
+            //   - the all-clumps unit rescue fired (clumpUnitFired), i.e. this
+            //     photo has no isolated pill to calibrate from at all, and
+            //   - this blob's own peak is materially above one pill's
+            //     half-width (>1.5x), which is the junction-merge signature of
+            //     pills abreast rather than a lone pill or an end-to-end chain.
+            // On every photo that already counts correctly, the rescue does not
+            // fire and this reduces to the original invariant exactly.
+            const junctionInflated = clumpUnitFired && ridgePk > 0
+              && peaks[l] > 1.5 * ridgePk;
+            const capPeak = junctionInflated ? ridgePk : peaks[l];
             const capacity = peaks[l] >= MIN_PEAK
-              ? Math.max(1, Math.floor((2 * blobAreas[l]) / (Math.PI * peaks[l] * peaks[l])))
+              ? Math.max(1, Math.floor((2 * blobAreas[l]) / (Math.PI * capPeak * capPeak)))
               : Infinity;
             if ((lenRoom || stacked) && mv <= capacity) {
               opts.debug?.({ stage: 'massoverride', blob: l, from: k, to: mv, lenRoom, stacked, capacity });
