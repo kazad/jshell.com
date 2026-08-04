@@ -2948,14 +2948,31 @@ export function readingOrder(regions) {
     return rowA !== rowB ? rowA - rowB : a.cx - b.cx;
   };
 
-  const clusters = [...groups.values()].map((members) => {
-    members.sort(byRow);
-    return {
-      members,
-      cx: members.reduce((s, r) => s + r.cx, 0) / members.length,
-      cy: members.reduce((s, r) => s + r.cy, 0) / members.length,
-    };
-  });
+  // WITHIN a cluster, walk NEAREST-NEIGHBOUR from the top-left member rather
+  // than sorting by row. Row-sorting a clump makes the numbers hop back and
+  // forth across it; walking the chain means adjacent pills get adjacent
+  // numbers, which is how a person counts a pile they are pointing at.
+  const walk = (members) => {
+    if (members.length < 3) return [...members].sort(byRow);
+    const left = members.slice().sort(byRow);
+    const out = [left.shift()];
+    while (left.length) {
+      const cur = out[out.length - 1];
+      let best = 0, bestD = Infinity;
+      for (let i = 0; i < left.length; i++) {
+        const d = (left[i].cx - cur.cx) ** 2 + (left[i].cy - cur.cy) ** 2;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      out.push(left.splice(best, 1)[0]);
+    }
+    return out;
+  };
+
+  const clusters = [...groups.values()].map((members) => ({
+    members: walk(members),
+    cx: members.reduce((s, r) => s + r.cx, 0) / members.length,
+    cy: members.reduce((s, r) => s + r.cy, 0) / members.length,
+  }));
   clusters.sort(byRow);
   return clusters.flatMap((c) => c.members);
 }

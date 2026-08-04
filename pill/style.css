@@ -730,6 +730,30 @@ body {
 }
 .debug-stage .stage-name { color: #d7ffd0; font-weight: 700; }
 
+/* Per-pill geometry. Row N is badge N on the photo. */
+.debug-pilltable { margin: 2px 0 12px; }
+.debug-pilltable summary {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; color: #8fd18f; cursor: pointer; user-select: none;
+}
+table.debug-pills {
+  width: 100%; border-collapse: collapse; margin-top: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+}
+table.debug-pills th {
+  text-align: right; font-weight: 700; color: #6ea86e;
+  padding: 3px 7px; border-bottom: 1px solid #26331f;
+}
+table.debug-pills th:first-child, table.debug-pills td:first-child { text-align: left; }
+table.debug-pills td {
+  text-align: right; padding: 3px 7px; color: #cfe8cf;
+  border-bottom: 1px solid #16200f; font-variant-numeric: tabular-nums;
+}
+/* A region covering several pills, or one far off the unit size, is where a
+   wrong count is born — surface those instead of making the eye scan. */
+table.debug-pills tr.odd td { color: #f0c674; }
+table.debug-pills tr.lowc td { color: #e8896b; }
+
 .debug-trace {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;

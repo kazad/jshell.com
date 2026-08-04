@@ -1252,6 +1252,45 @@ function renderDebugSheet() {
     host.prepend(el);
   }
 
+  // PER-PILL TABLE. The badges say WHICH pill; this says WHY it was accepted.
+  // Geometry is measured from the same regions the overlay numbers, so row N
+  // here is badge N on the photo — the two views are the same objects.
+  if (result.regions?.length) {
+    const rs = result.regions;
+    const areas = rs.map((r) => r.area).filter((a) => a > 0).sort((a, b) => a - b);
+    const unit = result.unitArea > 0 ? result.unitArea : (areas[areas.length >> 1] || 1);
+    const tbl = document.createElement('table');
+    tbl.className = 'debug-pills';
+    tbl.innerHTML = '<thead><tr><th>#</th><th>area</th><th>×unit</th>'
+      + '<th>pills</th><th>shape</th><th>at</th></tr></thead>';
+    const body = document.createElement('tbody');
+    rs.forEach((r, i) => {
+      const mult = r.area / unit;
+      // A region standing in for several pills, or one far off the unit size,
+      // is where a wrong count comes from — mark those rather than make the
+      // reader scan the numbers.
+      const n = r.units || 1;
+      const odd = n > 1 || mult < 0.55 || mult > 1.6;
+      const ell = r.ellipse;
+      const shape = ell && ell.major
+        ? `${(ell.major / Math.max(1, ell.minor)).toFixed(1)}:1`
+        : (r.cls || '—');
+      const tr = document.createElement('tr');
+      if (odd) tr.className = 'odd';
+      if (r.confidence === 'low') tr.className = 'lowc';
+      tr.innerHTML = `<td>${i + 1}</td><td>${Math.round(r.area)}</td>`
+        + `<td>${mult.toFixed(2)}</td><td>${n}</td><td>${shape}</td>`
+        + `<td>${Math.round(r.cx)},${Math.round(r.cy)}</td>`;
+      body.appendChild(tr);
+    });
+    tbl.appendChild(body);
+    const det = document.createElement('details');
+    det.className = 'debug-pilltable';
+    det.innerHTML = `<summary>per-pill geometry (${rs.length} regions, unit ${Math.round(unit)}px²)</summary>`;
+    det.appendChild(tbl);
+    host.appendChild(det);
+  }
+
   // The numeric trace: which filters fired, and how much they removed.
   trace.textContent = lines.length
     ? lines.map((d) => {
