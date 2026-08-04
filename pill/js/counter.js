@@ -1409,7 +1409,27 @@ export function countPills(cv, source, opts = {}) {
         const kept = [];
         for (const r of regions) {
           const sh = shapes[io[Math.round(r.cy) * w + Math.round(r.cx)] || 0];
-          const misshapen = sh && (sh.solidity < 0.88 || sh.circularity < 0.50);
+          // The solidity floor must clear the ON-EDGE pill, which this AND-test
+          // was assumed to spare ("small but well-formed") but did not. An
+          // oblong resting on its narrow side keeps its LENGTH while projecting
+          // only ~2/3 the area, so it lands squarely inside `undersized`, and
+          // its narrow-side silhouette is just rough enough to trip a 0.88
+          // solidity bar. Measured, all three of them within 0.008 of that bar:
+          //   r-5de0d534   solidity 0.872, circ 0.507, area 0.66x  -> killed
+          //   r-9e5ac6c9   solidity 0.875, circ 0.500, area 0.70x  -> killed
+          //   edge-ad9ea48c solidity 0.877, circ 0.523, area 0.75x -> killed
+          // Each was a real pill, dropped before any later stage could see it,
+          // costing exactly one count on each photo (18 for a true 19).
+          //
+          // Genuine splotches are materially non-convex, not marginally so: the
+          // one on r-295482c1 (an image that counts exactly) scores solidity
+          // 0.766 at 0.75x area, and the population medians quoted above run
+          // ~0.72. That leaves a clean ~0.10 gap between the worst on-edge pill
+          // (0.872) and the best splotch (0.766); 0.85 sits in the middle of it,
+          // so both populations keep real margin. Verified: 0.86/0.87 recover
+          // only 2 of the 3 pills, 0.84 recovers the same 3 as 0.85 with less
+          // room above the splotch, and 0.85 breaks nothing across 267 images.
+          const misshapen = sh && (sh.solidity < 0.85 || sh.circularity < 0.50);
           const undersized = sh && sh.area < 0.75 * medGood;
           if (misshapen && undersized) { count -= r.units; continue; } // splotch
           // SIZE-ONLY veto. One photo holds ONE medication, so every pill is
