@@ -698,6 +698,16 @@ body {
 }
 .debug-toggle input { width: 17px; height: 17px; accent-color: #3ddc84; }
 
+/* Per-stage blob counts. Each arrow should move toward the final answer;
+   a ⚠ marks a stage that jumped away from it — where a wrong count is born. */
+.debug-progress {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; line-height: 1.6; color: #8fd18f;
+  background: #071008; border: 1px solid #26331f; border-left: 3px solid #3ddc84;
+  border-radius: 8px; padding: 9px 11px; margin-bottom: 4px;
+}
+.debug-progress.warn { color: #f0c674; border-left-color: #e9a13b; }
+
 .debug-stages { display: flex; flex-direction: column; gap: 14px; margin: 4px 0 12px; }
 .debug-stage { display: flex; flex-direction: column; gap: 6px; }
 .debug-stage canvas {

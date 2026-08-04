@@ -1154,6 +1154,58 @@ function renderDebugSheet() {
     host.appendChild(fig);
   }
 
+  // STAGE PROGRESS: each stage should move the blob count TOWARD the final
+  // answer. A stage that jumps away from it is destroying information, and
+  // that is almost always where a wrong count is born. Counting regions per
+  // mask stage makes that visible instead of leaving it to be inferred.
+  const stageBlobs = (img) => {
+    if (!img || !img.data) return null;
+    // 4-connected flood fill over the binary mask, ignoring specks.
+    const { width: w, height: h, data } = img;
+    const on = new Uint8Array(w * h);
+    for (let i = 0, p = 0; i < w * h; i++, p += 4) on[i] = data[p + 1] > 100 ? 1 : 0;
+    const seen = new Uint8Array(w * h);
+    const stack = new Int32Array(w * h);
+    let n = 0;
+    for (let s = 0; s < w * h; s++) {
+      if (!on[s] || seen[s]) continue;
+      let sp = 0, area = 0;
+      stack[sp++] = s; seen[s] = 1;
+      while (sp) {
+        const i = stack[--sp]; area++;
+        const x = i % w, y = (i / w) | 0;
+        if (x > 0 && on[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; stack[sp++] = i - 1; }
+        if (x < w - 1 && on[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; stack[sp++] = i + 1; }
+        if (y > 0 && on[i - w] && !seen[i - w]) { seen[i - w] = 1; stack[sp++] = i - w; }
+        if (y < h - 1 && on[i + w] && !seen[i + w]) { seen[i + w] = 1; stack[sp++] = i + w; }
+      }
+      if (area >= 120) n++;
+    }
+    return n;
+  };
+  const progress = [
+    ['threshold', stageBlobs(stages['mask-otsu'])],
+    ['cleaned', stageBlobs(stages['mask-final'])],
+    ['seeds', stageBlobs(stages['markers'])],
+    ['final', result.count],
+  ].filter(([, v]) => v != null);
+  if (progress.length > 1) {
+    const final = result.count;
+    const bar = progress.map(([name, v], i) => {
+      if (i === 0) return `${name} ${v}`;
+      const prev = progress[i - 1][1];
+      // Closer to the final answer than the previous stage = progress.
+      const better = Math.abs(v - final) <= Math.abs(prev - final);
+      return `${better ? '→' : '⚠'} ${name} ${v}`;
+    }).join('   ');
+    const warn = progress.some(([, v], i) =>
+      i > 0 && Math.abs(v - final) > Math.abs(progress[i - 1][1] - final));
+    const el = document.createElement('div');
+    el.className = 'debug-progress' + (warn ? ' warn' : '');
+    el.textContent = bar + (warn ? '   ⚠ a stage moved AWAY from the answer' : '');
+    host.prepend(el);
+  }
+
   // The numeric trace: which filters fired, and how much they removed.
   trace.textContent = lines.length
     ? lines.map((d) => {

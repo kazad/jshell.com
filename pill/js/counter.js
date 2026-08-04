@@ -512,6 +512,145 @@ function flattenIllumination(cv, src) {
   gray.delete(); small.delete(); field.delete();
 }
 
+// RULED-LINE (thin dark filament) SUPPRESSION.
+//
+// Measured failure: ~19 tan caplets on WHITE LINED PAPER counted 14 and 8.
+// The cause is NOT shadows and NOT over-erosion. On p-69204ff4.jpg the halo
+// just outside each pill measures median luma 205 against far paper at 210 —
+// there is no dark shadow ring at all, and 0.0% of those halo pixels fall on
+// the foreground side of Otsu (thr=171). What DOES fall on the foreground
+// side is the PRINTED RULING: the blue lines measure median luma 150-160,
+// darker than the cut, so they threshold as "pill". They are 33-37% of all
+// foreground pixels and they run edge to edge, so they act as wires that
+// weld every pill into one blob. Measured on the raw Otsu mask: the largest
+// blob is 26791 px; delete just the line pixels and the largest drops to
+// 1222 px with 85 separate blobs. Raising the threshold does NOT fix this —
+// the merged blob grows monotonically (26791 -> 44376 -> 83236 -> 133038 as
+// thr goes 171 -> 181 -> 191 -> 206), because a higher cut swallows more
+// paper, not less line.
+//
+// The fix is a grayscale morphological CLOSING, applied BEFORE any
+// thresholding so every downstream stage sees clean paper. Closing by a disc
+// of radius r erases dark structures thinner than the disc and leaves
+// everything wider untouched: a 2-4 px ruled line disappears, while a pill
+// tens of px across is unchanged (its interior is never reached by the
+// structuring element). This is strictly a same-or-brighter operation, so it
+// can only remove dark filaments — it can never invent foreground.
+//
+// SELF-CALIBRATING TRIGGER. We do not want to touch the primary dark-board
+// photos, where pills are BRIGHTER than the background and there is no thin
+// dark structure to remove. Two conditions gate the operation, both measured
+// from the image:
+//   1. The background must be BRIGHT relative to the foreground. Only then
+//      can a dark filament be a surface marking rather than a pill.
+//   2. Closing must actually change a meaningful slice of the FOREGROUND.
+//      We threshold before and after and require that the closing removes a
+//      real share of foreground pixels. On lined paper this is 20-40%; on a
+//      dark cutting board it is ~0%, so the whole stage no-ops.
+// The radius is derived from the image's own scale, not a magic constant.
+function suppressThinDarkLines(cv, src, debug) {
+  const w = src.cols, h = src.rows;
+  const gray = new cv.Mat();
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
+
+  const before = new cv.Mat();
+  const thr = cv.threshold(gray, before, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
+
+  // Condition 1: the BACKGROUND must be the bright side. Thin dark markings
+  // can only be surface print if the surface they sit on is brighter than
+  // them; on a dark board the dark class IS the background and this whole
+  // stage is meaningless (worse: the closing would erase the gaps between
+  // bright pills and weld them together).
+  //
+  // Decide this from the BORDER, not from the size of the dark class. A
+  // frame-area test fails on sparse scenes: r-90dbe20e.jpg is three pills on
+  // dark grey fabric, where the dark class is only 0.448 of the frame and so
+  // slipped under a 0.5 area gate — the closing then fired on the primary
+  // dark-background use case and cost the real corpus an exact count
+  // (13/20 -> 12/20). The border is background essentially by definition, so
+  // comparing border luma against the Otsu cut answers the actual question:
+  // "is the surface the bright class?"
+  const bt = Math.max(2, Math.round(Math.min(w, h) * 0.03));
+  const gdb = gray.data;
+  let borderSum = 0, borderN = 0;
+  for (let y = 0; y < h; y++) {
+    const edgeRow = y < bt || y >= h - bt;
+    for (let x = 0; x < w; x += 2) {
+      if (!edgeRow && x >= bt && x < w - bt) continue;
+      borderSum += gdb[y * w + x]; borderN++;
+    }
+  }
+  const borderLum = borderN ? borderSum / borderN : 0;
+  const darkFrac = cv.countNonZero(before) / (w * h);
+  // The border must sit CLEARLY on the bright side, not merely a shade above
+  // the cut. On r-90dbe20e.jpg (three pills on dark grey fabric) the border
+  // measures 91 against a cut of 89 — nominally "bright", but a 2-level
+  // margin is noise, and acting on it fired the closing on a dark-background
+  // photo. Genuine bright surfaces clear the cut by a real margin: the lined
+  // photos measure 182 vs 173, 157 vs 136. Requiring a separation
+  // proportional to the cut keeps this scale-free rather than a fixed step.
+  if (borderLum <= thr * 1.04) {
+    gray.delete(); before.delete();
+    debug?.({ stage: 'lines', skipped: 'dark-background', borderLum: Math.round(borderLum), thr, darkFrac: +darkFrac.toFixed(3) });
+    return false;
+  }
+
+  // Radius: a ruled line is a hairline at any sane photo distance. Scale it
+  // off the frame so the same physical line width is caught at 393px and at
+  // 1280px. r ~= 1.3% of the short side, floored at 3px (below that the
+  // closing cannot bridge a 2px line plus its antialiasing).
+  const r = Math.max(3, Math.round(Math.min(w, h) * 0.013));
+  const k = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(2 * r + 1, 2 * r + 1));
+  const closed = new cv.Mat();
+  cv.morphologyEx(gray, closed, cv.MORPH_CLOSE, k);
+
+  // Condition 2: how much of the ORIGINAL foreground was thin dark filament?
+  // Measure this directly, at the FIXED original threshold, by asking which
+  // foreground pixels the closing lifted above that same cut. Re-running Otsu
+  // on the closed image and differencing the two foreground counts does NOT
+  // work: removing the lines changes the histogram, so Otsu moves, and the new
+  // cut can admit far MORE paper than the lines ever covered — measured
+  // `removed` = -4.3 on p-0ae0c302 and -4.5 on p-bfdbfef9, i.e. the metric
+  // went sharply negative on exactly the lined-paper images it exists to
+  // catch. Holding the threshold fixed makes this a clean subset count:
+  // filament pixels are those that were below the cut and are no longer.
+  const bd = before.data, gd0 = gray.data, cd0 = closed.data;
+  let fgBefore = 0, filament = 0;
+  for (let i = 0; i < bd.length; i++) {
+    if (!bd[i]) continue;          // was background: irrelevant
+    fgBefore++;
+    if (cd0[i] > thr && gd0[i] <= thr) filament++; // closing lifted it out
+  }
+  const removed = fgBefore > 0 ? filament / fgBefore : 0;
+
+  // Below this the surface has no meaningful thin dark structure and the
+  // closing is only costing us pill boundary fidelity — leave the image
+  // alone. Measured: lined paper removes 0.20-0.40 of the foreground; clean
+  // backgrounds sit near 0.
+  const APPLY = removed >= 0.12;
+  if (APPLY) {
+    // Write the closing back into the COLOR image, as a per-pixel brightness
+    // gain. Working through a gain (rather than overwriting with gray) keeps
+    // the pill hue intact for the color-distance stage downstream: pills are
+    // unchanged because closing barely moves them, while line pixels get
+    // pulled up to the surrounding paper level and lose their darkness.
+    const gd = gray.data, cd = closed.data, sd = src.data;
+    for (let i = 0, p = 0; i < gd.length; i++, p += 4) {
+      const lift = cd[i] - gd[i];
+      if (lift <= 2) continue; // pill interiors: closing changed nothing
+      const gain = cd[i] / Math.max(1, gd[i]);
+      sd[p] = Math.min(255, sd[p] * gain);
+      sd[p + 1] = Math.min(255, sd[p + 1] * gain);
+      sd[p + 2] = Math.min(255, sd[p + 2] * gain);
+    }
+  }
+  debug?.({ stage: 'lines', applied: APPLY, r, thr, borderLum: Math.round(borderLum), darkFrac: +darkFrac.toFixed(3), removed: +removed.toFixed(3) });
+
+  gray.delete(); before.delete(); closed.delete(); k.delete();
+  return APPLY;
+}
+
 // Pills are solid: any background component fully enclosed by foreground is
 // an artifact (specular highlight, engraving) — fill it.
 function fillHoles(cv, bw, debug) {
@@ -709,6 +848,12 @@ export function countPills(cv, source, opts = {}) {
 
     // Level out vignettes and lighting gradients before any color reasoning.
     flattenIllumination(cv, src);
+
+    // Erase thin dark surface markings (ruled paper, grout lines, printed
+    // grid) before anything reasons about color. These threshold as pills and
+    // physically bridge them into one blob — a merge no downstream splitter
+    // can undo. Self-gated: no-ops on dark backgrounds and on clean surfaces.
+    suppressThinDarkLines(cv, src, opts.debug);
 
     // Segment by color distance from the background (est. from the border) —
     // works for colored pills that grayscale Otsu lumps into the background.
