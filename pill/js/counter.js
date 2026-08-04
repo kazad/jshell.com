@@ -390,13 +390,19 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
   for (let i = 0; i < ll.length; i++) {
     if (!ll[i]) continue;
     let p = pieces.get(ll[i]);
-    if (!p) { p = { area: 0, peak: 0, dtSum: 0, newArea: 0, lumSum: 0 }; pieces.set(ll[i], p); }
+    if (!p) { p = { area: 0, peak: 0, dtSum: 0, newArea: 0, lumSum: 0, oldArea: 0, oldLum: 0 }; pieces.set(ll[i], p); }
     p.area++;
     p.dtSum += dd[i];
+    const q = i * 4;
+    const lum = (sd[q] + sd[q + 1] + sd[q + 2]) / 3;
     if (!mask[i]) {
       p.newArea++;
-      const q = i * 4;
-      p.lumSum += (sd[q] + sd[q + 1] + sd[q + 2]) / 3;
+      p.lumSum += lum;
+    } else {
+      // Luminance of the piece's ALREADY-CONFIRMED pill material, which fixes
+      // the polarity a genuine pill has against this background.
+      p.oldArea++;
+      p.oldLum += lum;
     }
     if (dd[i] > p.peak) p.peak = dd[i];
   }
@@ -404,9 +410,42 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
   // Unit pill radius implied by the confirmed-pill median area (medP is
   // unreliable pre-fillHoles: specular holes flatten the distance peak).
   const rUnit = Math.sqrt(medA / Math.PI);
+
+  // SHADOW POLARITY. Distance-from-background is UNSIGNED: a cast shadow sits
+  // beside the pill, is darker than the surface, and therefore scores as
+  // foreground exactly like the pill does. Sign is what separates them. A pill
+  // has a fixed polarity against the background (bright pill on dark tray, or
+  // dark pill on white paper); its cast shadow ALWAYS falls on the dark side,
+  // whichever way the pill went. So compare the material rescue wants to ADD
+  // against the pill material already confirmed inside the same piece:
+  //   - addition on the same side as the pill  -> more pill, keep it
+  //   - addition on the dark side when the pill is bright -> shadow, drop it
+  // Measured on r-cc7a2ada: confirmed pill material sits at luminance 188-209
+  // over a background of 121, while the material being added sits at 73-92 —
+  // opposite sides of the background, a 100+ unit gap. That addition was 30%
+  // of the blob's final area and is precisely the "webbing" between pills.
+  // A piece with no confirmed material (oldArea 0) is a wholly new find with
+  // no polarity to compare against, so it is judged on shape alone as before.
+  // An ON-EDGE pill is pill material at pill brightness, so it passes cleanly.
+  // The margin matters: material a few units under the background is ordinary
+  // shading on the pill's own curved flank and must be kept, or real pills are
+  // lost. Only DECISIVE darkening is a cast shadow — r-cc7a2ada's additions sit
+  // 29-48 below background, while legitimate flank shading on
+  // synth2-rc-kraft-small sits 9-16 below, so a cut at 20 clears both.
+  const SHADOW_MARGIN = 20;
+  const shadowLike = (p) => {
+    if (!p.oldArea || !p.newArea) return false;
+    const nl = p.lumSum / p.newArea, ol = p.oldLum / p.oldArea;
+    // Pill must be clearly brighter than the background for "darker than
+    // background" to mean shadow rather than "this medication is dark".
+    if (ol <= bgLum + 10) return false;
+    return nl < bgLum - SHADOW_MARGIN;
+  };
+
   const good = new Set([...pieces.entries()]
     .filter(([, p]) => (p.area >= Math.max(absFloor, 0.45 * medA) && p.area <= 2.2 * medA
-      && p.peak >= Math.max(4, 0.5 * medP) && p.area <= 4 * Math.PI * p.peak * p.peak)
+      && p.peak >= Math.max(4, 0.5 * medP) && p.area <= 4 * Math.PI * p.peak * p.peak
+      && !shadowLike(p))
       // Touching CHAIN of same-medication pills: single-pill thickness but a
       // multi-unit area. Watershed + area-split handle the separation later.
       // The new material must not be darker than the background — a pill
