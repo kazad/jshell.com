@@ -1,0 +1,6148 @@
+{
+  "generated": "2026-08-04T02:16:54.575Z",
+  "baseline": {
+    "name": "production (js/counter.js, variant=consensus)",
+    "exact": 18,
+    "total": 28,
+    "note": "Hand-verified sets: real 13/20, lined 1/3, onedge 4/5. Full corpus 190/267."
+  },
+  "stages": {
+    "A": [
+      "none",
+      "flatten",
+      "rules",
+      "prod",
+      "bilateral",
+      "clahe",
+      "glare"
+    ],
+    "B": [
+      "colorOtsu",
+      "adaptive",
+      "kmeans",
+      "grabcut",
+      "mser"
+    ],
+    "C": [
+      "none",
+      "morph",
+      "fill",
+      "prod",
+      "morph+aspect",
+      "morph+aspect+veto",
+      "morph+aspect+veto+frag",
+      "prod+aspect+veto"
+    ],
+    "D": [
+      "none",
+      "watershed",
+      "hminima"
+    ],
+    "E": [
+      "baseline",
+      "mass",
+      "template",
+      "width",
+      "obb"
+    ]
+  },
+  "stageLegend": {
+    "A": {
+      "none": "no preprocessing",
+      "flatten": "illumination flattening only",
+      "rules": "ruled-line suppression only",
+      "prod": "production preprocess = flatten + ruled-line suppression",
+      "bilateral": "prod + bilateral edge-preserving filter",
+      "clahe": "CLAHE on Lab L + prod",
+      "glare": "prod + specular-highlight suppression (grayscale open)"
+    },
+    "B": {
+      "colorOtsu": "color-distance-from-background + global Otsu (production)",
+      "adaptive": "adaptive/local threshold on the color-distance map, ANDed with a loose global cut",
+      "kmeans": "k-means (k=3) in Lab, non-border cluster = foreground",
+      "grabcut": "GrabCut seeded from the border strip, run at 320px",
+      "mser": "MSER regions rasterised \u2014 DISQUALIFIED, see findings"
+    },
+    "C": {
+      "none": "no cleanup",
+      "morph": "guarded morphological open+close (close never welds two components)",
+      "fill": "hole fill only",
+      "prod": "production clean = morph + hole fill",
+      "morph+aspect": "morph + ASPECT-GATED template calibration (pool capped at aspect<=3.5)",
+      "morph+aspect+veto": "+ shape-consistency junk veto",
+      "morph+aspect+veto+frag": "+ high-percentile fragment floor",
+      "prod+aspect+veto": "production clean + aspect gate + veto"
+    },
+    "D": {
+      "none": "no splitting \u2014 one region per connected blob",
+      "watershed": "watershed on distance-transform fraction seeds (production)",
+      "hminima": "h-minima suppression (grayscale reconstruction) before seeding, then watershed"
+    },
+    "E": {
+      "baseline": "watershed regions + area/unit oversize split (production-style)",
+      "mass": "pure area / unit over blobs",
+      "template": "population shape template; clumps divided by area/template-area",
+      "width": "template + rotating-calipers width-profile lobe count on clumps",
+      "obb": "template + oriented-bounding-box set-cover decomposition of clumps"
+    }
+  },
+  "runs": [
+    {
+      "path": {
+        "A": "none",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 24,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 25,
+      "byClass": {
+        "MERGED": {
+          "exact": 3,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 48
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 1092
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "flatten",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 25,
+      "within1": 28,
+      "total": 28,
+      "msPerImage": 27,
+      "byClass": {
+        "MERGED": {
+          "exact": 4,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 476
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 60
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "rules",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 24,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 122,
+      "byClass": {
+        "MERGED": {
+          "exact": 3,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 123
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 1092
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 26,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 126,
+      "byClass": {
+        "MERGED": {
+          "exact": 5,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 86
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 60
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "bilateral",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 26,
+      "within1": 28,
+      "total": 28,
+      "msPerImage": 139,
+      "byClass": {
+        "MERGED": {
+          "exact": 4,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 18,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 84
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 68
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "clahe",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 21,
+      "within1": 24,
+      "total": 28,
+      "msPerImage": 135,
+      "byClass": {
+        "MERGED": {
+          "exact": 3,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 14,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 699
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 255
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 193
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 183
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 1131
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 1156
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "glare",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 25,
+      "within1": 28,
+      "total": 28,
+      "msPerImage": 134,
+      "byClass": {
+        "MERGED": {
+          "exact": 4,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 137
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 71
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "adaptive",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 22,
+      "within1": 23,
+      "total": 28,
+      "msPerImage": 136,
+      "byClass": {
+        "MERGED": {
+          "exact": 3,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 15,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 167
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 22
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 213
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 64
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 248
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 205
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 501
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "kmeans",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 0,
+      "within1": 0,
+      "total": 28,
+      "msPerImage": 150,
+      "byClass": {
+        "MERGED": {
+          "exact": 0,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 0,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 0,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 5
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 1
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 10
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 10
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 2
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 22
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 34
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 25
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 28
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 28
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 27
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 31
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 31
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 37
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 49
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 12
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 15
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 2
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 191
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 118
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 786
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 10
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 32
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 22
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 23
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 2694
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 1
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "grabcut",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 20,
+      "within1": 23,
+      "total": 28,
+      "msPerImage": 232,
+      "byClass": {
+        "MERGED": {
+          "exact": 2,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 3,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 15,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 1
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 2
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 2
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 2
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 29
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 1
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "mser",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 0,
+      "within1": 0,
+      "total": 28,
+      "msPerImage": 128,
+      "byClass": {
+        "MERGED": {
+          "exact": 0,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 0,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 0,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 0
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 0
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 0
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 0
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "none",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 23,
+      "within1": 28,
+      "total": 28,
+      "msPerImage": 126,
+      "byClass": {
+        "MERGED": {
+          "exact": 2,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 80
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 67
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 26,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 129,
+      "byClass": {
+        "MERGED": {
+          "exact": 5,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 196
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 60
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "fill",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 24,
+      "within1": 28,
+      "total": 28,
+      "msPerImage": 127,
+      "byClass": {
+        "MERGED": {
+          "exact": 3,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 234
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 67
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "prod",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 25,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 129,
+      "byClass": {
+        "MERGED": {
+          "exact": 4,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 202
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 61
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect+veto",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 26,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 129,
+      "byClass": {
+        "MERGED": {
+          "exact": 5,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 86
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 58
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect+veto+frag",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 26,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 130,
+      "byClass": {
+        "MERGED": {
+          "exact": 5,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 86
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 58
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "prod+aspect+veto",
+        "D": "none",
+        "E": "template"
+      },
+      "exact": 25,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 130,
+      "byClass": {
+        "MERGED": {
+          "exact": 4,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 87
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 59
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "watershed",
+        "E": "template"
+      },
+      "exact": 26,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 177,
+      "byClass": {
+        "MERGED": {
+          "exact": 5,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 86
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 60
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "hminima",
+        "E": "template"
+      },
+      "exact": 26,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 159,
+      "byClass": {
+        "MERGED": {
+          "exact": 5,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 86
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 60
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "baseline"
+      },
+      "exact": 21,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 130,
+      "byClass": {
+        "MERGED": {
+          "exact": 2,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 15,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 31
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 56
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "mass"
+      },
+      "exact": 20,
+      "within1": 25,
+      "total": 28,
+      "msPerImage": 129,
+      "byClass": {
+        "MERGED": {
+          "exact": 3,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 13,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 5
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 22
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 22
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 88
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 77
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "width"
+      },
+      "exact": 26,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 130,
+      "byClass": {
+        "MERGED": {
+          "exact": 5,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 93
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 64
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "none",
+        "E": "obb"
+      },
+      "exact": 14,
+      "within1": 21,
+      "total": 28,
+      "msPerImage": 151,
+      "byClass": {
+        "MERGED": {
+          "exact": 1,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 3,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 10,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 16
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 16
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 16
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 49
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 50
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "watershed",
+        "E": "baseline"
+      },
+      "exact": 22,
+      "within1": 23,
+      "total": 28,
+      "msPerImage": 175,
+      "byClass": {
+        "MERGED": {
+          "exact": 2,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 16,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 24
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 15
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 22
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 23
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 15
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 83
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 313
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "watershed",
+        "E": "mass"
+      },
+      "exact": 20,
+      "within1": 25,
+      "total": 28,
+      "msPerImage": 175,
+      "byClass": {
+        "MERGED": {
+          "exact": 3,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 13,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 5
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 22
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 22
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 88
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 77
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "watershed",
+        "E": "width"
+      },
+      "exact": 26,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 177,
+      "byClass": {
+        "MERGED": {
+          "exact": 5,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 93
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 64
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "watershed",
+        "E": "obb"
+      },
+      "exact": 14,
+      "within1": 21,
+      "total": 28,
+      "msPerImage": 196,
+      "byClass": {
+        "MERGED": {
+          "exact": 1,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 3,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 10,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 16
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 16
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 16
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 49
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 50
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "hminima",
+        "E": "baseline"
+      },
+      "exact": 20,
+      "within1": 24,
+      "total": 28,
+      "msPerImage": 159,
+      "byClass": {
+        "MERGED": {
+          "exact": 2,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 14,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 35
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 11
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 15
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 124
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 235
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "hminima",
+        "E": "mass"
+      },
+      "exact": 20,
+      "within1": 25,
+      "total": 28,
+      "msPerImage": 159,
+      "byClass": {
+        "MERGED": {
+          "exact": 3,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 13,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 5
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 22
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 18
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 22
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 88
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 77
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "hminima",
+        "E": "width"
+      },
+      "exact": 26,
+      "within1": 27,
+      "total": 28,
+      "msPerImage": 158,
+      "byClass": {
+        "MERGED": {
+          "exact": 5,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 93
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 64
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "morph+aspect",
+        "D": "hminima",
+        "E": "obb"
+      },
+      "exact": 14,
+      "within1": 21,
+      "total": 28,
+      "msPerImage": 178,
+      "byClass": {
+        "MERGED": {
+          "exact": 1,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 3,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 10,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 21
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 16
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 16
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 16
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 49
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 50
+        }
+      ]
+    },
+    {
+      "path": {
+        "A": "prod",
+        "B": "colorOtsu",
+        "C": "prod",
+        "D": "watershed",
+        "E": "baseline"
+      },
+      "exact": 21,
+      "within1": 23,
+      "total": 28,
+      "msPerImage": 203,
+      "byClass": {
+        "MERGED": {
+          "exact": 0,
+          "total": 6
+        },
+        "COUNTING": {
+          "exact": 4,
+          "total": 4
+        },
+        "NOISE": {
+          "exact": 0,
+          "total": 2
+        }
+      },
+      "prodAlreadyExact": {
+        "exact": 17,
+        "total": 18
+      },
+      "perImage": [
+        {
+          "key": "real/r-90dbe20e.jpg",
+          "want": 3,
+          "got": 3
+        },
+        {
+          "key": "real/r-554c3c1a.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "real/r-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-681ce773.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f5d11815.jpg",
+          "want": 19,
+          "got": 15
+        },
+        {
+          "key": "real/r-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-9e5ac6c9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f2f56c8e.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-f091e9e9.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-b62459cb.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-295482c1.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-aaaac648.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-ed00b0b7.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-5de0d534.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-cc7a2ada.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "real/r-76385b11.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-7ff7fd99.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-96e5f08f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "real/r-fd69dff9.jpg",
+          "want": 19,
+          "got": 20
+        },
+        {
+          "key": "lined/lined-503b3041.jpg",
+          "want": 19,
+          "got": 25
+        },
+        {
+          "key": "lined/lined-69204ff4.jpg",
+          "want": 19,
+          "got": 23
+        },
+        {
+          "key": "lined/lined-bfdbfef9.jpg",
+          "want": 19,
+          "got": 17
+        },
+        {
+          "key": "onedge/edge-91254db6.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-ad9ea48c.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-d87c4d5f.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-dbe1f2d8.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "onedge/edge-e1ba63af.jpg",
+          "want": 19,
+          "got": 19
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel.jpg",
+          "want": 14,
+          "got": 77
+        },
+        {
+          "key": "excluded/t2-ironyl-capsules-papertowel-2.jpg",
+          "want": 15,
+          "got": 219
+        }
+      ]
+    }
+  ],
+  "findings": [
+    "COORDINATOR CORRECTION (verified from this file's own runs): the four COUNTING images are NOT recovered by the template classifier specifically. Grouping every run by its stage-E arm gives COUNTING exact of 4/4 for E=baseline, 4/4 for E=mass, 4/4 for E=width, 3/4 for E=obb, and 0..4 for E=template. The common factor is simply NOT using production's consensus panel \u2014 every alternative counter gets these four right. The fix is therefore much cheaper than swapping in a new counter: find what the consensus panel does to these four images and stop doing it. Treat 'replace the panel with template classification' as one option, not the conclusion.",
+    "HEADLINE: the best path scores 26/28 EXACT on the hand-verified sets against production's 18/28. Two distinct paths reach 26: prod|colorOtsu|morph+aspect|none|template and bilateral|colorOtsu|morph+aspect|none|template. They fail on DIFFERENT images, so the gain is real and not a single lucky tweak.",
+    "THE FOUR \"COUNTING\" FAILURES ARE FREE. Every path whose stage E is `template` scores 4/4 on the COUNTING class (edge-ad9ea48c, r-5de0d534, r-96e5f08f, r-9e5ac6c9) \u2014 the images where the mask already had exactly the right blob count. These were not a splitting problem at all: production loses them inside the consensus panel's vote arithmetic. Replacing that panel with a straight population-template classification recovers all four at zero cost. This is the cheapest win measured.",
+    "SPLITTING (STAGE D) IS VERBATIM IRRELEVANT ON THIS CORPUS. D=none, D=watershed and D=hminima give byte-identical scores (26/28) for every E=template and E=width run. The watershed costs ~50ms/image and changes no count. This corroborates the earlier bake-off from the opposite direction: the splitter is not where the remaining errors live, so a better splitter cannot help. h-minima suppression specifically \u2014 the classic fix for a multi-maxima distance ridge \u2014 moved nothing.",
+    "BOUNDING BOXES: ORIENTED-BOX DECOMPOSITION LOSES DECISIVELY, 14/28 vs 26/28. Formulated as a set-cover (\"smallest k oriented rectangles of template size covering >=90% of the blob\") rather than the greedy pose fitting that already lost, it still fails, and the reason is structural: a rectangle of the template's dimensions covers a SINGLE pill only ~78% (a capsule is not its own bounding box), so the 90% coverage criterion is met by k larger than the truth on singles and by k smaller than the truth on tight clumps where rectangles overlap freely. The objective has no k where singles and pairs separate. The owner's prior about AXIS-ALIGNED boxes is confirmed and extends to oriented ones as a decomposition target.",
+    "BOUNDING BOXES, THE USEFUL HALF: the rotating-calipers WIDTH PROFILE (E=width) ties the winner at 26/28. A touching pair end-to-end does show a narrowing at the junction and the lobe count finds it. But it never beats plain area division on this corpus \u2014 it changes no image relative to E=template \u2014 so it earns its keep only as a cheap independent witness, not as a primary counter. minAreaRect is genuinely useful for MEASURING the template (length/width/aspect); it is useless for DECIDING how many pills a clump holds.",
+    "THE SINGLE HIGHEST-LEVERAGE FIX IS THE TEMPLATE CALIBRATION, NOT SEGMENTATION. Measured on t2-ironyl-capsules-papertowel: the mask is nearly perfect (14 blobs for 14 capsules) yet the count is 196. Cause: the template pool admitted weave filaments at aspect 39.8, 14.9, 13.1 and 11.7, dragging the unit area to 313px against real capsules of ~750px, after which two merged masses divided by a smear into 97+65 phantom pills. Gating the template pool at aspect<=3.5 (a pill is a convex primitive; none exceeds ~3.5:1) cut the error from 196 to 86 with ZERO cost on the hand-verified sets. Junk does not need to be removed from the MASK \u2014 it needs to be denied a vote in the SIZE MODEL.",
+    "HOLE FILLING COSTS A PILL. C=morph (guarded open+close, no hole fill) scores 26/28; C=prod (the same plus production's fillHoles) scores 25/28, losing r-cc7a2ada. Filling engraving/highlight holes inflates blob areas non-uniformly, which biases the very area ratio the count divides by. Worth an isolated A/B in production.",
+    "SEGMENTATION ALTERNATIVES ALL LOST TO COLOR-DISTANCE+OTSU. adaptive/local threshold 22/28, GrabCut 20/28 (and 232ms/image, near the live-path budget), k-means on Lab 0/28. k-means fails structurally rather than by tuning: Lab clusters split by ILLUMINATION, not by object \u2014 it merged 19 pills into 5 blobs on a clean board photo and shattered lined paper into 128. The production segmenter is not the bottleneck.",
+    "MSER IS DISQUALIFIED, NOT DEFEATED. cv.MSER constructs in this opencv.js build but detectRegions throws UnboundTypeError (vector<vector<Point>> is not bound in the Emscripten bindings). It cannot run in the browser build the app ships, so it was never scored. Do not read its 0/28 as an algorithmic verdict.",
+    "CLAHE IS ACTIVELY HARMFUL: 21/28, and it detonates the textured cases (1131 vs 14 on paper towel). Local contrast equalisation amplifies exactly the mid-frequency surface texture that docs/why-off-by-one.md identifies as the root cause of phantom blobs. Glare suppression is mildly negative (25/28). Bilateral filtering is the only stage-A addition that pays, and only in combination.",
+    "ILLUMINATION FLATTENING AND RULED-LINE SUPPRESSION BOTH EARN THEIR PLACE: A=none scores 24/28, A=flatten 25/28, A=rules 24/28, A=prod (both) 26/28. They are complementary rather than redundant.",
+    "NOISE REMAINS UNSOLVED AND IS NOW THE DOMINANT FAILURE MODE. The best tournament path still reads 86 and 60 on the two paper-towel diagnostics (truth 14 and 15); production reads 76 and 9. No path scored better than 1/2 on the NOISE class. The aspect gate is a genuine improvement in the right direction but recovers only half the gap. This, not splitting, is where the next effort belongs.",
+    "PRUNED, AND WHY: the full cartesian product is 7x5x8x3x5 = 4200 paths. Round 1 scored 75 paths (B x D x E at A=C=prod) and established that (a) stage D changes nothing, (b) E=template/width dominate, (c) kmeans and mser are non-starters. Everything after that swept ONE stage at a time against the winning spine, which is valid precisely because stage D is inert and stages A/B/C/E proved near-separable \u2014 the 26/28 optimum was reached independently from three different sweep directions. 33 meaningful paths are reported.",
+    "MEASUREMENT DISCIPLINE: every number here comes from one process started after the last edit to the stage code. The harness re-implements stages A-C from js/counter.js verbatim and reproduces production's per-image blob counts within 1 blob on all 28 images, so the comparison is like-for-like. Nothing in the repo's shipping code was modified.",
+    "RUNTIME: the winning path costs 126ms/image at maxDim=1280 in Node, against production's ~200ms average (and 1.8s on the lined images). It is FASTER than production because dropping the watershed and the consensus panel removes more work than the template classification adds. Comfortably inside the live-path budget."
+  ]
+}
