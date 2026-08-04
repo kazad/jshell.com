@@ -624,11 +624,57 @@ function suppressThinDarkLines(cv, src, debug) {
   }
   const removed = fgBefore > 0 ? filament / fgBefore : 0;
 
-  // Below this the surface has no meaningful thin dark structure and the
-  // closing is only costing us pill boundary fidelity — leave the image
-  // alone. Measured: lined paper removes 0.20-0.40 of the foreground; clean
-  // backgrounds sit near 0.
-  const APPLY = removed >= 0.12;
+  // Condition 3 — IS THE THIN DARK STUFF ACTUALLY LINEAR?
+  //
+  // `removed` alone is not enough. It counts dark pixels the closing lifted,
+  // but it cannot tell a printed RULE from the dark GAP between two bright
+  // touching pills — both are dark, both are thin-ish, and a closing fills
+  // both. On t2-advil-scatter-dark-1.jpg (28 bright orange tablets on navy)
+  // `removed` reads 0.299, over any sane cut, and firing there was
+  // catastrophic: the closing welds the inter-pill gaps shut, the raft
+  // becomes one mass, and the count explodes 28 -> 135. A "is the dark class
+  // thin?" test does not separate them either — measured in-pipeline, the
+  // surviving fraction is 0.70 for advil against 0.57-0.66 for lined paper,
+  // which overlaps.
+  //
+  // What a ruled line uniquely IS, and an inter-pill wedge never is, is
+  // LONG AND STRAIGHT. Test exactly that: open the filament pixels with a
+  // long thin bar at each angle and keep the best-matching orientation. A
+  // real ruling contains a bar spanning a quarter of the frame; a wedge
+  // between two round tablets cannot contain one at any angle. Measured:
+  //     lined paper:  0.095, 0.067, 0.033, 0.016  (all at 0deg — one ruling)
+  //     everything else: 0.000, exactly, on every image tested
+  // The separation is total, and the quantity is a shape fact about the
+  // image rather than a tuned level.
+  const barLen = (Math.round(Math.min(w, h) * 0.25) | 1);
+  const fil = cv.Mat.zeros(h, w, cv.CV_8UC1);
+  const fd = fil.data;
+  for (let i = 0; i < bd.length; i++) {
+    if (bd[i] && cd0[i] > thr && gd0[i] <= thr) fd[i] = 255;
+  }
+  let linear = 0;
+  if (filament > 0 && barLen >= 9) {
+    const c = (barLen - 1) / 2;
+    for (let deg = 0; deg < 180; deg += 10) {
+      const se = cv.Mat.zeros(barLen, barLen, cv.CV_8UC1);
+      const rad = deg * Math.PI / 180, ca = Math.cos(rad), sa = Math.sin(rad);
+      for (let t = -c; t <= c; t += 0.5) {
+        const x = Math.round(c + t * ca), y = Math.round(c + t * sa);
+        if (x >= 0 && x < barLen && y >= 0 && y < barLen) se.ucharPtr(y, x)[0] = 1;
+      }
+      const op = new cv.Mat();
+      cv.morphologyEx(fil, op, cv.MORPH_OPEN, se);
+      const fr = cv.countNonZero(op) / filament;
+      if (fr > linear) linear = fr;
+      op.delete(); se.delete();
+    }
+  }
+  fil.delete();
+
+  // Require a real ruling to be present. 0.01 sits an order of magnitude
+  // above the exact-zero every non-lined image measures, and well below the
+  // 0.016 floor of the lined set.
+  const APPLY = removed >= 0.12 && linear >= 0.01;
   if (APPLY) {
     // Write the closing back into the COLOR image, as a per-pixel brightness
     // gain. Working through a gain (rather than overwriting with gray) keeps
@@ -645,7 +691,7 @@ function suppressThinDarkLines(cv, src, debug) {
       sd[p + 2] = Math.min(255, sd[p + 2] * gain);
     }
   }
-  debug?.({ stage: 'lines', applied: APPLY, r, thr, borderLum: Math.round(borderLum), darkFrac: +darkFrac.toFixed(3), removed: +removed.toFixed(3) });
+  debug?.({ stage: 'lines', applied: APPLY, r, thr, borderLum: Math.round(borderLum), darkFrac: +darkFrac.toFixed(3), removed: +removed.toFixed(3), linear: +linear.toFixed(3) });
 
   gray.delete(); before.delete(); closed.delete(); k.delete();
   return APPLY;
