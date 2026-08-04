@@ -714,6 +714,24 @@ function saveCurrentCount() {
   showScreen('camera');
 }
 
+// The frame the pipeline actually analyzed, at its analysis resolution
+// (maxDim 1280) — NOT the display-scaled photoCanvas. Uploading the display
+// copy silently degraded every stored photo: b-1b6719d8 counts 19 at capture
+// resolution and 18 after the display-scale round trip, because one pill
+// drops out of the mask. The corpus and history-debug must see the same
+// pixels the counter saw.
+function analysisCanvas() {
+  const src = state.croppedCanvas || state.sourceCanvas;
+  if (!src) return els.photoCanvas;
+  const s = Math.min(1, 1280 / Math.max(src.width, src.height));
+  if (s >= 1) return src;
+  const c = document.createElement('canvas');
+  c.width = Math.round(src.width * s);
+  c.height = Math.round(src.height * s);
+  c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+  return c;
+}
+
 // ---------- telemetry: every photo is a future test case ----------
 
 // Uploads are durable: a failed send (offline, flaky signal) is queued in
@@ -753,7 +771,9 @@ function autoUpload(result) {
     variant: 'consensus',
     build: state.build || null, // which deployed build produced this count
   };
-  els.photoCanvas.toBlob(async (blob) => {
+  
+
+  analysisCanvas().toBlob(async (blob) => {
     if (!blob) return;
     try {
       const j = await postPhoto(blob, meta);
@@ -761,7 +781,7 @@ function autoUpload(result) {
       flushQueue(); // good connection — drain anything stranded earlier
     } catch {
       const q = loadQueue();
-      q.push({ dataUrl: els.photoCanvas.toDataURL('image/jpeg', 0.8), meta });
+      q.push({ dataUrl: analysisCanvas().toDataURL('image/jpeg', 0.8), meta });
       saveQueue(q);
     }
   }, 'image/jpeg', 0.85);
@@ -1082,11 +1102,11 @@ document.getElementById('sheet-submit').addEventListener('click', () => {
   if (!state.submissionId) {
     // Upload failed or still in flight: queue the photo WITH its labels so
     // the report is never lost.
-    els.photoCanvas.toBlob((blob) => {
+    analysisCanvas().toBlob((blob) => {
       if (!blob) return;
       const q = loadQueue();
       q.push({
-        dataUrl: els.photoCanvas.toDataURL('image/jpeg', 0.8),
+        dataUrl: analysisCanvas().toDataURL('image/jpeg', 0.8),
         meta: { count: sheet.machine, adjusted: n, lowConfidence: state.result?.lowConfidence ?? 0,
                 variant: 'consensus', build: state.build || null, note: note || 'reported wrong' },
       });
