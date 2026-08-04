@@ -1046,6 +1046,254 @@ function erosionCores(bl, dd, w, l, box, peak) {
   return best || 1;
 }
 
+// -- BOUNDARY-ARC WITNESS ----------------------------------------------------
+//
+// The outer boundary of every clump is a chain of arcs of individual pills.
+// Pills are identical convex primitives, so three facts hold that no area
+// calibration can corrupt:
+//   1. The pill END-CAP RADIUS is recoverable from boundary curvature
+//      statistics even when NO pill stands alone: each pill contributes ~2*pi
+//      of turn at its cap radius (two caps of pi each, or a circle's full
+//      revolution) while flanks contribute ~0, so a turn-weighted histogram
+//      of radius-of-curvature peaks at the cap radius.
+//   2. Junctions between adjacent pills are CONCAVE notches. For a clump with
+//      tree topology (no interior holes) the boundary crosses each of the k-1
+//      contacts exactly twice, so J notches => k = J/2 + 1 exactly. Cycles,
+//      fans and rafts hide contacts from the boundary, so J only ever
+//      UNDER-counts them: J/2+1 is a floor, never an invention.
+//   3. Distinct end-cap arcs cluster at pill end-centers. A capsule shows 1-2
+//      caps depending on what its neighbours occlude, so C cap clusters bound
+//      k to [ceil(C/2), C]; a round pill's visible arcs share one center, so
+//      C is the count of boundary pills itself.
+// Together they give a per-blob interval [arcLo, arcHi] that fails
+// INDEPENDENTLY of pixel mass: webbing and foreshortening inflate area but
+// not arcs; deep occlusion blurs arcs but not area.
+//
+// Measured on the gen-touch contact matrix (18 pills/image, flush contact):
+// side/end/tee/groups/onedge blobs read exactly 74/81 by the interval floor
+// against 11/81 for area-division; fan and hex read LOW (floor semantics) and
+// never high. On the 24 annotated real photos: 45/58 multi-unit blobs exact
+// vs 43/58 for area, and the failures overlap on only 11 blobs.
+
+// Outer contour of blob `l` inside `box` (Moore-neighbour tracing,
+// 8-connected). Returns [[x,y],...] or null for degenerate specks.
+function traceOuterContour(bl, w, l, box) {
+  let sx = -1, sy = -1;
+  outer: for (let y = box.y0; y <= box.y1; y++) {
+    const row = y * w;
+    for (let x = box.x0; x <= box.x1; x++) {
+      if (bl[row + x] === l) { sx = x; sy = y; break outer; }
+    }
+  }
+  if (sx < 0) return null;
+  const at = (x, y) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1
+    && bl[y * w + x] === l;
+  const DX = [-1, -1, 0, 1, 1, 1, 0, -1];
+  const DY = [0, -1, -1, -1, 0, 1, 1, 1];
+  const pts = [];
+  let cx = sx, cy = sy, dir = 7;
+  const maxSteps = 8 * (box.x1 - box.x0 + box.y1 - box.y0 + 2) + 1000;
+  for (let step = 0; step < maxSteps; step++) {
+    pts.push([cx, cy]);
+    let found = -1;
+    const start = (dir + 6) % 8;
+    for (let i = 0; i < 8; i++) {
+      const d = (start + i) % 8;
+      if (at(cx + DX[d], cy + DY[d])) { found = d; break; }
+    }
+    if (found < 0) break;
+    cx += DX[found]; cy += DY[found]; dir = found;
+    if (cx === sx && cy === sy && pts.length > 2) break;
+  }
+  return pts.length >= 8 ? pts : null;
+}
+
+const wrapAngle = (a) => {
+  while (a > Math.PI) a -= 2 * Math.PI;
+  while (a < -Math.PI) a += 2 * Math.PI;
+  return a;
+};
+
+// Resample a closed contour to uniform arc-length step h, box-smooth the
+// polyline over +-smoothPx, and return tangent angles + signed curvature
+// normalized so CONVEX is positive. Null when the contour is too short.
+function arcCurvature(bl, w, l, box, h, smoothPx) {
+  const raw = traceOuterContour(bl, w, l, box);
+  if (!raw) return null;
+  const nR = raw.length;
+  const P = [];
+  {
+    let acc = 0, prev = raw[0];
+    P.push(prev);
+    for (let i = 1; i <= nR; i++) {
+      const p = raw[i % nR];
+      let seg = Math.hypot(p[0] - prev[0], p[1] - prev[1]);
+      while (acc + seg >= h) {
+        const t = (h - acc) / seg;
+        const q = [prev[0] + (p[0] - prev[0]) * t, prev[1] + (p[1] - prev[1]) * t];
+        P.push(q);
+        seg = Math.hypot(p[0] - q[0], p[1] - q[1]);
+        prev = q;
+        acc = 0;
+      }
+      acc += seg;
+      prev = p;
+    }
+  }
+  const n = P.length;
+  if (n < 12) return null;
+  const sm = Math.max(1, Math.round(smoothPx / h));
+  const S = new Array(n);
+  for (let i = 0; i < n; i++) {
+    let ax = 0, ay = 0, c = 0;
+    for (let j = -sm; j <= sm; j++) {
+      const p = P[(i + j + n) % n];
+      ax += p[0]; ay += p[1]; c++;
+    }
+    S[i] = [ax / c, ay / c];
+  }
+  const th = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = S[(i - 1 + n) % n], b = S[(i + 1) % n];
+    th[i] = Math.atan2(b[1] - a[1], b[0] - a[0]);
+  }
+  const kap = new Float64Array(n);
+  let turnTotal = 0;
+  for (let i = 0; i < n; i++) {
+    kap[i] = wrapAngle(th[(i + 1) % n] - th[(i - 1 + n) % n]) / (2 * h);
+    turnTotal += wrapAngle(th[(i + 1) % n] - th[i]);
+  }
+  const sgn = turnTotal < 0 ? -1 : 1;
+  if (sgn < 0) for (let i = 0; i < n; i++) kap[i] = -kap[i];
+  return { S, th, kap, n, sgn };
+}
+
+// Image-wide cap-radius recovery (fact 1 above). One turn-weighted histogram
+// over every blob boundary; the peak bin, refined by a turn-weighted mean, is
+// one pill's end-cap radius. Independent of the area unit by construction.
+function recoverCapRadius(bl, w, blobList, blobBox) {
+  const RMIN = 2, RMAX = 100, NB = 36;
+  const bins = new Float64Array(NB);
+  const H = 1.5;
+  const samples = []; // [R, weight] pooled across blobs
+  for (const l of blobList) {
+    const box = blobBox.get(l);
+    if (!box) continue;
+    const cur = arcCurvature(bl, w, l, box, H, 4);
+    if (!cur) continue;
+    for (let i = 0; i < cur.n; i++) {
+      if (cur.kap[i] <= 0) continue;
+      const R = 1 / cur.kap[i];
+      if (R < RMIN || R > RMAX) continue;
+      const wgt = cur.kap[i] * H; // turn contribution
+      samples.push(R, wgt);
+      const bi = Math.min(NB - 1, Math.max(0,
+        Math.floor(Math.log(R / RMIN) / Math.log(RMAX / RMIN) * NB)));
+      bins[bi] += wgt;
+    }
+  }
+  let best = -1, bestV = 0;
+  for (let i = 0; i < NB; i++) {
+    const v = (bins[Math.max(0, i - 1)] + 2 * bins[i] + bins[Math.min(NB - 1, i + 1)]) / 4;
+    if (v > bestV) { bestV = v; best = i; }
+  }
+  if (best < 0) return { capR: 0, turnMass: 0 };
+  const lo = RMIN * Math.pow(RMAX / RMIN, Math.max(0, best - 1) / NB);
+  const hi = RMIN * Math.pow(RMAX / RMIN, Math.min(NB, best + 2) / NB);
+  let sw = 0, swr = 0;
+  for (let i = 0; i < samples.length; i += 2) {
+    const R = samples[i], wgt = samples[i + 1];
+    if (R < lo || R > hi) continue;
+    sw += wgt; swr += wgt * R;
+  }
+  return { capR: sw > 0 ? swr / sw : (lo + hi) / 2, turnMass: sw };
+}
+
+// Per-blob arc statistics against a known cap radius (facts 2 and 3 above).
+function boundaryArcStats(bl, w, l, box, capR) {
+  if (!(capR > 2.5)) return null;
+  const h = Math.min(3, Math.max(1, capR / 5));
+  const cur = arcCurvature(bl, w, l, box, h, Math.max(2, capR / 2));
+  if (!cur) return null;
+  const { S, th, kap, n, sgn } = cur;
+  const capKLo = 1 / (2.2 * capR);
+  const capKHi = 1 / (0.30 * capR);
+  const concK = -1 / (3.0 * capR);
+  const cls = new Int8Array(n);
+  let capSamples = 0;
+  for (let i = 0; i < n; i++) {
+    if (kap[i] >= capKLo && kap[i] <= capKHi) { cls[i] = 1; capSamples++; }
+    else if (kap[i] <= concK) cls[i] = -1;
+  }
+  // maximal cyclic runs of one classification
+  const runs = [];
+  let start = 0;
+  while (start < n && cls[start] === cls[(start - 1 + n) % n]) start++;
+  if (start === n) {
+    let turn = 0;
+    for (let i = 0; i < n; i++) turn += kap[i] * h;
+    runs.push({ c: cls[0], turn, i0: 0, i1: n - 1 });
+  } else {
+    let i0 = start;
+    for (let i = 1; i <= n; i++) {
+      const idx = (start + i) % n;
+      if (cls[idx] !== cls[(idx - 1 + n) % n] || i === n) {
+        const i1 = (idx - 1 + n) % n;
+        let turn = 0;
+        for (let j = i0; ; j = (j + 1) % n) { turn += kap[j] * h; if (j === i1) break; }
+        runs.push({ c: cls[i0], turn, i0, i1 });
+        i0 = idx;
+        if (i === n) break;
+      }
+    }
+  }
+  // caps: convex cap-curved runs with enough accumulated turn (a full cap
+  // turns pi; 0.9 rad keeps occlusion-clipped caps while refusing flank
+  // wobble). Each cap's QUALITY is the coherence of its implied centers
+  // (point + R * inward normal): a true circular arc of one pill focuses its
+  // centers within a small fraction of capR, a texture wiggle that happens
+  // to curve scatters them. Cluster the QUALITY cap centers at 1.2*capR: a
+  // round pill seen twice re-lands on its own center, adjacent capsule caps
+  // stay apart.
+  let caps = 0, qcaps = 0;
+  const clusters = [];
+  for (const r of runs) {
+    if (r.c !== 1 || r.turn < 0.9) continue;
+    caps++;
+    const cx = [], cy = [];
+    for (let j = r.i0; ; j = (j + 1) % n) {
+      if (kap[j] > 1e-6) {
+        const R = Math.min(1 / kap[j], 3 * capR);
+        cx.push(S[j][0] - Math.sin(th[j]) * sgn * R);
+        cy.push(S[j][1] + Math.cos(th[j]) * sgn * R);
+      }
+      if (j === r.i1) break;
+    }
+    const m = cx.length;
+    if (!m) continue;
+    let px = 0, py = 0;
+    for (let j = 0; j < m; j++) { px += cx[j]; py += cy[j]; }
+    px /= m; py /= m;
+    let spread = 0;
+    for (let j = 0; j < m; j++) spread += Math.hypot(cx[j] - px, cy[j] - py);
+    spread /= m;
+    const quality = spread / capR; // <= ~0.35 for true pill caps
+    if (quality > 0.5) continue;   // wiggle, not an arc of a pill
+    qcaps++;
+    let hit = null;
+    for (const cl of clusters) {
+      if (Math.hypot(cl.x / cl.n - px, cl.y / cl.n - py) < 1.2 * capR) { hit = cl; break; }
+    }
+    if (hit) { hit.x += px; hit.y += py; hit.n++; }
+    else clusters.push({ x: px, y: py, n: 1 });
+  }
+  let notches = 0;
+  for (const r of runs) {
+    if (r.c === -1 && -r.turn >= 0.35) notches++;
+  }
+  return { caps, qcaps, clusters: clusters.length, notches, capFrac: capSamples / n };
+}
+
 /**
  * Count pills in an image.
  * @param {object} cv - OpenCV module
@@ -2542,6 +2790,20 @@ export function countPills(cv, source, opts = {}) {
           && unit >= 0.6 * Math.PI * radiusEst * radiusEst
           && unit <= 4 * Math.PI * radiusEst * radiusEst;
 
+        // Boundary-arc witness calibration (computed lazily — only photos
+        // with ambiguous blobs pay for it). The recovered cap radius must be
+        // a plausible pill half-width: within the same generous window the
+        // ridge/peak estimates occupy. ridgePk, when measured, IS one pill's
+        // half-width and arbitrates; otherwise radiusEst bounds it loosely.
+        const arcCal = recoverCapRadius(bl, w, blobList, blobBox);
+        const arcRef = ridgePk > 0 ? ridgePk : radiusEst;
+        const arcCalOk = arcCal.capR >= MIN_PEAK * 0.75
+          && arcCal.turnMass >= 4 * Math.PI
+          && arcCal.capR >= 0.4 * arcRef && arcCal.capR <= 2.5 * arcRef;
+        opts.debug?.({ stage: 'arccal', capR: +arcCal.capR.toFixed(1),
+          turnMass: +arcCal.turnMass.toFixed(1), ok: arcCalOk,
+          ridgePk: +ridgePk.toFixed(1), radiusEst: +radiusEst.toFixed(1) });
+
         for (const a of ambiguous) {
           const { l, regs } = a;
           // A single pill of this blob's thickness can cover at most ~4*pi*peak^2
@@ -2596,6 +2858,29 @@ export function countPills(cv, source, opts = {}) {
           }
           const ero = erosionCores(bl, dd, w, l, a.box, peaks[l]);    // 4. erosion split
           if (ero >= 2 || singleable) votes.push({ m: 'ero', v: ero });
+
+          // 5. boundary-arc interval [arcLo, arcHi] (see the witness block
+          // above countPills). kJ uses the FLOOR: junction notches only ever
+          // under-count contacts (cycles, fans and rafts hide them), so an
+          // odd J must not round up — measured, round-half-up invented a pill
+          // on synth2-rc-light-large-n12-t65-s159 from one noise notch.
+          // A blob whose boundary sheds >=2 low-quality cap runs is too
+          // RAGGED to witness at all (paper smears on the lined set read 9
+          // caps of which 4 are wiggles; genuine clumps shed 0-1).
+          let arcLo = 0, arcHi = 0, arcS = null;
+          if (arcCalOk && a.box) {
+            arcS = boundaryArcStats(bl, w, l, a.box, arcCal.capR);
+            if (arcS && arcS.caps - arcS.qcaps >= 2) arcS = null;
+            if (arcS) {
+              const elong = template ? template.aspect >= 1.35 : arcS.capFrac < 0.75;
+              const kJ = arcS.notches > 0 ? Math.floor(arcS.notches / 2) + 1 : 1;
+              arcLo = Math.max(kJ, elong ? Math.ceil(arcS.clusters / 2) : arcS.clusters);
+              arcHi = Math.max(kJ, arcS.clusters, arcLo);
+              opts.debug?.({ stage: 'arc', blob: l, caps: arcS.caps,
+                qcaps: arcS.qcaps, clusters: arcS.clusters, notches: arcS.notches,
+                capFrac: +arcS.capFrac.toFixed(2), elong, kJ, arcLo, arcHi });
+            }
+          }
 
           // >=2 agreeing methods win; ties in agreement go to the value
           // nearest the vote median. No valid agreement => keep the baseline
@@ -2803,6 +3088,73 @@ export function countPills(cv, source, opts = {}) {
             && (broadAmbiguity || k === a.unitsSum || corroboratedRise
               || corroboratedDescent);
           opts.debug?.({ stage: 'panel', blob: l, votes, k, agreed, base: a.unitsSum });
+
+          // ARC RECONCILIATION. kMass is the RAW mass ratio, before the
+          // length veto — the veto exists for end-to-end reasoning and is
+          // blind to side-by-side pairs, which is exactly where the arcs see
+          // caps. Two firing modes, both measured corpus-wide (survey in the
+          // session scratchpad; zero currently-exact images change):
+          //
+          //   RAISE TO THE FLOOR. The blob's boundary shows arcLo pills'
+          //   worth of junctions/caps AND the raw pixel mass independently
+          //   agrees (kMass >= arcLo), yet the panel settled below the
+          //   floor: the whole seam-reading family missed a flush contact.
+          //   Raise to arcLo — no further than the boundary itself certifies,
+          //   because mass habitually overshoots by one on webbed junctions
+          //   (measured: truth = arcLo on r-cc7a2ada blob 9 with kMass 4,
+          //   truth = 2 on r-f5d11815 blob 7 with kMass 2).
+          //
+          //   CAP THE OVER-SPLIT. Every pill of a tree-shaped elongated
+          //   clump shows on the boundary, so a count above arcHi is
+          //   over-division (a shattered watershed or an inflated mass
+          //   vote). When mass ALSO exceeds the interval the calibration is
+          //   suspect for this blob and the midpoint is the honest point
+          //   estimate (each capsule shows 1-2 caps with equal prior) — but
+          //   only on a WIDE interval; a narrow one holds too little cap
+          //   evidence to justify the drop (measured: a kraft 3-clump read
+          //   [2,2] from two merged caps and lost a real pill).
+          let arcTo = 0;
+          const kMass = unitOk ? Math.round(massFrac) : 0;
+          if (arcS && arcLo >= 1) {
+            const kFinal0 = agreed ? k : a.unitsSum;
+            const elong = template ? template.aspect >= 1.35 : arcS.capFrac < 0.75;
+            const treeish = kMass <= arcS.clusters + 2;
+            if (kFinal0 < arcLo && kMass >= arcLo) {
+              arcTo = arcLo;
+            } else if (kFinal0 > arcHi && treeish && elong) {
+              arcTo = kMass > arcHi
+                ? (arcHi > arcLo ? Math.round((arcLo + arcHi) / 2) : 0)
+                : Math.max(kMass, arcLo);
+            }
+            if (arcTo === kFinal0) arcTo = 0;
+            if (arcTo) opts.debug?.({ stage: 'arcrec', blob: l, from: kFinal0,
+              to: arcTo, arcLo, arcHi, kMass, agreed });
+          }
+          if (arcTo) {
+            // Route the arc answer through the same accounting as an agreed
+            // panel: replace this blob's baseline units with arcTo. Mass
+            // landing inside the interval is cross-family corroboration;
+            // outside it, the answer is honest but uncertain — flag it.
+            const conf = kMass >= arcLo && kMass <= arcHi ? 'high' : 'low';
+            if (conf === 'low') lowConfidence++;
+            count -= a.unitsSum;
+            count += arcTo;
+            // `arc: true` exempts these regions from fragment consolidation:
+            // that stage's premise ("a smooth convex outline is ONE pill")
+            // is measurably false for a flush side-by-side pair — measured
+            // on r-f5d11815 blob 7, truth 2, whose pair outline scores
+            // solidity 0.934 / fill 0.931 / defect 0.41x and sails through
+            // every consolidation gate. The arc witness reads the same
+            // outline at cap scale, where the two pills are still visible.
+            const singlesA = regs.filter((r) => r.units === 1);
+            if (singlesA.length === arcTo) {
+              for (const r of singlesA) regions.push({ ...r, units: 1, confidence: conf, arc: true });
+            } else {
+              const area = blobAreas[l];
+              regions.push({ cx: a.sx / area, cy: a.sy / area, area, units: arcTo, confidence: conf, arc: true });
+            }
+            continue;
+          }
           if (!agreed) {
             // Keep the baseline count for this blob. If some independent
             // method reproduces it, that IS a 2-method agreement on the
@@ -2944,7 +3296,11 @@ export function countPills(cv, source, opts = {}) {
         const keep = [];
         for (const r of regions) {
           const k = im[Math.round(r.cy) * w + Math.round(r.cx)];
-          if (!k || ells[k].area > maxPill) { keep.push(r); continue; }
+          // Arc-witnessed regions are exempt: the boundary-arc analysis has
+          // already read this outline at cap scale and found several pills
+          // (see the arc reconciliation block for the measured counter-case
+          // to "the outline can't lie").
+          if (!k || ells[k].area > maxPill || r.arc) { keep.push(r); continue; }
           merged.set(k, (merged.get(k) || 0) + r.units);
         }
         for (const [k, unitsSum] of merged) {
