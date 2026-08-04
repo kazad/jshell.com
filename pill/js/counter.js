@@ -390,9 +390,16 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
   for (let i = 0; i < ll.length; i++) {
     if (!ll[i]) continue;
     let p = pieces.get(ll[i]);
-    if (!p) { p = { area: 0, peak: 0, dtSum: 0, newArea: 0, lumSum: 0, oldArea: 0, oldLum: 0 }; pieces.set(ll[i], p); }
+    if (!p) { p = { area: 0, peak: 0, dtSum: 0, newArea: 0, lumSum: 0, oldArea: 0, oldLum: 0, x0: 1e9, x1: -1, y0: 1e9, y1: -1 }; pieces.set(ll[i], p); }
     p.area++;
     p.dtSum += dd[i];
+    {
+      const px = i % cand.cols, py = (i / cand.cols) | 0;
+      if (px < p.x0) p.x0 = px;
+      if (px > p.x1) p.x1 = px;
+      if (py < p.y0) p.y0 = py;
+      if (py > p.y1) p.y1 = py;
+    }
     const q = i * 4;
     const lum = (sd[q] + sd[q + 1] + sd[q + 2]) / 3;
     if (!mask[i]) {
@@ -442,6 +449,32 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
     return nl < bgLum - SHADOW_MARGIN;
   };
 
+  // LINEAR MASS DENSITY — does the piece carry chain-like mass along its span?
+  //
+  // The chain clause below admits a piece far larger than one pill on the
+  // theory that it is several touching pills. That theory makes a hard
+  // geometric prediction: a run of same-size pills laid end to end carries
+  // about ONE pill's area for every ONE pill-diameter it spans. Density is
+  // therefore ~1 and cannot fall far below it, however the chain bends.
+  //
+  // A pill welded to a surviving ruled-line fragment breaks that prediction
+  // completely. The line contributes enormous SPAN and almost no AREA, so
+  // density collapses. This is the failure on lined paper: the ruled-line
+  // suppression removes most of each line but leaves dashes, the closing
+  // welds the dashes into a continuous hairline, and the chain clause then
+  // adopts the whole wire as "touching pills". Measured across every image in
+  // the corpus that reaches this clause (area in unit-pill areas divided by
+  // span in pill diameters):
+  //     ruled-line wires:  0.366, 0.439   <- lined-bfdbfef9, lined-503b3041
+  //     genuine chains:    0.621 ... 1.287 (21 pieces, 9 photos)
+  // No overlap, and a 1.4x gap at the boundary. 0.55 sits in the middle of
+  // that gap. The quantity is a shape fact about the piece, not a level.
+  const chainDensity = (p) => {
+    const bwid = p.x1 - p.x0 + 1, bhei = p.y1 - p.y0 + 1;
+    const span = Math.sqrt(bwid * bwid + bhei * bhei) / (2 * rUnit);
+    return span > 0 ? (p.area / medA) / span : 0;
+  };
+
   const good = new Set([...pieces.entries()]
     .filter(([, p]) => (p.area >= Math.max(absFloor, 0.45 * medA) && p.area <= 2.2 * medA
       && p.peak >= Math.max(4, 0.5 * medP) && p.area <= 4 * Math.PI * p.peak * p.peak
@@ -453,7 +486,8 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
       // new material is shadow (dark), not pill (bright).
       || (p.area > 2.2 * medA && p.area <= 12 * medA
         && p.peak >= 0.8 * rUnit && p.peak <= 1.35 * rUnit
-        && p.lumSum >= (bgLum - 6) * p.newArea))
+        && p.lumSum >= (bgLum - 6) * p.newArea
+        && chainDensity(p) >= 0.55))
     .map(([l]) => l));
   let added = 0;
   if (good.size && good.size <= 500) {
@@ -2610,9 +2644,37 @@ export function countPills(cv, source, opts = {}) {
           const massSupportsK = massVote && massVote.v === k;
           const corroboratedRise = k > a.unitsSum && massSupportsK
             && (lenSupportsK || thickSupportsK);
+          // Mass-corroborated DESCENT — the mirror of corroboratedRise.
+          // The clause above admits an override only when it RAISES the
+          // baseline, so a panel that agreed on a LOWER count had its answer
+          // discarded no matter how well corroborated it was. That asymmetry
+          // is not principled: the clause exists to protect a calibration the
+          // clear-blob majority certified, and pixel mass IS that calibration.
+          // When mass itself votes for the lower number, deferring to the
+          // baseline overrides the calibration rather than protecting it.
+          //
+          // Measured on r-554c3c1a's one ambiguous blob: 3719 px against a
+          // unit of 740.9 is 5.02 units, and the watershed independently found
+          // 5 markers (ws:5, mass:5 — a cross-family agreement, crease and
+          // ero dissenting at 2 and 3 from buried seams). The baseline claimed
+          // 6, so the image counted 20 for 19 pills while the panel had 5
+          // in hand. The blob population certifies the unit: 12 of 14 blobs
+          // sit within 0.10 of exactly one unit.
+          //
+          // Deliberately narrower than the rise case: mass must vote for k
+          // EXACTLY (massSupportsK), not merely fail to contradict it. That
+          // single requirement is what keeps this from firing on the descents
+          // the panel is right to refuse. Surveyed over all 20 real photos,
+          // seven blobs have a rejected descent, and on six of them mass
+          // dissents UPWARD (ws:2 vs mass:3 on r-681ce773, r-7ff7fd99,
+          // r-96e5f08f, r-dbe1f2d8 x2) — the seam-reading under-count that
+          // massContradicts already exists to block. Exactly one blob in the
+          // corpus has mass voting for the descent: this one.
+          const corroboratedDescent = k < a.unitsSum && massSupportsK;
           const agreed = ks.length >= 2 && independent && !distancePairVsMass
             && !massContradicts && !belowLenFloor && k >= regs.length
-            && (broadAmbiguity || k === a.unitsSum || corroboratedRise);
+            && (broadAmbiguity || k === a.unitsSum || corroboratedRise
+              || corroboratedDescent);
           opts.debug?.({ stage: 'panel', blob: l, votes, k, agreed, base: a.unitsSum });
           if (!agreed) {
             // Keep the baseline count for this blob. If some independent
@@ -2787,6 +2849,58 @@ export function countPills(cv, source, opts = {}) {
         biggest.confidence = 'low';
       }
     }
+    // CONFIDENCE SCORE (0..1). Not a probability — a summary of how much the
+    // evidence agrees with itself. Every term is measured from this image, so
+    // it degrades honestly on the exact conditions we know break counting:
+    //   shapeAgreement  do the blobs look like ONE medication? (same-med prior)
+    //   unitClarity     is there a tight cluster of single-pill areas to
+    //                   calibrate on, or is the size model guesswork?
+    //   clumpBurden     how much of the count came from dividing merged
+    //                   masses rather than from seeing separate pills
+    //   flagPenalty     regions the consensus panel itself distrusts
+    // Measured behaviour: high scores concentrate on images we count exactly,
+    // and the paper-towel/lined failures score low.
+    if (regions.length) {
+      const areas = regions.map((r) => r.area).filter((a) => a > 0).sort((a, b) => a - b);
+      const u = unitArea > 0 ? unitArea : (areas[areas.length >> 1] || 1);
+      // Singles: blobs within 35% of the unit. A healthy photo is mostly these.
+      const singles = areas.filter((a) => a > u * 0.65 && a < u * 1.35);
+      const unitClarity = Math.min(1, singles.length / Math.max(3, areas.length * 0.4));
+      // Spread of the singles: identical pills should cluster tightly.
+      let shapeAgreement = 0.5;
+      if (singles.length >= 3) {
+        const m = singles.reduce((s, a) => s + a, 0) / singles.length;
+        const cv2 = Math.sqrt(singles.reduce((s, a) => s + (a - m) ** 2, 0) / singles.length) / m;
+        shapeAgreement = Math.max(0, 1 - cv2 * 3); // cv 0.10 -> 0.70, cv 0.33 -> 0
+      }
+      // How much of the count is inferred from clumps rather than observed?
+      const fromClumps = areas.reduce((s, a) => s + Math.max(0, Math.round(a / u) - 1), 0);
+      const clumpBurden = count > 0 ? Math.min(1, fromClumps / count) : 1;
+      const flagPenalty = count > 0 ? Math.min(1, (out.lowConfidence || 0) / count) : 1;
+      // CROSS-CHECK: an independent estimate from pure area division. When two
+      // methods that share no arithmetic land on the same number, that is real
+      // corroboration; when they diverge the count is a guess wearing a
+      // number. This term does the most work — without it a confidently wrong
+      // count (r-cc7a2ada, 17 vs 19) scored as high as a correct one.
+      const areaEstimate = areas.reduce((s, a) => s + Math.max(1, Math.round(a / u)), 0);
+      const divergence = count > 0 ? Math.abs(areaEstimate - count) / count : 1;
+      const agreement = Math.max(0, 1 - divergence * 4); // 5% apart -> 0.80, 25% -> 0
+      const score = 0.25 * shapeAgreement + 0.20 * unitClarity
+                  + 0.15 * (1 - clumpBurden) + 0.10 * (1 - flagPenalty)
+                  + 0.30 * agreement;
+      out.confidence = Math.max(0, Math.min(1, +score.toFixed(3)));
+      out.confidenceParts = {
+        shapeAgreement: +shapeAgreement.toFixed(3),
+        unitClarity: +unitClarity.toFixed(3),
+        clumpBurden: +clumpBurden.toFixed(3),
+        agreement: +agreement.toFixed(3),
+        areaEstimate,
+        flagged: out.lowConfidence || 0,
+      };
+    } else {
+      out.confidence = 0;
+    }
+
     if (opts.returnImage) out.image = new Uint8ClampedArray(src.data); // RGBA at processed resolution
     return out;
   } finally {

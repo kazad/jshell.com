@@ -57,6 +57,22 @@
       display: inline-block; font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
       background: var(--surface-2); color: var(--dim); border-radius: 4px; padding: 2px 6px; margin-top: 6px;
     }
+    h2.sec { font-size:15px; margin:22px 0 10px; letter-spacing:.2px }
+    h2.sec .n { color: var(--dim); font-weight:400; font-size:13px }
+    .conf { display:flex; align-items:center; gap:6px; margin-top:6px }
+    .conf .bar { flex:1; height:5px; border-radius:3px; background:var(--surface-2); overflow:hidden }
+    .conf .bar > i { display:block; height:100%; background:var(--pass) }
+    .conf.lo .bar > i { background: var(--fail) }
+    .conf.mid .bar > i { background: var(--warn) }
+    .conf span { font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums }
+    .dbg { margin-top:8px }
+    .dbg summary { font-size:11px; color:var(--dim); cursor:pointer; user-select:none }
+    .dbg pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:10.5px;
+      line-height:1.45; color:#2f6b4f; background:#f3f7f4; border:1px solid #dbe7df;
+      border-radius:8px; padding:8px 9px; margin:6px 0 0; max-height:220px;
+      overflow:auto; white-space:pre-wrap; word-break:break-word;
+    }
     #zoom {
       position: fixed; inset: 0; background: rgba(5, 8, 14, 0.94); display: none;
       place-items: center; z-index: 10; cursor: zoom-out; padding: 20px;
@@ -90,14 +106,18 @@
   </div>
   <div id="summary"></div>
   <div id="analysis" style="display:none; gap:16px; flex-wrap:wrap; margin-bottom:18px; align-items:flex-start"></div>
-  <div id="grid" class="grid"></div>
+  <h2 id="fail-head" class="sec" hidden>Misses — exact count wrong</h2>
+  <div id="grid-fail" class="grid"></div>
+  <h2 id="pass-head" class="sec" hidden>Exact</h2>
+  <div id="grid-pass" class="grid"></div>
   <div id="zoom"></div>
 
   <script type="module">
     import { loadCV, countPills, drawOverlay } from './js/counter.js';
 
     const $ = (s) => document.querySelector(s);
-    const statusEl = $('#status'), grid = $('#grid'), summary = $('#summary'), zoom = $('#zoom');
+    const statusEl = $('#status'), summary = $('#summary'), zoom = $('#zoom');
+    const gridFail = $('#grid-fail'), gridPass = $('#grid-pass');
 
     // Pass: within max(1, 10%); warn: within 30%; fail: worse.
     const grade = (got, exp) => {
@@ -169,7 +189,8 @@
     async function runSuite(filter) {
       await loadManifest(); // pick up newly added corpus images without a reload
       const items = manifest.filter(filter);
-      grid.innerHTML = '';
+      gridFail.innerHTML = ''; gridPass.innerHTML = '';
+      $('#fail-head').hidden = true; $('#pass-head').hidden = true;
       summary.classList.remove('show');
       const rows = [];
       let done = 0;
@@ -184,7 +205,10 @@
               <span class="exp">expected ${item.expected}</span><span class="ms"></span></div>
             <span class="tag">${item.synthetic ? 'synthetic' : 'real photo'}</span>
           </div>`;
-        grid.appendChild(card);
+        // Parked in the miss grid until we know; exact results move to the
+        // pass grid below. Reviewing failures means never scrolling past 200
+        // successes to find them.
+        gridFail.appendChild(card);
 
         statusEl.textContent = `running ${++done}/${items.length}: ${item.file}`;
         await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 10)));
@@ -192,7 +216,9 @@
         try {
           const { canvas, imageData } = await loadImageData('testdata/' + item.file);
           const t0 = performance.now();
-          const result = countPills(cv, imageData, { maxDim: 1280, variant: $('#variant').value });
+          const trace = [];
+          const result = countPills(cv, imageData, { maxDim: 1280, variant: $('#variant').value,
+            debug: (d) => trace.push(d) });
           const ms = Math.round(performance.now() - t0);
           const g = grade(result.count, item.expected);
           card.classList.add(g);
@@ -212,7 +238,32 @@
             pair.appendChild(renderAnnotated(canvas, result, zw));
             zoom.classList.add('show');
           });
-          rows.push({ ...item, got: result.count, ms, grade: g });
+          // Confidence, straight from the counter.
+          if (typeof result.confidence === 'number') {
+            const c = result.confidence;
+            const el = document.createElement('div');
+            el.className = 'conf ' + (c < 0.6 ? 'lo' : c < 0.8 ? 'mid' : '');
+            const p = result.confidenceParts || {};
+            el.innerHTML = `<div class="bar"><i style="width:${Math.round(c * 100)}%"></i></div>
+              <span title="shape ${p.shapeAgreement ?? '?'} · unit ${p.unitClarity ?? '?'} · clump ${p.clumpBurden ?? '?'} · agree ${p.agreement ?? '?'} · flagged ${p.flagged ?? 0}">${c.toFixed(2)}</span>`;
+            card.querySelector('.meta').appendChild(el);
+          }
+          // Debug trace per image, collapsed. Same data the app's debug sheet
+          // shows, so a miss here can be diagnosed without re-running by hand.
+          if (trace.length) {
+            const det = document.createElement('details');
+            det.className = 'dbg';
+            det.innerHTML = `<summary>debug trace (${trace.length})</summary><pre>${
+              trace.map((d) => { const { stage, ...rest } = d;
+                return String(stage).padEnd(14) + Object.entries(rest)
+                  .map(([k, v]) => `${k}=${typeof v === 'number' ? +(+v).toFixed(3) : v}`).join(' ');
+              }).join('\n').replace(/[&<>]/g, (m2) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m2]))
+            }</pre>`;
+            card.querySelector('.meta').appendChild(det);
+          }
+          // File it: exact -> pass grid, anything else stays in misses.
+          if (result.count === item.expected) gridPass.appendChild(card);
+          rows.push({ ...item, got: result.count, ms, grade: g, conf: result.confidence });
         } catch (e) {
           card.classList.add('fail');
           card.querySelector('.got').textContent = 'ERR';
@@ -220,6 +271,12 @@
           rows.push({ ...item, got: null, ms: 0, grade: 'fail' });
         }
       }
+
+      const exact = rows.filter((r) => r.got === r.expected).length;
+      $('#fail-head').hidden = gridFail.children.length === 0;
+      $('#pass-head').hidden = gridPass.children.length === 0;
+      $('#fail-head').innerHTML = `Misses — exact count wrong <span class="n">${gridFail.children.length}</span>`;
+      $('#pass-head').innerHTML = `Exact <span class="n">${exact}</span>`;
 
       const n = rows.length;
       const passes = rows.filter((r) => r.grade === 'pass').length;
@@ -231,6 +288,7 @@
       const medErr = errs.length ? errs[errs.length >> 1].toFixed(0) : '—';
       const totalMs = rows.reduce((a, r) => a + r.ms, 0);
       summary.innerHTML = `
+        <div class="stat"><b style="color:var(--pass)">${exact}/${n}</b><span>EXACT</span></div>
         <div class="stat"><b style="color:var(--pass)">${passes}</b><span>pass ≤10%</span></div>
         <div class="stat"><b style="color:var(--warn)">${warns}</b><span>warn ≤30%</span></div>
         <div class="stat"><b style="color:var(--fail)">${fails}</b><span>fail</span></div>
