@@ -797,6 +797,112 @@ function blobAxes(bl, w, l, box) {
   return { major: 4 * Math.sqrt(Math.max(0, l1)), minor: 4 * Math.sqrt(l2) };
 }
 
+// -- SHAPE CLASSIFICATION (one medication => one shape) ---------------------
+//
+// Every pill primitive we care about (circle, ellipse/oval, capsule/caplet,
+// rounded rectangle) is CONVEX and FILLS its own oriented bounding box to a
+// characteristic, primitive-specific fraction:
+//
+//   fill = area / (major * minor)      circle/ellipse  pi/4 = 0.785
+//                                      capsule/stadium 0.79..0.86 (aspect-dep)
+//                                      roundrect       0.87..0.95
+//                                      rectangle       1.00
+//
+// Measured on the clean corpus, real pills land at fill 0.78-0.86 with
+// solidity 0.93-0.99. Texture fragments (paper-towel weave, wood grain, cloth)
+// are wildly NON-convex: measured fill 0.26-0.40, solidity 0.40-0.51. That is
+// a ~100x gap in fit residual, so it separates cleanly.
+//
+// Convex-hull area of a labelled blob, via a monotone-chain hull over the
+// blob's per-row x-extremes. A convex hull only ever touches the leftmost and
+// rightmost pixel of each row, so scanning row extremes is exact and costs one
+// pass instead of a full contour trace.
+function blobHullArea(bl, w, l, box) {
+  const pts = [];
+  for (let y = box.y0; y <= box.y1; y++) {
+    const row = y * w;
+    let lo = -1, hi = -1;
+    for (let x = box.x0; x <= box.x1; x++) {
+      if (bl[row + x] !== l) continue;
+      if (lo < 0) lo = x;
+      hi = x;
+    }
+    if (lo < 0) continue;
+    pts.push([lo, y]);
+    if (hi !== lo) pts.push([hi, y]);
+  }
+  if (pts.length < 3) return 0;
+  pts.sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const build = (src) => {
+    const st = [];
+    for (const p of src) {
+      while (st.length >= 2 && cross(st[st.length - 2], st[st.length - 1], p) <= 0) st.pop();
+      st.push(p);
+    }
+    st.pop();
+    return st;
+  };
+  const hull = build(pts).concat(build([...pts].reverse()));
+  if (hull.length < 3) return 0;
+  let a2 = 0;
+  for (let i = 0; i < hull.length; i++) {
+    const p = hull[i], q = hull[(i + 1) % hull.length];
+    a2 += p[0] * q[1] - q[0] * p[1];
+  }
+  // +0.5*perimeter-ish correction is not needed: both hull and pixel area are
+  // measured in the same pixel-centre coordinates, so the ratio is unbiased
+  // for blobs more than a few px across (all pill-sized blobs qualify).
+  return Math.abs(a2) / 2;
+}
+
+// Which convex primitive does this (fill, aspect) pair best describe, and how
+// far off is it? Returns {primitive, err} where err is the absolute fill
+// deviation from that primitive's ideal at this aspect ratio.
+//
+// The catalogue is deliberately tiny — these are the only shapes a tablet or
+// capsule press produces. A blob that fits NONE of them well is not a pill of
+// any kind, regardless of what the other pills in the photo look like.
+function fitPrimitive(fill, aspect) {
+  const a = Math.max(1, aspect);
+  const cands = [
+    // circle / round tablet: only meaningful when nearly isotropic
+    { primitive: 'circle', ideal: Math.PI / 4, penalty: a > 1.25 ? (a - 1.25) : 0 },
+    // ellipse / oval tablet: pi/4 at every aspect
+    { primitive: 'ellipse', ideal: Math.PI / 4, penalty: 0 },
+    // capsule / caplet (stadium): two half-discs joined by a rectangle.
+    // area = minor*(major-minor) + pi/4*minor^2  =>  fill = 1 - (1-pi/4)/a
+    { primitive: 'capsule', ideal: 1 - (1 - Math.PI / 4) / a, penalty: a < 1.35 ? (1.35 - a) * 0.5 : 0 },
+    // rounded rectangle with corner radius ~ minor/4:
+    // area = major*minor - (4-pi)*(minor/4)^2
+    { primitive: 'roundrect', ideal: 1 - (4 - Math.PI) / (16 * a), penalty: 0.02 },
+  ];
+  let best = null;
+  for (const c of cands) {
+    const err = Math.abs(fill - c.ideal) + c.penalty;
+    if (!best || err < best.err) best = { primitive: c.primitive, err };
+  }
+  return best;
+}
+
+// Per-blob shape descriptor. `solidity` is the convexity measure that kills
+// texture fragments; `fill` + `aspect` pick the primitive.
+function shapeOf(bl, w, l, box, area, ax) {
+  const major = ax.major || 0, minor = ax.minor || 0;
+  if (!(major > 0) || !(minor > 0)) return null;
+  const hull = blobHullArea(bl, w, l, box);
+  const solidity = hull > 0 ? Math.min(1, area / hull) : 0;
+  const fill = area / (major * minor);
+  const aspect = major / minor;
+  const fit = fitPrimitive(fill, aspect);
+  // Residual = primitive misfit + a convexity penalty. 0.93 is the measured
+  // floor for real pills (they run 0.93-0.99); the 2x weight makes a badly
+  // non-convex fragment dominate the score even if its fill happens to land
+  // near a primitive's ideal by accident.
+  const residual = fit.err + Math.max(0, 0.93 - solidity) * 2;
+  return { primitive: fit.primitive, residual, solidity, fill, aspect, major, minor, area };
+}
+
 // Single-pill LENGTH for a same-medication population. An oblong caplet keeps
 // its MAJOR axis when it tips onto its narrow side — only the minor axis (and
 // hence the projected AREA) collapses, by roughly 3x. Area-based calibration
@@ -1718,10 +1824,130 @@ export function countPills(cv, source, opts = {}) {
         const b = blobBox.get(l);
         if (b) blobAxis.set(l, blobAxes(bl, w, l, b));
       }
+      // -- SHAPE CLASSIFICATION (one medication => one shape) ---------------
+      //
+      // ONE MEDICATION PER PHOTO means every pill in this image is the same
+      // shape AND size as every other. That is a far stronger prior than any
+      // fixed shape catalogue: rather than asking "does this look like some
+      // pill?", ask "does this look like the OTHER blobs in this very photo?".
+      // Scale-free, so it is not fooled by illumination or camera distance.
+      //
+      // Measured separation on a clean board photo (r-295482c1, 19 pills):
+      // real pills score residual 0.009-0.049, junk scores 0.482-0.900 —
+      // roughly 100x, with no overlap. On paper-towel texture the junk runs
+      // 1.2-1.6 (fill 0.26-0.40, solidity 0.40-0.51).
+      //
+      // Computed HERE, before the length/area calibration, because the
+      // template is the only estimator in this function that survives a photo
+      // where junk outnumbers pills — and the calibration below needs that.
+      const blobShape = new Map();
+      for (const l of blobList) {
+        const b = blobBox.get(l);
+        const ax = blobAxis.get(l);
+        if (!b || !ax) continue;
+        const s = shapeOf(bl, w, l, b, blobAreas[l], ax);
+        if (s) blobShape.set(l, s);
+      }
+
+      // ROBUST TEMPLATE ESTIMATION. The template must survive a population in
+      // which junk OUTNUMBERS pills (the paper-towel case is 37 blobs for 14
+      // pills). A plain median over all blobs is then a median of junk, and a
+      // filter built on it drops nothing — measured: a naive width-only rule
+      // (minor < 0.55*template_minor) removed ZERO junk there.
+      //
+      // So seed from the MOST CONVEX blobs (solidity >= 0.93 — the measured
+      // floor for real pills, which no texture fragment reaches), then
+      // re-estimate once over everything the seed accepts, so the template is
+      // not biased by whichever convex blobs happened to be seeds. When too
+      // few convex blobs exist to form a median there is no template and every
+      // shape-derived rule below is skipped.
+      const shapeVals = [...blobShape.values()];
+      let template = null;
+      if (shapeVals.length >= 6) {
+        let seed = shapeVals.filter((s) => s.solidity >= 0.93);
+        if (seed.length < 3) seed = shapeVals.filter((s) => s.solidity >= 0.88);
+        if (seed.length >= 3) {
+          const mk = (pool) => ({
+            residual: median(pool.map((s) => s.residual)),
+            solidity: median(pool.map((s) => s.solidity)),
+            fill: median(pool.map((s) => s.fill)),
+            aspect: median(pool.map((s) => s.aspect)),
+            primitive: (() => {
+              const t = new Map();
+              for (const s of pool) t.set(s.primitive, (t.get(s.primitive) || 0) + 1);
+              let bp = null, bn = 0;
+              for (const [p, n] of t) if (n > bn) { bn = n; bp = p; }
+              return bp;
+            })(),
+          });
+          template = mk(seed);
+          const near = shapeVals.filter((s) =>
+            s.solidity >= 0.90 && Math.abs(s.fill - template.fill) <= 0.12);
+          if (near.length >= 3) template = mk(near);
+        }
+      }
+
+      // SHAPE-DERIVED SCALE. How big is ONE pill, measured only over blobs the
+      // template vouches for. The template pool is selected by CONVEXITY,
+      // which texture fragments cannot fake, so these medians are the honest
+      // single-pill scale even when junk dominates by count.
+      const tplPool = template
+        ? [...blobShape.entries()].filter(([, s]) => s.solidity >= 0.90
+            && Math.abs(s.fill - template.fill) <= 0.12) : [];
+      const tplMajor = tplPool.length ? median(tplPool.map(([, s]) => s.major)) : 0;
+      const tplArea = tplPool.length ? median(tplPool.map(([, s]) => s.area)) : 0;
+      // Half-thickness of one pill, from the same convex population. Used to
+      // tell a multi-pill clump (pill-thick along its whole length) from a
+      // sprawling texture fragment (thin however far it runs).
+      const tplPeak = tplPool.length ? median(tplPool.map(([l]) => peaks[l] || 0)) : 0;
+
       // Calibrated on calList for the same reason as the area unit: imprint
       // and highlight fragments are short as well as small, so leaving them
       // in collapses unitLen too (21.7 vs a true ~100 on the advil photos).
-      const unitLen = estimateUnitLength(calList.map((l) => (blobAxis.get(l) || {}).major || 0).filter((m) => m > 0));
+      let unitLen = estimateUnitLength(calList.map((l) => (blobAxis.get(l) || {}).major || 0).filter((m) => m > 0));
+
+      // SHAPE-VOUCHED LENGTH OVERRIDE.
+      // estimateUnitLength takes the median of the SHORT HALF of blob lengths,
+      // which is correct when the short blobs are single pills and the long
+      // ones are clumps. On a textured surface it is exactly backwards: the
+      // short half is weave nubs and the pills are the long half. Measured on
+      // t2-ironyl-capsules-papertowel-2 — unitLen came out 34 px against real
+      // capsules of ~92 px, and the same contamination then drove unitfix to a
+      // unit of 242 against a true ~2570, an 11x collapse that inflated the
+      // count to 72 for 14 pills.
+      //
+      // The shape template is immune to that inversion because it selects on
+      // convexity rather than size, so when it disagrees materially with the
+      // length estimator, believe the template. Guarded to fire only when the
+      // template rests on a real population (>=5 vouched blobs) and only when
+      // the disagreement is large (>1.4x), so on clean photos — where the two
+      // agree within a few percent — this is a no-op.
+      //
+      // TWO GUARDS, both needed. The override may only RAISE unitLen, and only
+      // when the blobs it is overruling really are sub-pill debris.
+      //
+      // Raising only, because the template pool can itself contain clumps: two
+      // touching tablets are convex enough to be vouched for, and on a dense
+      // photo they drag tplMajor up. Measured on
+      // synth2-rc-gradient-small-n60-t65-s171 (60 small tablets, heavy
+      // touching) the override doubled unitLen from 31.3 to 61.1 and cost 11
+      // pills. Requiring the DISPLACED population to be sub-pill in area is
+      // what distinguishes the two cases: on the paper-towel photo the short
+      // blobs are weave nubs at ~5% of a pill's area, while on the dense
+      // synthetic they are real tablets at full area.
+      if (tplMajor > 0 && tplPool.length >= 5
+        && (unitLen <= 0 || tplMajor > 1.4 * unitLen)) {
+        const shortAreas = blobList
+          .filter((l) => ((blobAxis.get(l) || {}).major || 0) > 0
+            && (blobAxis.get(l).major) <= 1.35 * unitLen)
+          .map((l) => blobAreas[l]);
+        const shortAreMinor = shortAreas.length >= 3
+          && tplArea > 0 && median(shortAreas) < 0.35 * tplArea;
+        if (unitLen <= 0 || shortAreMinor) {
+          opts.debug?.({ stage: 'shapelen', from: +unitLen.toFixed(1), to: +tplMajor.toFixed(1), vouched: tplPool.length });
+          unitLen = tplMajor;
+        }
+      }
       // Unit WIDTH, from blobs length says are single pills. Length alone
       // cannot bound a SIDE-BY-SIDE pair (two pills abreast are wide, not
       // long), so the width of a known-single pill is needed to recognise
@@ -1780,7 +2006,20 @@ export function countPills(cv, source, opts = {}) {
           .map((l) => blobAreas[l]);
         if (singleAreas.length >= 5) {
           const unitSingle = median(singleAreas);
-          if (unitSingle >= absFloor && Math.abs(unitSingle - unit) > 0.15 * unitSingle) {
+          // SHAPE VETO ON THE UNIT FIX. The "singles" pool is selected by
+          // length and area floor only, so on a textured surface it fills with
+          // weave nubs and the median collapses. Measured on
+          // t2-ironyl-capsules-papertowel-2: unitfix overwrote a CORRECT unit
+          // of 2043 with 242 (11x too small), and the count went to 72 for 14
+          // pills. The shape template is the independent witness — it is
+          // selected by convexity, not size, so junk cannot vote in it. Refuse
+          // any unit fix that contradicts the vouched pill area by more than
+          // 2x. On clean photos the two agree closely and this never fires.
+          const contradicted = tplArea > 0 && tplPool.length >= 5
+            && (unitSingle < 0.5 * tplArea || unitSingle > 2 * tplArea);
+          if (contradicted) {
+            opts.debug?.({ stage: 'unitfix-veto', proposed: unitSingle, tplArea, unit });
+          } else if (unitSingle >= absFloor && Math.abs(unitSingle - unit) > 0.15 * unitSingle) {
             opts.debug?.({ stage: 'unitfix', from: unit, to: unitSingle, singles: singleAreas.length });
             unit = unitSingle;
           }
@@ -1894,6 +2133,171 @@ export function countPills(cv, source, opts = {}) {
             opts.debug?.({ stage: 'lenjunk', removed: before - regions.length, unitLen });
             for (const l of junk) regByBlob.delete(l);
           }
+        }
+      }
+
+      // -- SHAPE-CONSISTENCY JUNK VETO -------------------------------------
+      //
+      // The template and its scale were computed above, before calibration, so
+      // that unitfix could be guarded by them. Here they are used for what they
+      // were designed for: deciding which blobs are not pills at all.
+      //
+      // THE CLUMP RULE. A multi-pill clump legitimately has non-pill shape —
+      // two touching caplets are a peanut, not a capsule. Rejecting clumps for
+      // "not looking like one pill" is catastrophic: measured, it zeroed
+      // lined-69204ff4 (19 pills in one merged mass -> 0) and froze
+      // t2-advil-scatter-dark-1 at 5 of 28. So a blob that could be a clump is
+      // NEVER vetoed here; it is left for the mass/watershed/erosion splitting
+      // logic below.
+      //
+      // ON-EDGE PILLS. An oblong pill resting on its narrow side keeps its
+      // MAJOR axis, loses minor axis and ~1/3 of its area, and stays a clean
+      // convex primitive (it is still a capsule, just a thinner one). It is
+      // therefore protected explicitly by major-axis agreement, and the
+      // template deviation below is measured on shape descriptors that survive
+      // the tip (primitive + residual), never on minor axis or area alone.
+      if (opts.debug) {
+        for (const l of blobList) {
+          const s = blobShape.get(l);
+          if (!s) continue;
+          opts.debug({ stage: 'shape', blob: l, primitive: s.primitive,
+            residual: +s.residual.toFixed(3), solidity: +s.solidity.toFixed(3),
+            fill: +s.fill.toFixed(3), aspect: +s.aspect.toFixed(2),
+            area: s.area, lenR: unitLen > 0 ? +(s.major / unitLen).toFixed(2) : null,
+            areaR: tplArea > 0 ? +(s.area / tplArea).toFixed(2) : null,
+            tplFill: template ? +template.fill.toFixed(3) : null,
+            tplPrimitive: template ? template.primitive : null,
+            // Plain-language verdict for the debug sheet: what this blob is,
+            // according to shape alone.
+            verdict: !template ? 'no-template'
+              : (tplArea > 0 && s.area > 1.30 * tplArea) ? 'clump'
+              // Full length but markedly narrower than the template: the pill
+              // is resting on its narrow side.
+              : (tplMajor > 0 && s.major >= 0.85 * tplMajor
+                 && s.aspect > 1.35 * template.aspect) ? 'on-edge'
+              : (s.residual <= Math.max(0.30, 4 * template.residual + 0.12)) ? 'single'
+              : 'off-shape' });
+        }
+      }
+
+      if (template && tplMajor > 0 && tplArea > 0) {
+        const shapeJunk = new Set();
+        for (const l of blobList) {
+          const s = blobShape.get(l);
+          if (!s) continue;
+          // CLUMP IMMUNITY. Anything that could hold more than one pill is out
+          // of scope for this veto — its shape is allowed to be arbitrary.
+          // Measured against the SHAPE template's own scale, not the global
+          // unit, for the reason documented above.
+          const bigByLength = s.major > 1.30 * tplMajor;
+          const bigByArea = s.area > 1.30 * tplArea;
+          // Near-integer multiple of the unit area is the classic clump
+          // signature, and it holds even for a clump that is short and fat.
+          const mult = s.area / tplArea;
+          const integerish = mult >= 1.5 && Math.abs(mult - Math.round(mult)) <= 0.35;
+          // ...but a clump is made of PILL-WIDTH MATERIAL. A sprawling texture
+          // fragment is also "big", and waving it through on size alone is
+          // exactly how the paper-towel photo kept its 37 junk blobs.
+          //
+          // LOCAL WIDTH is the first of the two tests that make this call. The
+          // distance transform's peak is the blob's half-thickness at its
+          // fattest point. A clump of pills is as thick as one pill everywhere
+          // along it, so its peak matches the template population's peak; a
+          // weave filament or grain streak is thin however far it sprawls.
+          //
+          // The threshold has to clear an ON-EDGE pill, whose half-width is
+          // genuinely reduced — a pair of on-edge caplets end to end is a real
+          // clump made of thin material. Measured on
+          // synth2-cw-kraft-normal-n20-t25-s303, blob 3 is exactly that pair
+          // and reads 0.44 of the template peak; a 0.70 threshold rejected it
+          // and cost a pill. 0.40 clears on-edge pills while a weave filament,
+          // which is a small fraction of a pill's width, stays out.
+          const thickEnough = tplPeak > 0 ? peaks[l] >= 0.40 * tplPeak : true;
+          // ELONGATION is the second bound. A pile of N identical pills is
+          // COMPACT: however they are dropped they land in a heap, not a
+          // queue, because each pill is only ~2.5 long. Measured aspect of
+          // genuine multi-pill masses across the corpus is 1.42-4.2, including
+          // the single 14-pill mass on lined-69204ff4 at 1.49. The weave
+          // smears that pass the thickness test measure 17.8 and 22.3 — they
+          // run the width of the frame, and were being divided by area into 20
+          // and 30 "pills", 50 of that photo's 56.
+          //
+          // The ceiling scales with how many pills the blob could hold, so a
+          // genuine queue laid end to end is still admitted, but it is capped:
+          // no arrangement of one medication reaches six pill-aspects of
+          // elongation, whereas a smear does.
+          //
+          // SOLIDITY IS DELIBERATELY NOT USED AS A CLUMP GATE. It looks
+          // tempting (smears measure 0.43-0.63) but it is not safe: the more
+          // pills a mass holds, the more notches it has. Genuine 2-4 pill
+          // clumps on the real corpus score 0.62-0.77 (r-681ce773 blob 2 at
+          // 0.62, r-cc7a2ada blob 5 at 0.66, r-295482c1 blob 12 at 0.69) and
+          // lined-69204ff4's 14-pill mass scores 0.57 — squarely inside the
+          // range texture fragments occupy. A 0.80 floor dropped the real
+          // corpus from 19 to 11; a 0.58 floor cut lined-69204ff4 from 14 to
+          // 5. Fill fares no better: the smears measure 0.64-0.66 and a
+          // genuine 2-pill chain measures 0.657. Thickness and elongation are
+          // the only two that separate without casualties.
+          //
+          // nMax takes whichever dimension claims more pills, because area
+          // alone under-counts: an ON-EDGE pill contributes full length but
+          // only ~2/3 of the flat area. Measured on
+          // synth2-cw-kraft-normal-n20-t25-s303, blob 3 spans 1.9 pill-lengths
+          // at 0.94 of ONE pill area — a pair lying on edge end to end. An
+          // area-only nMax called it 1, denied it immunity, and cost a pill.
+          const nMax = Math.max(2,
+            Math.ceil(s.area / Math.max(1, tplArea)),
+            Math.ceil(s.major / Math.max(1, tplMajor)));
+          const chainAspect = Math.min(6 * Math.max(1, template.aspect),
+            Math.max(4.5, nMax * Math.max(1, template.aspect)));
+          const chainable = s.aspect <= 4.5 || s.aspect <= chainAspect;
+          const couldBeClump = (bigByLength || bigByArea || integerish) && thickEnough && chainable;
+          if (couldBeClump) continue;
+
+          // ON-EDGE PROTECTION. Same length as the population, convex, and a
+          // legitimate primitive => an oblong pill on its narrow side. Its
+          // minor axis and area are ALLOWED to collapse; nothing below may
+          // reject it. Measured on-edge pills keep 0.85-1.10 of unit length.
+          const onEdge = s.major >= 0.85 * tplMajor && s.solidity >= 0.90 && s.residual <= 0.20;
+          if (onEdge) continue;
+
+          // Deviation from the photo's OWN consensus template. Two independent
+          // arms, both scale-free:
+          //   (a) absolute shape quality — fits no convex primitive at all,
+          //   (b) disagreement with the template's fill/solidity.
+          const badPrimitive = s.residual > Math.max(0.30, 4 * template.residual + 0.12);
+          const nonConvex = s.solidity < 0.82 && s.solidity < 0.88 * template.solidity;
+          const offTemplate = Math.abs(s.fill - template.fill) > 0.22;
+          // (c) WRONG SIZE for this medication. One medication per photo means
+          // one SIZE too, and unlike shape, size has no on-edge exception in
+          // the major axis — tipping a pill preserves its length. A blob at a
+          // fraction of the template's length is a speck, however tidy its own
+          // little shape is. This is the arm that removes imprint fragments
+          // and weave nubs that happen to be convex: measured on the
+          // paper-towel photo, 8 such blobs at area 136-350 against a template
+          // area of ~2600, each with solidity 0.94-1.00 and residual < 0.05.
+          // Both axes must be short, so a genuine on-edge pill (full length,
+          // thin) can never satisfy it.
+          const speck = s.major < 0.60 * tplMajor && s.area < 0.35 * tplArea;
+          if (badPrimitive || nonConvex || speck || (offTemplate && s.solidity < 0.90)) {
+            shapeJunk.add(l);
+            opts.debug?.({ stage: 'shapewhy', blob: l, badPrimitive, nonConvex, speck,
+              offTemplate, area: s.area, tplArea, major: +s.major.toFixed(1), tplMajor: +tplMajor.toFixed(1),
+              solidity: +s.solidity.toFixed(3), residual: +s.residual.toFixed(3) });
+          }
+        }
+        if (shapeJunk.size) {
+          const before = regions.length;
+          regions = regions.filter((r) => {
+            const b = labelBlob.get(r.label) || 0;
+            if (!shapeJunk.has(b)) return true;
+            count -= r.units;
+            return false;
+          });
+          opts.debug?.({ stage: 'shapejunk', removed: before - regions.length,
+            blobs: blobList.length, tplFill: +template.fill.toFixed(3),
+            tplPrimitive: template.primitive, tplResidual: +template.residual.toFixed(3) });
+          for (const l of shapeJunk) regByBlob.delete(l);
         }
       }
 
