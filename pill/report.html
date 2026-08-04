@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ValEye — Technique Report</title>
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <style>
+    :root {
+      --bg:#faf7f2; --surface:#fff; --surface-2:#f1ece3;
+      --text:#2d3142; --dim:#8a8f9e;
+      --pass:#2fb380; --warn:#e9a13b; --fail:#e2606f; --accent:#2fb380;
+      --shadow:0 2px 14px rgba(45,49,66,.08);
+    }
+    *{box-sizing:border-box;margin:0}
+    body{background:var(--bg);color:var(--text);padding:20px 18px 60px;
+      font-family:ui-rounded,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif}
+    header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+    h1{font-size:20px}
+    h1 a{color:var(--dim);text-decoration:none;font-weight:400;font-size:15px}
+    h2{font-size:15px;margin:26px 0 10px;letter-spacing:.2px}
+    .sub{color:var(--dim);font-size:13px;margin-bottom:18px;max-width:70ch;line-height:1.5}
+    .card{background:var(--surface);border-radius:14px;box-shadow:var(--shadow);
+      padding:14px 16px;margin-bottom:14px}
+    table{border-collapse:collapse;width:100%;font-size:13px}
+    th,td{padding:7px 9px;text-align:left;border-bottom:1px solid var(--surface-2)}
+    th{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);font-weight:700}
+    td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+    tr.win td{background:rgba(47,179,128,.09)}
+    tr.base td{background:rgba(138,143,158,.10);font-weight:600}
+    .bar{height:7px;border-radius:4px;background:var(--surface-2);overflow:hidden;min-width:70px}
+    .bar > i{display:block;height:100%;background:var(--accent)}
+    .pill{display:inline-block;font-size:10px;letter-spacing:.6px;text-transform:uppercase;
+      border-radius:5px;padding:2px 7px;font-weight:700}
+    .MERGED{background:rgba(226,96,111,.14);color:#b8404f}
+    .COUNTING{background:rgba(233,161,59,.16);color:#a9720f}
+    .NOISE{background:rgba(90,110,200,.14);color:#4356a8}
+    .ok{background:rgba(47,179,128,.15);color:#1c7a56}
+    code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+    .path code{background:var(--surface-2);border-radius:4px;padding:1px 5px;margin-right:3px}
+    .empty{color:var(--dim);font-size:13px;padding:10px 0}
+    .findings li{font-size:13px;line-height:1.6;margin-bottom:7px;max-width:80ch}
+    .stat{display:inline-block;margin-right:26px}
+    .stat b{display:block;font-size:22px}
+    .stat span{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--dim)}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ValEye — Technique Report
+      <a href="./">← app</a> <a href="test.html">test bench</a> <a href="about.html">how it works</a></h1>
+  </header>
+  <p class="sub">
+    A tournament of image-cleanup and counting techniques, run as a branching pipeline.
+    Each run is one path through the stages; every score is EXACT counts on
+    hand-verified labels only. Techniques that lost are shown too — a negative
+    result is a result.
+  </p>
+
+  <div id="summary" class="card"></div>
+
+  <h2>Where the losses happen</h2>
+  <p class="sub" style="margin-bottom:10px">
+    Each failure is classified by comparing the blob count in the final mask to the
+    true pill count. This says <em>which stage</em> to fix:
+    <span class="pill MERGED">merged</span> too few blobs — a splitting problem.
+    <span class="pill NOISE">noise</span> too many blobs — a mask problem.
+    <span class="pill COUNTING">counting</span> blob count is already right and we
+    still miscount — pure post-mask logic.
+  </p>
+  <div class="card"><div id="classes"></div></div>
+
+  <h2>Best branch per failure class</h2>
+  <div class="card"><div id="winners"><p class="empty">Awaiting tournament results.</p></div></div>
+
+  <h2>Tournament runs</h2>
+  <div class="card"><div id="runs"></div></div>
+
+  <h2>Findings</h2>
+  <div class="card"><ul id="findings" class="findings"></ul></div>
+
+  <script type="module">
+    const $ = (s) => document.querySelector(s);
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+    let data = null;
+    try {
+      const r = await fetch('docs/tournament.json', { cache: 'no-store' });
+      if (r.ok) data = await r.json();
+    } catch { /* not generated yet */ }
+
+    // Failure localisation is measured independently of the tournament, so it
+    // renders even before any tournament run exists.
+    let fail = null;
+    try {
+      const r = await fetch('docs/failures.json', { cache: 'no-store' });
+      if (r.ok) fail = await r.json();
+    } catch { /* optional */ }
+    if (fail) {
+      const t = fail.totals || {};
+      const order = { MERGED: 0, COUNTING: 1, NOISE: 2 };
+      const rows = (fail.rows || []).slice()
+        .sort((a, b) => (order[a.class] - order[b.class]) || a.key.localeCompare(b.key));
+      $('#classes').innerHTML = `
+        <p style="font-size:13px;color:var(--dim);margin-bottom:10px">
+          ${esc(fail.measured || '')} —
+          <b style="color:var(--text)">${t.exact}/${t.images} exact</b>,
+          ${t.MERGED} merged, ${t.COUNTING} counting, ${t.NOISE} noise.
+        </p>
+        <table><thead><tr><th>class</th><th>image</th>
+          <th class="num">got</th><th class="num">want</th><th class="num">blobs</th>
+          <th>reading</th></tr></thead><tbody>` +
+        rows.map((r) => {
+          const why = r.class === 'COUNTING'
+            ? (r.blobs === r.want
+                ? 'mask ALREADY CORRECT — pure post-mask logic bug'
+                : `${r.blobs} blobs vs ${r.want} pills — logic, not segmentation`)
+            : r.class === 'MERGED' ? `${r.want - r.blobs} blobs short of the pill count`
+            : 'more blobs than pills';
+          return `<tr><td><span class="pill ${r.class}">${r.class.toLowerCase()}</span></td>
+            <td><code>${esc(r.key)}</code></td>
+            <td class="num">${r.got}</td><td class="num">${r.want}</td><td class="num">${r.blobs}</td>
+            <td style="color:var(--dim);font-size:12px">${esc(why)}</td></tr>`;
+        }).join('') + '</tbody></table>' +
+        (fail.note ? `<p style="font-size:12px;color:var(--dim);margin-top:10px">${esc(fail.note)}</p>` : '');
+    }
+
+    if (!data) {
+      $('#summary').innerHTML =
+        `<p class="empty">No tournament results yet. Generate them with the tournament
+         harness; this page renders <code>docs/tournament.json</code>.</p>`;
+      $('#runs').innerHTML = '<p class="empty">—</p>';
+      $('#findings').innerHTML = '<li class="empty">—</li>';
+    } else {
+      const runs = (data.runs || []).slice().sort((a, b) => b.exact - a.exact);
+      const base = data.baseline || {};
+      const best = runs[0];
+      $('#summary').innerHTML = `
+        <div class="stat"><b>${base.exact ?? '—'}/${base.total ?? '—'}</b><span>production baseline</span></div>
+        <div class="stat"><b>${best ? best.exact + '/' + best.total : '—'}</b><span>best run</span></div>
+        <div class="stat"><b>${runs.length}</b><span>paths scored</span></div>
+        ${data.generated ? `<div class="stat"><b style="font-size:14px">${esc(data.generated)}</b><span>generated</span></div>` : ''}`;
+
+      // Which branch wins for which failure class? More useful than one global
+      // winner, because the app could route by measured image properties.
+      const withClass = runs.filter((r) => r.byClass);
+      if (withClass.length) {
+        const keys = [...new Set(withClass.flatMap((r) => Object.keys(r.byClass)))];
+        $('#winners').innerHTML = `<table><thead><tr>
+            <th>class</th><th class="num">best exact</th><th>winning path</th></tr></thead><tbody>` +
+          keys.map((k) => {
+            const champ = withClass.reduce((m, r) =>
+              (r.byClass[k]?.exact ?? -1) > (m.byClass[k]?.exact ?? -1) ? r : m, withClass[0]);
+            const c = champ.byClass[k] || {};
+            return `<tr><td><span class="pill ${k}">${k.toLowerCase()}</span></td>
+              <td class="num">${c.exact ?? '—'}/${c.total ?? '—'}</td>
+              <td class="path">${Object.values(champ.path || {}).map((p) => `<code>${esc(p)}</code>`).join('')}</td></tr>`;
+          }).join('') + '</tbody></table>';
+      } else {
+        $('#winners').innerHTML = '<p class="empty">No per-class data in this run.</p>';
+      }
+
+      const maxEx = Math.max(...runs.map((r) => r.exact), base.exact || 0, 1);
+      $('#runs').innerHTML = `<table><thead><tr>
+          <th>path</th><th class="num">exact</th><th></th><th class="num">within 1</th>
+          <th class="num">ms/img</th></tr></thead><tbody>` +
+        (base.exact != null ? `<tr class="base"><td>${esc(base.name || 'production')}</td>
+           <td class="num">${base.exact}/${base.total}</td>
+           <td><div class="bar"><i style="width:${base.exact / maxEx * 100}%"></i></div></td>
+           <td class="num">—</td><td class="num">—</td></tr>` : '') +
+        runs.map((r, i) => `<tr class="${i === 0 ? 'win' : ''}">
+            <td class="path">${Object.values(r.path || {}).map((p) => `<code>${esc(p)}</code>`).join('')}</td>
+            <td class="num">${r.exact}/${r.total}</td>
+            <td><div class="bar"><i style="width:${r.exact / maxEx * 100}%"></i></div></td>
+            <td class="num">${r.within1 ?? '—'}</td>
+            <td class="num">${r.msPerImage != null ? Math.round(r.msPerImage) : '—'}</td>
+          </tr>`).join('') + '</tbody></table>';
+
+      $('#findings').innerHTML = (data.findings || []).length
+        ? data.findings.map((f) => `<li>${esc(f)}</li>`).join('')
+        : '<li class="empty">—</li>';
+    }
+  </script>
+</body>
+</html>

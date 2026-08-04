@@ -1,0 +1,17 @@
+{
+  "measured": "production pipeline at commit fca2f5e, hand-verified sets only",
+  "totals": { "MERGED": 6, "COUNTING": 4, "NOISE": 0, "exact": 18, "images": 28 },
+  "rows": [
+    {"class":"COUNTING","key":"onedge/edge-ad9ea48c.jpg","got":18,"want":19,"blobs":18},
+    {"class":"COUNTING","key":"real/r-5de0d534.jpg","got":18,"want":19,"blobs":18},
+    {"class":"COUNTING","key":"real/r-96e5f08f.jpg","got":20,"want":19,"blobs":15},
+    {"class":"COUNTING","key":"real/r-9e5ac6c9.jpg","got":18,"want":19,"blobs":18},
+    {"class":"MERGED","key":"lined/lined-503b3041.jpg","got":23,"want":19,"blobs":8},
+    {"class":"MERGED","key":"lined/lined-bfdbfef9.jpg","got":17,"want":19,"blobs":7},
+    {"class":"MERGED","key":"real/r-554c3c1a.jpg","got":20,"want":19,"blobs":14},
+    {"class":"MERGED","key":"real/r-cc7a2ada.jpg","got":18,"want":19,"blobs":10},
+    {"class":"MERGED","key":"real/r-f5d11815.jpg","got":18,"want":19,"blobs":11},
+    {"class":"MERGED","key":"real/r-fd69dff9.jpg","got":20,"want":19,"blobs":14}
+  ],
+  "note": "NOISE is 0 on these sets but dominates the paper-towel diagnostics (76 vs 15, 9 vs 14)."
+}
