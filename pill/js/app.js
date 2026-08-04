@@ -505,17 +505,49 @@ let lastDist = 0, lastTap = 0;
 function applyZoom() {
   els.zoomWrap.style.transform = `translate(${zoom.tx}px, ${zoom.ty}px) scale(${zoom.s})`;
 }
+
+// Keep the photo inside its container. Without this a tall photo can be
+// scrolled (or left) so far that badges near an edge sit outside the visible
+// box and look cut off — reported from the field with badge 19 sliced by the
+// bottom edge. When an axis is smaller than the container it is centred;
+// when larger, panning is clamped so an edge can never come inward past the
+// container edge.
+function clampPan() {
+  const box = els.resultPhoto.getBoundingClientRect();
+  const w = els.zoomWrap.offsetWidth * zoom.s;
+  const h = els.zoomWrap.offsetHeight * zoom.s;
+  zoom.tx = w <= box.width ? (box.width - w) / 2
+    : Math.min(0, Math.max(box.width - w, zoom.tx));
+  zoom.ty = h <= box.height ? (box.height - h) / 2
+    : Math.min(0, Math.max(box.height - h, zoom.ty));
+}
+
+// "Fit" is the scale at which the whole photo is visible. It is the zoom
+// FLOOR, so the user can always get back to seeing everything — previously
+// the floor was hard-coded to 1, which made an overflowing photo impossible
+// to view in full.
+function fitScale() {
+  const box = els.resultPhoto.getBoundingClientRect();
+  const w = els.zoomWrap.offsetWidth, h = els.zoomWrap.offsetHeight;
+  if (!w || !h || !box.width) return 1;
+  return Math.min(1, box.width / w, box.height / h);
+}
+
 function resetZoom() {
-  zoom.s = 1; zoom.tx = 0; zoom.ty = 0;
+  zoom.s = fitScale();
+  zoom.tx = 0; zoom.ty = 0;
+  clampPan();
   applyZoom();
 }
+
 function scaleAround(px, py, k) {
-  const newS = Math.min(5, Math.max(1, zoom.s * k));
+  const floor = fitScale();
+  const newS = Math.min(6, Math.max(floor, zoom.s * k));
   const kEff = newS / zoom.s;
   zoom.s = newS;
   zoom.tx = px - (px - zoom.tx) * kEff;
   zoom.ty = py - (py - zoom.ty) * kEff;
-  if (zoom.s === 1) { zoom.tx = 0; zoom.ty = 0; }
+  clampPan();
   applyZoom();
 }
 if (els.resultPhoto) {
@@ -526,8 +558,9 @@ if (els.resultPhoto) {
       const now = Date.now();
       if (now - lastTap < 300) { // double-tap: toggle 2.5x at tap point
         const r = els.resultPhoto.getBoundingClientRect();
-        if (zoom.s > 1) resetZoom();
-        else scaleAround(e.clientX - r.left, e.clientY - r.top, 2.5);
+        // Toggle between "whole photo visible" and a 2.5x look.
+        if (zoom.s > fitScale() * 1.05) resetZoom();
+        else scaleAround(e.clientX - r.left, e.clientY - r.top, 2.5 / zoom.s);
       }
       lastTap = now;
     }
@@ -548,10 +581,18 @@ if (els.resultPhoto) {
         scaleAround((a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top, d / lastDist);
       }
       lastDist = d;
-    } else if (zoom.s > 1) {
-      zoom.tx += e.clientX - prev.x;
-      zoom.ty += e.clientY - prev.y;
-      applyZoom();
+    } else {
+      // Pan whenever the photo overflows on either axis (clampPan re-centres
+      // the axis that fits, so a one-axis overflow still drags correctly).
+      const box = els.resultPhoto.getBoundingClientRect();
+      const overflows = els.zoomWrap.offsetWidth * zoom.s > box.width + 1
+                     || els.zoomWrap.offsetHeight * zoom.s > box.height + 1;
+      if (overflows) {
+        zoom.tx += e.clientX - prev.x;
+        zoom.ty += e.clientY - prev.y;
+        clampPan();
+        applyZoom();
+      }
     }
   });
   const endPt = (e) => { zoomPts.delete(e.pointerId); lastDist = 0; };
@@ -567,10 +608,15 @@ function syncOverlayBox() {
   if (!cw || !ch) return;
   const box = els.resultPhoto.getBoundingClientRect();
   const availW = box.width || window.innerWidth - 28;
-  const availH = Math.min(window.innerHeight * 0.52, box.height || Infinity);
+  // Use the container's MEASURED height. A guess of window.innerHeight*0.52
+  // disagreed with the CSS max-height once flex handed out space, so the
+  // wrapper was sized taller than its own box and the bottom of the photo
+  // (badge 19 in the field report) was clipped by overflow:hidden.
+  const availH = box.height || window.innerHeight * 0.52;
   const s = Math.min(availW / cw, availH / ch);
   els.zoomWrap.style.width = Math.round(cw * s) + 'px';
   els.zoomWrap.style.height = Math.round(ch * s) + 'px';
+  resetZoom();   // a freshly sized photo starts fully visible
 }
 window.addEventListener('resize', syncOverlayBox);
 window.addEventListener('orientationchange', () => setTimeout(syncOverlayBox, 200));
