@@ -2963,6 +2963,57 @@ export function countPills(cv, source, opts = {}) {
       for (let i = 0; i < activeMd.length; i++) if (activeMd[i] === -1) boundaries[i] = 1;
     }
 
+    // PER-REGION GEOMETRY. Every counted region gets classified against the
+    // primitive catalogue (circle / ellipse / capsule / roundrect) with a fit
+    // residual, computed from its own second moments over the label map. This
+    // is what the debug views show per pill: not just "a blob of N px" but
+    // "a capsule, aspect 2.3, fill 0.81, residual 0.04". One pass, output-only
+    // — no counting decision depends on it.
+    if (regions.length && activeMd) {
+      // Eleven code paths create regions and only one records its label, so
+      // derive it instead: sample the label map at the region's centroid.
+      // Convex-ish regions always contain their centroid, and a miss (label
+      // <= 0 at a boundary pixel) just means that region skips classification.
+      for (const r of regions) {
+        if (r.label == null) {
+          const lbl = activeMd[Math.round(r.cy) * w + Math.round(r.cx)];
+          if (lbl > 0) r.label = lbl;
+        }
+      }
+      const acc = new Map();
+      for (const r of regions) if (r.label != null) acc.set(r.label, { n: 0, sx: 0, sy: 0, sxx: 0, sxy: 0, syy: 0 });
+      for (let i = 0; i < activeMd.length; i++) {
+        const a = acc.get(activeMd[i]);
+        if (!a) continue;
+        const x = i % w, y = (i / w) | 0;
+        a.n++; a.sx += x; a.sy += y; a.sxx += x * x; a.sxy += x * y; a.syy += y * y;
+      }
+      for (const r of regions) {
+        const a = r.label != null ? acc.get(r.label) : null;
+        if (!a || a.n < 20) continue;
+        const mx = a.sx / a.n, my = a.sy / a.n;
+        const cxx = a.sxx / a.n - mx * mx, cxy = a.sxy / a.n - mx * my, cyy = a.syy / a.n - my * my;
+        const tr = cxx + cyy, det = cxx * cyy - cxy * cxy;
+        const disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+        const l1 = tr / 2 + disc, l2 = Math.max(1e-6, tr / 2 - disc);
+        // Moment eigenvalues give SEMI-axes as 2*sqrt(lambda) for a solid
+        // ellipse; full axes are twice that. (Semi/full mixups halved
+        // constants elsewhere once — see docs/splitting-bakeoff.md.)
+        const major = 4 * Math.sqrt(l1), minor = 4 * Math.sqrt(l2);
+        const aspect = minor > 0 ? major / minor : 1;
+        const fill = major * minor > 0 ? a.n / (major * minor) : 0;
+        const f = fitPrimitive(fill, aspect);
+        r.shape = {
+          primitive: f.primitive,
+          residual: +f.err.toFixed(3),
+          aspect: +aspect.toFixed(2),
+          fill: +fill.toFixed(3),
+          major: +major.toFixed(1),
+          minor: +minor.toFixed(1),
+        };
+      }
+    }
+
     const out = { count, regions, scale, boundaries, width: w, height: h, unitArea, thr: otsuThr };
     if (opts.variant === 'consensus') out.lowConfidence = lowConfidence;
     if (opts.variant === 'consensus' && consensusEligible <= 2 && regions.length) {

@@ -485,6 +485,15 @@ function showPhoto(sourceCanvas) {
 
 function showResult(sourceCanvas, result) {
   // Photo is already on screen (showPhoto); add the overlay + numbers.
+  // Confidence gate: a count the evidence does not support must not present
+  // itself like a clean one. Measured on a junk oblique frame: count 76,
+  // confidence 0.50 — the score catches it, so the UI has to act on it.
+  const conf = result.confidence;
+  if (typeof conf === 'number' && conf < 0.6) {
+    els.helperReact.textContent =
+      `I'm not confident in this one (${Math.round(conf * 100)}%). ` +
+      'Straight overhead, pills fully in frame, then Snap again? 🐾';
+  }
   const dw = els.photoCanvas.width;
   // result coords are in processed-resolution space; map to display px
   const overlayScale = dw / result.width;
@@ -1270,11 +1279,18 @@ function renderDebugSheet() {
       // is where a wrong count comes from — mark those rather than make the
       // reader scan the numbers.
       const n = r.units || 1;
-      const odd = n > 1 || mult < 0.55 || mult > 1.6;
-      const ell = r.ellipse;
-      const shape = ell && ell.major
-        ? `${(ell.major / Math.max(1, ell.minor)).toFixed(1)}:1`
-        : (r.cls || '—');
+      // High fit residual is the geometry's own "this is not one pill" flag:
+      // singles measure 0.002-0.015, merged clumps 0.12-0.14 (10-50x worse).
+      const odd = n > 1 || mult < 0.55 || mult > 1.6
+        || (r.shape && r.shape.residual > 0.08);
+      // Classified primitive from the counter's own geometry pass —
+      // "capsule 2.3:1 r=.04" reads as: fits a capsule, aspect 2.3,
+      // residual 0.04 (pills sit under ~0.1; junk runs 5-10x higher).
+      const shape = r.shape
+        ? `${r.shape.primitive} ${r.shape.aspect}:1 r=${r.shape.residual}`
+        : (r.ellipse && r.ellipse.major
+          ? `${(r.ellipse.major / Math.max(1, r.ellipse.minor)).toFixed(1)}:1`
+          : (r.cls || '—'));
       const tr = document.createElement('tr');
       if (odd) tr.className = 'odd';
       if (r.confidence === 'low') tr.className = 'lowc';
