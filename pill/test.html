@@ -67,10 +67,23 @@
     .conf span { font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums }
     .dbg { margin-top:8px }
     .dbg summary { font-size:11px; color:var(--dim); cursor:pointer; user-select:none }
+    .stagestrip {
+      display:grid; grid-template-columns:repeat(auto-fill, minmax(110px, 1fr));
+      gap:8px; padding:8px 0 2px;
+    }
+    .stagestrip figure { margin:0; cursor:zoom-in; min-width:0 }
+    .stagestrip canvas {
+      display:block; width:100%; height:84px; object-fit:contain; background:#000;
+      border-radius:6px; border:1px solid #dbe7df; image-rendering:crisp-edges;
+    }
+    .stagestrip figcaption {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size:9.5px; color:var(--dim); margin-top:3px; text-align:center;
+    }
     .dbg pre {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:10.5px;
       line-height:1.45; color:#2f6b4f; background:#f3f7f4; border:1px solid #dbe7df;
-      border-radius:8px; padding:8px 9px; margin:6px 0 0; max-height:220px;
+      border-radius:8px; padding:8px 9px; margin:6px 0 0; max-height:130px;
       overflow:auto; white-space:pre-wrap; word-break:break-word;
     }
     #zoom {
@@ -128,6 +141,13 @@
     };
 
     let cv, manifest, version = '';
+
+    // The pipeline's own stage keys, in pipeline order.
+    const STAGE_ORDER = [
+      ['input', '1 input'], ['bgcolor', '2 bg'], ['distmap', '3 distance'],
+      ['mask-otsu', '4 threshold'], ['mask-final', '5 cleaned'],
+      ['disttransform', '6 dist-xform'], ['markers', '7 seeds'],
+    ];
 
     async function loadManifest() {
       manifest = Object.entries(await (await fetch('testdata/expected.json', { cache: 'no-store' })).json())
@@ -217,8 +237,10 @@
           const { canvas, imageData } = await loadImageData('testdata/' + item.file);
           const t0 = performance.now();
           const trace = [];
+          const stages = {};
           const result = countPills(cv, imageData, { maxDim: 1280, variant: $('#variant').value,
-            debug: (d) => trace.push(d) });
+            debug: (d) => trace.push(d),
+            stages: (k, v) => { stages[k] = v; } });
           const ms = Math.round(performance.now() - t0);
           const g = grade(result.count, item.expected);
           card.classList.add(g);
@@ -250,15 +272,49 @@
           }
           // Debug trace per image, collapsed. Same data the app's debug sheet
           // shows, so a miss here can be diagnosed without re-running by hand.
-          if (trace.length) {
+          if (trace.length || Object.keys(stages).length) {
             const det = document.createElement('details');
             det.className = 'dbg';
-            det.innerHTML = `<summary>debug trace (${trace.length})</summary><pre>${
+            det.innerHTML = `<summary>debug: stages + trace (${trace.length})</summary>
+              <div class="stagestrip"></div><pre>${
               trace.map((d) => { const { stage, ...rest } = d;
                 return String(stage).padEnd(14) + Object.entries(rest)
                   .map(([k, v]) => `${k}=${typeof v === 'number' ? +(+v).toFixed(3) : v}`).join(' ');
               }).join('\n').replace(/[&<>]/g, (m2) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m2]))
             }</pre>`;
+            // Same seven stages the app's own debug sheet shows, so a miss
+            // here can be diagnosed in place instead of re-running by hand.
+            const strip = det.querySelector('.stagestrip');
+            for (const [key, label] of STAGE_ORDER) {
+              const img = stages[key];
+              if (!img) continue;
+              const fig = document.createElement('figure');
+              const cv2 = document.createElement('canvas');
+              if (img.data) {
+                cv2.width = img.width; cv2.height = img.height;
+                cv2.getContext('2d').putImageData(
+                  new ImageData(img.data, img.width, img.height), 0, 0);
+              } else {
+                // bgcolor is a flat [r,g,b] swatch, not a frame
+                cv2.width = 60; cv2.height = 40;
+                const g2 = cv2.getContext('2d');
+                g2.fillStyle = `rgb(${img[0]|0},${img[1]|0},${img[2]|0})`;
+                g2.fillRect(0, 0, 60, 40);
+              }
+              const cap = document.createElement('figcaption');
+              cap.textContent = label;
+              fig.append(cv2, cap);
+              fig.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                const big = document.createElement('canvas');
+                big.width = cv2.width; big.height = cv2.height;
+                big.getContext('2d').drawImage(cv2, 0, 0);
+                zoom.innerHTML = '<div class="pair"></div>';
+                zoom.firstChild.appendChild(big);
+                zoom.classList.add('show');
+              });
+              strip.appendChild(fig);
+            }
             card.querySelector('.meta').appendChild(det);
           }
           // File it: exact -> pass grid, anything else stays in misses.
