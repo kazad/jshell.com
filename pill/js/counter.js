@@ -1327,6 +1327,7 @@ export function countPills(cv, source, opts = {}) {
     // physically bridge them into one blob — a merge no downstream splitter
     // can undo. Self-gated: no-ops on dark backgrounds and on clean surfaces.
     suppressThinDarkLines(cv, src, opts.debug);
+    if (emit) emit('pre-dist', { data: new Uint8ClampedArray(src.data), width: src.cols, height: src.rows });
 
     // Segment by color distance from the background (est. from the border) —
     // works for colored pills that grayscale Otsu lumps into the background.
@@ -2845,8 +2846,27 @@ export function countPills(cv, source, opts = {}) {
           const massFrac = unitOk ? blobAreas[l] / unit : 0;
           const heavyFraction = massFrac - Math.floor(massFrac) >= 0.3
             && Math.ceil(massFrac) === a.unitsSum;
+          // Webbing discount. Rounding a fractional mass UP claims pill
+          // material that was never measured. That extrapolation is exactly
+          // wrong when the blob carries the side-by-side junction signature
+          // (a distance-transform peak far above one pill's ridge half-width
+          // -- the same 1.5x ridgePk signature junctionInflated uses): pills
+          // touching along their flanks fill the crevice between them with
+          // mask webbing, and that webbing IS the fraction. When the
+          // watershed independently found exactly floor(massFrac) pills, two
+          // cross-family witnesses agree the fraction is webbing, not a
+          // buried pill. Measured on r-fd69dff9 blob 12: four flat caplets
+          // touching flank-to-flank read massFrac 4.67 with peak 16.8
+          // against ridgePk 7.8, ws 4 -- and the round-up to 5 invented a
+          // pill (20 counted for 19). Both conditions are required: on
+          // r-fd69dff9 blob 9 (truth 3, massFrac 3.10, ws 2) the watershed
+          // sits BELOW the floor, so the discount stays out of the way and
+          // mass still rescues the pill ws missed.
+          const webbedFloor = ridgePk > 0 && peaks[l] > 1.5 * ridgePk
+            && regs.length === Math.floor(massFrac);
           const massV = lenSingle ? 1
-            : (heavyFraction ? Math.ceil(massFrac) : Math.max(1, a.k0));
+            : webbedFloor ? Math.max(1, Math.floor(massFrac))
+              : (heavyFraction ? Math.ceil(massFrac) : Math.max(1, a.k0));
           // Panel votes (each method abstains when it has no evidence).
           const votes = [];
           if (regs.length >= 1) votes.push({ m: 'ws', v: regs.length }); // 1. watershed markers
@@ -3344,20 +3364,38 @@ export function countPills(cv, source, opts = {}) {
         const x = i % w, y = (i / w) | 0;
         a.n++; a.sx += x; a.sy += y; a.sxx += x * x; a.sxy += x * y; a.syy += y * y;
       }
-      for (const r of regions) {
-        const a = r.label != null ? acc.get(r.label) : null;
-        if (!a || a.n < 20) continue;
+      // First pass gave second moments; use them only for ORIENTATION. The
+      // discriminating quantities (fill, aspect) must come from the tight
+      // oriented-box EXTENTS, because moment-derived fill is ~pi/4 for EVERY
+      // convex shape by construction — measured: all primitives reported fill
+      // 0.77-0.784 and capsules classified as 'capsule' exactly 0% of the
+      // time (94% 'ellipse'). fitPrimitive's ideals are bounding-box fills
+      // (ellipse 0.785, stadium at aspect 2 -> 0.89, roundrect 0.95+), so the
+      // measurement has to be in the same convention.
+      for (const a of acc.values()) {
+        if (a.n < 20) continue;
         const mx = a.sx / a.n, my = a.sy / a.n;
         const cxx = a.sxx / a.n - mx * mx, cxy = a.sxy / a.n - mx * my, cyy = a.syy / a.n - my * my;
-        const tr = cxx + cyy, det = cxx * cyy - cxy * cxy;
-        const disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
-        const l1 = tr / 2 + disc, l2 = Math.max(1e-6, tr / 2 - disc);
-        // Moment eigenvalues give SEMI-axes as 2*sqrt(lambda) for a solid
-        // ellipse; full axes are twice that. (Semi/full mixups halved
-        // constants elsewhere once — see docs/splitting-bakeoff.md.)
-        const major = 4 * Math.sqrt(l1), minor = 4 * Math.sqrt(l2);
-        const aspect = minor > 0 ? major / minor : 1;
-        const fill = major * minor > 0 ? a.n / (major * minor) : 0;
+        a.th = 0.5 * Math.atan2(2 * cxy, cxx - cyy);
+        a.mx = mx; a.my = my;
+        a.pLo = Infinity; a.pHi = -Infinity; a.qLo = Infinity; a.qHi = -Infinity;
+      }
+      for (let i = 0; i < activeMd.length; i++) {
+        const a = acc.get(activeMd[i]);
+        if (!a || a.n < 20 || a.th === undefined) continue;
+        const x = (i % w) - a.mx, y = ((i / w) | 0) - a.my;
+        const c = Math.cos(a.th), sn = Math.sin(a.th);
+        const pp = x * c + y * sn, q = -x * sn + y * c;
+        if (pp < a.pLo) a.pLo = pp; if (pp > a.pHi) a.pHi = pp;
+        if (q < a.qLo) a.qLo = q; if (q > a.qHi) a.qHi = q;
+      }
+      for (const r of regions) {
+        const a = r.label != null ? acc.get(r.label) : null;
+        if (!a || a.n < 20 || a.th === undefined) continue;
+        const e1 = a.pHi - a.pLo + 1, e2 = a.qHi - a.qLo + 1;
+        const major = Math.max(e1, e2), minor = Math.max(1, Math.min(e1, e2));
+        const aspect = major / minor;
+        const fill = a.n / (major * minor);
         const f = fitPrimitive(fill, aspect);
         r.shape = {
           primitive: f.primitive,
