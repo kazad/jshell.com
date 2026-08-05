@@ -1593,7 +1593,7 @@ export function countPills(cv, source, opts = {}) {
       const l = md[i];
       if (l <= 1) continue;
       let s = stats.get(l);
-      if (!s) { s = { area: 0, sx: 0, sy: 0, peak: 0 }; stats.set(l, s); }
+      if (!s) { s = { area: 0, sx: 0, sy: 0, peak: 0, blob: bl[i] }; stats.set(l, s); }
       s.area++;
       s.sx += i % w;
       s.sy += (i / w) | 0;
@@ -1647,6 +1647,56 @@ export function countPills(cv, source, opts = {}) {
         ? Math.max(1, Math.round(s.area / med)) : 1;
       count += units;
       regions.push({ cx: s.sx / s.area, cy: s.sy / s.area, area: s.area, units, label: lbl });
+    }
+
+    // WATERSHED FLOOD-LOSS RESCUE. A pill-sized mask blob can come out of the
+    // watershed with NO region at all: thick blobs (peak > 1.4x radiusEst)
+    // get strict local-maximum point seeds, and on a low-contrast surface the
+    // background label floods across the blob's faint rim and claims nearly
+    // every pixel, leaving the interior seed a few px. Measured on
+    // t3-white-caplets-blue-sparse (white pills on light blue, contrast ~8):
+    // a flush side-by-side pair reads peak 56 against radiusEst 30 (the seam
+    // inflates the DT), takes the pile branch, and its 15109 px mask blob
+    // yields one 11 px piece -- the pair vanished from the count while its
+    // twin pair in the same photo (whose watershed kept one 6.7k px region)
+    // was counted and arc-raised to 2. The mask said FOREGROUND for a
+    // pill-sized area; silently dropping it is never right. Re-enter the
+    // blob as ONE conservative region carrying its largest surviving piece's
+    // label (so labelBlob and the panel machinery see it normally) and let
+    // the downstream witnesses -- splotch, shape, panel, boundary arcs --
+    // decide what it is. Only blobs with ZERO pushed regions qualify, so
+    // this can never double-count a partially-covered blob.
+    {
+      const pushed = new Set();
+      for (const r of regions) {
+        const s = stats.get(r.label);
+        if (s && s.blob) pushed.add(s.blob);
+      }
+      const lost = [];
+      for (let l = 1; l < peaks.length; l++) {
+        if (blobAreas[l] >= Math.max(minArea, absFloor) && peaks[l] >= MIN_PEAK && !pushed.has(l)) lost.push(l);
+      }
+      if (lost.length) {
+        const lsx = new Map(), lsy = new Map();
+        for (const l of lost) { lsx.set(l, 0); lsy.set(l, 0); }
+        for (let i = 0; i < bl.length; i++) {
+          const l = bl[i];
+          if (!lsx.has(l)) continue;
+          lsx.set(l, lsx.get(l) + (i % w));
+          lsy.set(l, lsy.get(l) + ((i / w) | 0));
+        }
+        for (const l of lost) {
+          let bestLbl = 0, bestA = 0;
+          for (const [lbl, s] of stats) {
+            if (s.blob === l && s.area > bestA) { bestA = s.area; bestLbl = lbl; }
+          }
+          if (!bestLbl) continue; // no surviving piece to hang a label on
+          count += 1;
+          regions.push({ cx: lsx.get(l) / blobAreas[l], cy: lsy.get(l) / blobAreas[l],
+            area: blobAreas[l], units: 1, label: bestLbl });
+          opts.debug?.({ stage: 'floodloss', blob: l, area: blobAreas[l], piece: bestA });
+        }
+      }
     }
 
 
