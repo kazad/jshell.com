@@ -3,42 +3,62 @@
     {
       "id": "7ff-flush-pair",
       "title": "The last real-corpus miss: is this really 4 pills?",
-      "context": "r-7ff7fd99 counts 19; the label says 20. The disputed blob is the group right of centre. The claim: the two caplets on the right of the crop are a FLUSH PARALLEL PAIR (making this blob 4 pills), separated only by a faint seam. The counter reads 3, and accepting its 4th seam would — measurably — invent a phantom pill in a different photo (the signals are ~5% apart in every normalization tried). Before any further work: a human ruling on what is physically there.",
+      "context": "r-7ff7fd99 counts 19; the label says 20. The disputed blob is the group right of centre. The claim: the two caplets on the right of the crop are a FLUSH PARALLEL PAIR (making this blob 4 pills), separated only by a faint seam. The counter reads 3, and accepting its 4th seam would \u2014 measurably \u2014 invent a phantom pill in a different photo (the signals are ~5% apart in every normalization tried). Before any further work: a human ruling on what is physically there.",
       "images": [
-        { "src": "7ff-photo.jpg", "caption": "Full photo (19 counted, label 20)" },
-        { "src": "7ff-dots.png", "caption": "The 20-pill label as dots — check the disputed pair carries TWO dots" },
-        { "src": "7ff-pair.png", "caption": "4× crop of the disputed blob. Right side: one wide caplet, or two flush caplets with a faint seam?" }
+        {
+          "src": "7ff-geometry.png",
+          "caption": "THE CLAIM, drawn: every counted pill as a fitted capsule outline (cyan). The YELLOW RING is the one region claimed by count (2 pills) but not individually placed \u2014 the disputed blob."
+        },
+        {
+          "src": "7ff-maskcut.png",
+          "caption": "Same claim on the black/green foreground mask: white cutouts = placed pills carving the green."
+        },
+        {
+          "src": "7ff-residual.png",
+          "caption": "What the claim FAILS to explain: dim green = explained, BRIGHT RED = foreground no pill accounts for. All surplus red concentrates inside the yellow ring \u2014 2.6 pills' worth where 2 are claimed. The extra ~0.6 unit is likely your 20th pill."
+        },
+        {
+          "src": "7ff-pair.png",
+          "caption": "4\u00d7 crop of that spot: one wide caplet, or two flush caplets with a faint seam?"
+        },
+        {
+          "src": "7ff-dots.png",
+          "caption": "The 20-pill label as dots, for reference."
+        }
       ],
       "question": "In the crop, how many pills do you see in the right-hand mass?",
       "options": [
-        "2 flush caplets — label 20 stands",
-        "1 wide caplet — label should go back to 19",
+        "2 flush caplets \u2014 label 20 stands",
+        "1 wide caplet \u2014 label should go back to 19",
         "Can't tell from the photo"
       ]
     },
     {
       "id": "lined-raft-blocked",
       "title": "Lined-paper raft: accept 'evidence-limited' verdict?",
-      "context": "The lined trio remains 18/18/21 against labels of 20. Three independent investigations concluded the central raft is genuinely flush — measured seam windows for the missing pills sit at noise level, and two attempted fixes produced the right TOTAL from wrong pills (caught by per-pill scoring, rejected). The proposed standing verdict: these photos are counted as well as their evidence allows; the honest handling is the amber flag they already get, not more tuning.",
+      "context": "The lined trio remains 18/18/21 against labels of 20. Three independent investigations concluded the central raft is genuinely flush \u2014 measured seam windows for the missing pills sit at noise level, and two attempted fixes produced the right TOTAL from wrong pills (caught by per-pill scoring, rejected). The proposed standing verdict: these photos are counted as well as their evidence allows; the honest handling is the amber flag they already get, not more tuning.",
       "images": [
-        { "src": "lined-raft.png", "caption": "4× crop of the central raft. The claim: contacts are flush with no recoverable seams at this resolution." }
+        {
+          "src": "lined-raft.png",
+          "caption": "4\u00d7 crop of the central raft. The claim: contacts are flush with no recoverable seams at this resolution."
+        }
       ],
       "question": "Do you accept 'evidence-limited, keep amber-flagged' as the standing verdict for the lined trio?",
       "options": [
-        "Yes — accept and stop tuning these",
-        "No — keep attacking them",
+        "Yes \u2014 accept and stop tuning these",
+        "No \u2014 keep attacking them",
         "Let me re-photograph the scene at higher quality instead"
       ]
     },
     {
       "id": "fullres-reexam",
       "title": "Build full-resolution re-examination of ambiguous blobs?",
-      "context": "The 7ff-class miss is resolution-limited: the seam carries ~19 luma at stored resolution, but the phone's sensor frame holds 3-4x more pixels on that seam at capture time. Proposal: when a blob is ambiguous (certified-but-vetoed, or near the seam bar), re-crop JUST that blob from the full-resolution capture and re-run the seam spectrum on it. Costs little (one small region), only fires on ambiguity, and has a physical reason to work. It cannot help old stored photos — only fresh captures.",
+      "context": "The 7ff-class miss is resolution-limited: the seam carries ~19 luma at stored resolution, but the phone's sensor frame holds 3-4x more pixels on that seam at capture time. Proposal: when a blob is ambiguous (certified-but-vetoed, or near the seam bar), re-crop JUST that blob from the full-resolution capture and re-run the seam spectrum on it. Costs little (one small region), only fires on ambiguity, and has a physical reason to work. It cannot help old stored photos \u2014 only fresh captures.",
       "images": [],
       "question": "Green-light this experiment?",
       "options": [
-        "Yes — build it",
-        "Not now — current accuracy is enough",
+        "Yes \u2014 build it",
+        "Not now \u2014 current accuracy is enough",
         "Only if it also helps the lined-paper case"
       ]
     }
