@@ -1,4 +1,4 @@
-const CACHE = 'valeye-v20260804-1823';
+const CACHE = 'valeye-v20260806-1418';
 const ASSETS = [
   './',
   'index.html',

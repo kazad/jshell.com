@@ -427,7 +427,7 @@ function setLive(on) {
 
 // ---------- counting ----------
 
-async function analyze(sourceCanvas) {
+async function analyze(sourceCanvas, extraFrames) {
   if (!state.cv) { els.status.classList.remove('fade'); els.status.textContent = 'Engine still loading…'; return; }
   state.busy = true;
   els.shutter.classList.add('working');
@@ -444,10 +444,59 @@ async function analyze(sourceCanvas) {
   try {
     state.sourceCanvas = sourceCanvas; // full-res original, for re-cropping
     state.croppedCanvas = null;
-    const result = countPills(state.cv, sourceCanvas, { maxDim: 1280, variant: 'consensus' });
+    let result = countPills(state.cv, sourceCanvas, { maxDim: 1280, variant: 'consensus' });
+
+    // PROGRESSIVE FUSION. A full pass costs ~2s per frame on real hardware,
+    // so the spares are counted AFTER the main result is already on screen,
+    // one per animation frame, and the number is revised only if the median
+    // disagrees. Fires only when the count is actually at risk: part of it
+    // was inferred from merged clumps, or confidence is shaky. Field data
+    // shows adjacent frames of one scene reading 18/20/21 when pills touch —
+    // the median kills those flips, and a wide spread flags low confidence.
+    const p = result.confidenceParts || {};
+    const risky = (p.clumpBurden > 0 || (result.confidence ?? 1) < 0.85);
+    if (extraFrames?.length && risky) {
+      const primary = result;
+      (async () => {
+        const votes = [{ canvas: sourceCanvas, result: primary }];
+        for (const f of extraFrames) {
+          await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 60)));
+          // Abandon silently if the user moved on (retake, adjust, new photo).
+          if (state.result !== primary || els.resultScreen.hidden) return;
+          try {
+            votes.push({ canvas: f, result: countPills(state.cv, f, { maxDim: 1280, variant: 'consensus' }) });
+          } catch { /* a failed spare just doesn't vote */ }
+        }
+        if (votes.length < 2 || state.result !== primary || els.resultScreen.hidden) return;
+        const counts = votes.map((v) => v.result.count).sort((a, b) => a - b);
+        const median = counts[counts.length >> 1];
+        const spread = counts[counts.length - 1] - counts[0];
+        if (median !== primary.count) {
+          // Show the agreeing frame with the best confidence, so the badges
+          // always match the number on screen.
+          const best = votes.filter((v) => v.result.count === median)
+            .sort((a, b) => (b.result.confidence ?? 0) - (a.result.confidence ?? 0))[0];
+          state.result = best.result;
+          state.count = best.result.count;
+          state.sourceCanvas = best.canvas;
+          if (spread >= 2) best.result.lowConfidence = Math.max(best.result.lowConfidence || 0, 1);
+          showPhoto(best.canvas);
+          showResult(best.canvas, best.result);
+          els.helperReact.textContent =
+            `Steadied across ${votes.length} frames: ${median}. ` +
+            (spread >= 2 ? `They ranged ${counts.join('/')} — worth a quick check. 🐾` : '🐾');
+        } else if (spread >= 2) {
+          state.result.lowConfidence = Math.max(state.result.lowConfidence || 0, 1);
+          updateCountUI();
+          els.helperReact.textContent =
+            `Frames ranged ${counts.join('/')} — kept ${median}, but double-check the clusters. 🐾`;
+        }
+      })();
+    }
+
     state.result = result;
     state.count = result.count;
-    showResult(sourceCanvas, result);
+    showResult(state.sourceCanvas, result);
     autoUpload(result); // every analyzed photo feeds the regression suite
   } catch (e) {
     console.error('count failed', e);
@@ -921,10 +970,23 @@ els.shutter.addEventListener('click', async () => {
   if (els.video.readyState >= 2) {
     const frame = grabFrame();
     if (isBlank(frame)) { els.helperTip.textContent = 'Camera’s still waking up — try that again in a second. 🐾'; return; }
+    // MULTI-FRAME BURST: grab two spares ~120ms apart while the stream is
+    // still live. Field data shows the same scene reading 18/20/21 across
+    // adjacent frames when pills touch — a median over three frames kills
+    // most of those ±1 flips. The spares are only ANALYZED when the first
+    // frame shows contact ambiguity, so clean scenes pay nothing.
+    const spares = [];
+    for (let i = 0; i < 2; i++) {
+      await new Promise((r) => setTimeout(r, 120));
+      if (els.video.readyState >= 2) {
+        const f = grabFrame();
+        if (!isBlank(f)) spares.push(f);
+      }
+    }
     // FREEZE: stop live analysis so the frame can't change mid-count and the
     // phone's whole budget goes to the high-quality pass.
     freezeLive();
-    analyze(frame);
+    analyze(frame, spares);
   } else els.fileInput.click();
 });
 
@@ -1477,6 +1539,12 @@ els.historyClear.addEventListener('click', () => {
     renderHistory();
   }
 });
+
+// Test hook: lets the harness drive the multi-frame path directly
+// (?dev=1 only — analyze is otherwise module-private by design).
+if (new URLSearchParams(location.search).has('dev')) {
+  window.__valeye = { analyze, countPills: (c, o) => countPills(state.cv, c, o), state };
+}
 
 // ---------- boot ----------
 
