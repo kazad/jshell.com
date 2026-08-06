@@ -678,6 +678,19 @@ function syncOverlayBox() {
 }
 window.addEventListener('resize', syncOverlayBox);
 window.addEventListener('orientationchange', () => setTimeout(syncOverlayBox, 200));
+// The container's height depends on flex siblings (helper text, fusion note,
+// rating) that lay out AFTER the photo is sized, so a one-shot measurement
+// can be stale by tens of pixels — measured 31px of bottom clipping when the
+// text below grew. Re-fit whenever the container itself changes size.
+if (window.ResizeObserver && els.resultPhoto) {
+  let lastW = 0, lastH = 0;
+  new ResizeObserver((entries) => {
+    const r = entries[entries.length - 1].contentRect;
+    if (Math.abs(r.width - lastW) < 1 && Math.abs(r.height - lastH) < 1) return;
+    lastW = r.width; lastH = r.height;
+    syncOverlayBox();
+  }).observe(els.resultPhoto);
+}
 
 function updateCountUI() {
   els.countValue.textContent = state.count;

@@ -485,7 +485,11 @@ body {
   background: #1c1f2b;
   box-shadow: var(--shadow);
   display: grid;
-  place-items: center;
+  /* Top-left, NOT center: the zoom system owns centering via clampPan()'s
+     translate. With place-items:center both mechanisms centered the photo,
+     summing to a double offset that pinned it to the right edge (reported
+     from the field on a wide window). One owner for positioning. */
+  place-items: start;
   /* The photo is the working surface (badges must be readable, the crop box
      must be draggable) — but it must YIELD space so the action row below is
      never pushed off-screen. */
