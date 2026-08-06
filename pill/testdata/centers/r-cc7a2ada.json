@@ -1,0 +1,13 @@
+{
+  "image": "testdata/real/r-cc7a2ada.jpg",
+  "size": [393, 393],
+  "method": "annotated by eye against 100/50/25/10px zoomed coordinate grids; corrected after dot-overlay verification (original hand pass had a double-label on the vertical pill at ~(252,222) and placed a center on background between the two lower-right pills)",
+  "count": 19,
+  "centers": [
+    [176, 63], [58, 176], [172, 128], [205, 158], [246, 168],
+    [128, 180], [211, 185], [268, 184], [163, 196], [186, 200],
+    [196, 213], [252, 222], [176, 240], [172, 272],
+    [268, 252], [258, 290], [287, 290],
+    [178, 330], [222, 250]
+  ]
+}

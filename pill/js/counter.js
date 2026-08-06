@@ -1294,6 +1294,109 @@ function boundaryArcStats(bl, w, l, box, capR) {
   return { caps, qcaps, clusters: clusters.length, notches, capFrac: capSamples / n };
 }
 
+// --- SEAM witness: 0-dim persistence of superlevel sets on the blob's own
+// LUMA relief (the flattened image, post illumination/line suppression).
+//
+// Pills are bright plateaus; the contact line between two touching pills is a
+// dark seam. Each pill is then a local maximum of the luma relief, and the
+// PERSISTENCE of that maximum (birth luma minus the luma of the saddle where
+// it merges into an older maximum) is exactly the measured depth of the seam
+// separating it from its neighbour. This is the one witness that can see an
+// INTERIOR pill of a raft: a pill buried in the middle of a clump never
+// reaches the outline (blinding the arc witness) and has no mask neck
+// (blinding ws/erosion/crease), but it still keeps its own seams.
+//
+// Measured in the dense-separation research (docs/dense-separation-research.md):
+// this localizer scores 81.3% per-pill recall vs the DT family's 74.8% at
+// oracle-k. Its weakness is k-SELECTION: no image-level threshold exists
+// (r-f5d11815 vs r-7ff7fd99 need opposite settings), which is why it is
+// integrated here as a per-BLOB witness feeding the consensus panel rather
+// than as a counter.
+//
+// Returns the merge-event spectrum sorted by descending persistence, with the
+// birth position (= the pill-candidate local maximum) of each event, plus the
+// survivor maximum and luma quantiles of the blob's own pixels for
+// self-calibration. Costs O(n log n) in blob pixels; only ambiguous blobs pay.
+function seamSpectrum(srcData, srcW, srcH, bl, w, l, box) {
+  const R = 2; // blur radius, matches the research harness
+  const x0 = Math.max(0, box.x0 - R), y0 = Math.max(0, box.y0 - R);
+  const x1 = Math.min(srcW - 1, box.x1 + R), y1 = Math.min(srcH - 1, box.y1 + R);
+  const bw2 = x1 - x0 + 1, bh2 = y1 - y0 + 1;
+  const n = bw2 * bh2;
+  const g = new Float32Array(n);
+  for (let y = 0; y < bh2; y++) {
+    let j = ((y + y0) * srcW + x0) * 4;
+    let i = y * bw2;
+    for (let x = 0; x < bw2; x++, i++, j += 4) {
+      g[i] = 0.299 * srcData[j] + 0.587 * srcData[j + 1] + 0.114 * srcData[j + 2];
+    }
+  }
+  // light separable box blur (pixel noise kills the union-find with fake
+  // maxima; radius 2 suppresses it without filling 3-4px-wide seams)
+  const t = new Float32Array(n);
+  for (let y = 0; y < bh2; y++) {
+    for (let x = 0; x < bw2; x++) {
+      let s = 0, m = 0;
+      for (let k = -R; k <= R; k++) { const xx = x + k; if (xx < 0 || xx >= bw2) continue; s += g[y * bw2 + xx]; m++; }
+      t[y * bw2 + x] = s / m;
+    }
+  }
+  for (let x = 0; x < bw2; x++) {
+    for (let y = 0; y < bh2; y++) {
+      let s = 0, m = 0;
+      for (let k = -R; k <= R; k++) { const yy = y + k; if (yy < 0 || yy >= bh2) continue; s += t[yy * bw2 + x]; m++; }
+      g[y * bw2 + x] = s / m;
+    }
+  }
+  // blob pixels in local coordinates
+  const px = [];
+  for (let y = Math.max(y0, box.y0); y <= Math.min(y1, box.y1); y++) {
+    for (let x = Math.max(x0, box.x0); x <= Math.min(x1, box.x1); x++) {
+      if (bl[y * w + x] === l) px.push((y - y0) * bw2 + (x - x0));
+    }
+  }
+  if (px.length < 16) return null;
+  // luma quantiles of the blob's own pixels (self-calibration base)
+  const vals = new Float32Array(px.length);
+  for (let i = 0; i < px.length; i++) vals[i] = g[px[i]];
+  vals.sort();
+  const q = (f) => vals[Math.min(vals.length - 1, Math.floor(vals.length * f))];
+  // 0-dim persistence via union-find over pixels in descending luma order
+  const order = Array.from(px).sort((a, b) => g[b] - g[a]);
+  const parent = new Map(), birth = new Map(), rep = new Map();
+  const added = new Set();
+  const find = (p) => { while (parent.get(p) !== p) { parent.set(p, parent.get(parent.get(p))); p = parent.get(p); } return p; };
+  const events = [];
+  let survivor = -1;
+  for (const p of order) {
+    const nb = [];
+    for (const nq of [p - 1, p + 1, p - bw2, p + bw2]) if (added.has(nq)) nb.push(find(nq));
+    const uniq = [...new Set(nb)];
+    if (uniq.length === 0) {
+      parent.set(p, p); birth.set(p, g[p]); rep.set(p, p);
+      if (survivor < 0) survivor = p;
+    } else {
+      uniq.sort((a, b) => birth.get(b) - birth.get(a));
+      const old = uniq[0];
+      parent.set(p, old);
+      for (let i = 1; i < uniq.length; i++) {
+        const yc = uniq[i];
+        events.push({ v: birth.get(yc) - g[p], p: rep.get(yc) });
+        parent.set(yc, old);
+      }
+    }
+    added.add(p);
+  }
+  events.sort((a, b) => b.v - a.v);
+  const toXY = (p) => ({ x: x0 + (p % bw2), y: y0 + ((p / bw2) | 0) });
+  return {
+    events: events.map((e) => ({ v: e.v, ...toXY(e.p) })),
+    survivor: toXY(survivor),
+    p10: q(0.10), p25: q(0.25), p50: q(0.50), p75: q(0.75), p90: q(0.90),
+    n: px.length,
+  };
+}
+
 /**
  * Count pills in an image.
  * @param {object} cv - OpenCV module
@@ -2950,6 +3053,20 @@ export function countPills(cv, source, opts = {}) {
                 qcaps: arcS.qcaps, clusters: arcS.clusters, notches: arcS.notches,
                 capFrac: +arcS.capFrac.toFixed(2), elong, kJ, arcLo, arcHi });
             }
+          }
+
+          // 6. SEAM witness (luma-relief persistence; see seamSpectrum).
+          const seam = a.box
+            ? seamSpectrum(src.data, w, h, bl, w, l, a.box) : null;
+          if (seam && opts.debug) {
+            opts.debug({ stage: 'seam', blob: l, box: a.box, n: seam.n,
+              p10: +seam.p10.toFixed(1), p25: +seam.p25.toFixed(1),
+              p50: +seam.p50.toFixed(1), p75: +seam.p75.toFixed(1),
+              p90: +seam.p90.toFixed(1),
+              survivor: seam.survivor,
+              spectrum: seam.events.slice(0, 24).map((e) => +e.v.toFixed(2)),
+              pts: seam.events.slice(0, 24).map((e) => [e.x, e.y]),
+              nEvents: seam.events.length });
           }
 
           // >=2 agreeing methods win; ties in agreement go to the value

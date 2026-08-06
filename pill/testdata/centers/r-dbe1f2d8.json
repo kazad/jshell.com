@@ -1,0 +1,15 @@
+{
+  "image": "testdata/real/r-dbe1f2d8.jpg",
+  "size": [393, 524],
+  "method": "annotated by eye against 50px/25px zoomed coordinate grids, verified with dot overlay",
+  "count": 19,
+  "centers": [
+    [222, 88], [148, 128], [105, 148], [303, 148],
+    [118, 188], [140, 218], [112, 232], [130, 250],
+    [88, 270], [313, 222],
+    [92, 330], [245, 278], [268, 300],
+    [192, 315], [188, 345],
+    [200, 375], [232, 368],
+    [118, 400], [268, 425]
+  ]
+}

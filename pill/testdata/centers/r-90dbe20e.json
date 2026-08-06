@@ -1,0 +1,11 @@
+{
+  "image": "testdata/real/r-90dbe20e.jpg",
+  "size": [1600, 1200],
+  "method": "annotated by eye against 100px/25px zoomed coordinate grids",
+  "count": 3,
+  "centers": [
+    [295, 640],
+    [930, 630],
+    [1385, 725]
+  ]
+}

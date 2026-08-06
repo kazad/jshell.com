@@ -80,6 +80,14 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size:9.5px; color:var(--dim); margin-top:3px; text-align:center;
     }
+    #regiontip {
+      position:absolute; z-index:30; background:#101418; color:#d9efe3;
+      border:1px solid #2b3b33; border-radius:8px; padding:7px 10px;
+      font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px;
+      line-height:1.5; pointer-events:none; box-shadow:0 4px 18px rgba(0,0,0,.35);
+    }
+    .ppline { font-size:12px; margin-top:6px; color:var(--pass); font-weight:700 }
+    .ppline.bad { color:var(--fail) }
     .dbg pre {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:10.5px;
       line-height:1.45; color:#2f6b4f; background:#f3f7f4; border:1px solid #dbe7df;
@@ -126,7 +134,7 @@
   <div id="zoom"></div>
 
   <script type="module">
-    import { loadCV, countPills, drawOverlay } from './js/counter.js';
+    import { loadCV, countPills, drawOverlay, readingOrder } from './js/counter.js';
 
     const $ = (s) => document.querySelector(s);
     const statusEl = $('#status'), summary = $('#summary'), zoom = $('#zoom');
@@ -150,7 +158,21 @@
     ];
 
     async function loadManifest() {
-      manifest = Object.entries(await (await fetch('testdata/expected.json', { cache: 'no-store' })).json())
+      // The failures that matter live in the hand-verified sets, so the bench
+      // must run them too — not only the top-level manifest.
+      const sets = [
+        ['', 'testdata/expected.json'],
+        ['real/', 'testdata/real/expected.json'],
+        ['lined/', 'testdata/lined/expected.json'],
+      ];
+      const entries = [];
+      for (const [prefix, url] of sets) {
+        try {
+          const e = await (await fetch(url, { cache: 'no-store' })).json();
+          for (const [f, v] of Object.entries(e)) entries.push([prefix + f, v]);
+        } catch { /* set may not exist in a deploy */ }
+      }
+      manifest = entries
         // Generated images are named synth2-*/synthetic-*/test-pills*; anything
         // else came from a real camera. Getting this wrong silently broke the
         // "Synthetic only" / "Real only" filters, which both matched everything.
@@ -176,6 +198,82 @@
       for (const b of ['#run', '#run-syn', '#run-real']) $(b).disabled = false;
       // Auto-run the full suite on load (opt out with ?auto=0).
       if (new URLSearchParams(location.search).get('auto') !== '0') runSuite(() => true);
+    }
+
+    // ---- per-pill ground truth (testdata/centers/<base>.json) ----
+    async function loadCenters(file) {
+      const base = file.split('/').pop().replace(/\.\w+$/, '');
+      try {
+        const r = await fetch('testdata/centers/' + base + '.json', { cache: 'no-store' });
+        if (r.ok) return await r.json();
+      } catch { /* absent for most synthetics */ }
+      return null;
+    }
+    // Same greedy matcher the CLI scorer uses: nearest pairs within a
+    // pill-scale tolerance. A units>=2 region has ONE centre, so its extra
+    // pills surface as MISSED truth dots inside the clump — which is exactly
+    // the "where is the count inferred rather than seen" picture we want.
+    function matchCenters(gt, result) {
+      const sx = result.width / gt.size[0], sy = result.height / gt.size[1];
+      const truth = gt.centers.map(([x, y]) => ({ x: x * sx, y: y * sy, hit: false }));
+      const det = result.regions.map((g) => ({ x: g.cx, y: g.cy, units: g.units || 1, hit: false }));
+      const areas = result.regions.map((g) => g.area).sort((a, b) => a - b);
+      const unit = result.unitArea > 0 ? result.unitArea : (areas[areas.length >> 1] || 400);
+      const TOL = Math.sqrt(unit) * 0.9;
+      const pairs = [];
+      for (const t of truth) for (const q of det) pairs.push([Math.hypot(t.x - q.x, t.y - q.y), t, q]);
+      pairs.sort((a, b) => a[0] - b[0]);
+      for (const [dd, t, q] of pairs) { if (t.hit || q.hit || dd > TOL) continue; t.hit = true; q.hit = true; }
+      return {
+        truth, matched: truth.filter((t) => t.hit).length,
+        missed: truth.filter((t) => !t.hit),
+        spurious: det.filter((q) => !q.hit && q.units === 1),
+      };
+    }
+    function drawTruth(ctx, pp, scale) {
+      for (const t of pp.truth) {
+        ctx.beginPath(); ctx.arc(t.x * scale, t.y * scale, t.hit ? 4 : 6, 0, 7);
+        ctx.fillStyle = t.hit ? 'rgba(47,179,128,.85)' : 'rgba(226,44,60,.95)';
+        ctx.fill();
+        if (!t.hit) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.6; ctx.stroke(); }
+      }
+      for (const q of pp.spurious) {
+        ctx.beginPath(); ctx.arc(q.x * scale, q.y * scale, 10, 0, 7);
+        ctx.strokeStyle = 'rgba(255,145,0,.95)'; ctx.lineWidth = 3; ctx.stroke();
+      }
+    }
+
+    // ---- hover inspector: nearest region's own numbers, badge-indexed ----
+    const tip = document.createElement('div');
+    tip.id = 'regiontip'; tip.hidden = true;
+    document.body.appendChild(tip);
+    function attachInspector(wrap, canvasW, result) {
+      const ordered = readingOrder(result.regions);
+      const scale = canvasW / result.width;
+      wrap.addEventListener('mousemove', (ev) => {
+        const r = wrap.getBoundingClientRect();
+        const x = (ev.clientX - r.left) * (canvasW / r.width) / scale;
+        const y = (ev.clientY - r.top) * (canvasW / r.width) / scale;
+        let best = null, bd = 1e9, idx = 0;
+        ordered.forEach((g, i) => {
+          const d = Math.hypot(g.cx - x, g.cy - y);
+          if (d < bd) { bd = d; best = g; idx = i + 1; }
+        });
+        const near = best && bd < Math.max(18, Math.sqrt(best.area || 300));
+        tip.hidden = !near;
+        if (near) {
+          const sh = best.shape
+            ? `${best.shape.primitive} ${best.shape.aspect}:1 fill ${best.shape.fill} resid ${best.shape.residual}` : '—';
+          const areas = result.regions.map((g) => g.area).sort((a, b) => a - b);
+          const unit = result.unitArea > 0 ? result.unitArea : (areas[areas.length >> 1] || 1);
+          tip.innerHTML = `<b>#${idx}</b> · ${best.units || 1} pill${(best.units || 1) > 1 ? 's' : ''}`
+            + ` · ×${(best.area / unit).toFixed(2)} unit<br>${sh}`
+            + `${best.confidence === 'low' ? '<br><span style="color:#e9a13b">low confidence</span>' : ''}`;
+          tip.style.left = (ev.pageX + 14) + 'px';
+          tip.style.top = (ev.pageY + 10) + 'px';
+        }
+      });
+      wrap.addEventListener('mouseleave', () => { tip.hidden = true; });
     }
 
     async function loadImageData(url) {
@@ -250,6 +348,23 @@
           wrap.appendChild(renderOriginal(canvas, 600));
           const annotated = renderAnnotated(canvas, result, 600);
           annotated.className = 'anno';
+          // Per-pill truth layer, when centers exist for this image:
+          // green dot = matched pill, red dot = MISSED pill, orange ring =
+          // spurious detection. Misses cluster exactly where counts are
+          // inferred from merged clumps — the mistake map, on the photo.
+          const gt = await loadCenters(item.file);
+          let pp = null;
+          if (gt) {
+            pp = matchCenters(gt, result);
+            drawTruth(annotated.getContext('2d'), pp, annotated.width / result.width);
+            const line = document.createElement('div');
+            line.className = 'ppline' + (pp.missed.length || pp.spurious.length ? ' bad' : '');
+            line.textContent = `per-pill ${pp.matched}/${pp.truth.length}`
+              + (pp.missed.length ? ` · missed ${pp.missed.length}` : '')
+              + (pp.spurious.length ? ` · spurious ${pp.spurious.length}` : '');
+            card.querySelector('.meta').appendChild(line);
+          }
+          attachInspector(wrap, 600, result);
           wrap.appendChild(annotated);
           wrap.title = 'hover: original photo · click: zoom both';
           wrap.addEventListener('click', () => {
