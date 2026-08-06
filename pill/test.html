@@ -230,6 +230,74 @@
         spurious: det.filter((q) => !q.hit && q.units === 1),
       };
     }
+    // ---- GEOMETRY HYPOTHESIS LAYER (render-and-verify) ----
+    // Draw the fitted primitive where the counter THINKS each pill is, then
+    // validate the claim against the photo itself: pixels inside a real
+    // pill's outline must differ from the background. A hypothesis whose
+    // interior looks like background is drawn in red dashes — a claim the
+    // photo rejects — regardless of how plausible its geometry looked.
+    function backgroundEstimate(srcCanvas) {
+      const g = srcCanvas.getContext('2d');
+      const W = srcCanvas.width, H = srcCanvas.height;
+      const px = [];
+      const grab = (x, y) => {
+        const d = g.getImageData(x, y, 1, 1).data;
+        px.push([d[0], d[1], d[2]]);
+      };
+      for (let i = 0; i < 24; i++) {
+        const t = i / 24;
+        grab(Math.floor(4 + t * (W - 8)), 4); grab(Math.floor(4 + t * (W - 8)), H - 5);
+        grab(4, Math.floor(4 + t * (H - 8))); grab(W - 5, Math.floor(4 + t * (H - 8)));
+      }
+      const med = (k) => px.map((c) => c[k]).sort((a, b) => a - b)[px.length >> 1];
+      return [med(0), med(1), med(2)];
+    }
+    function pillPhotometry(srcCanvas, bg, cx, cy, major, minor, theta, scaleToSrc) {
+      // Sample inside 0.7x of the hypothesized outline; score = mean RGB
+      // distance from the background estimate.
+      const g = srcCanvas.getContext('2d');
+      const a = (major / 2) * 0.7 * scaleToSrc, b = (minor / 2) * 0.7 * scaleToSrc;
+      const cos = Math.cos(theta), sin = Math.sin(theta);
+      let sum = 0, n = 0;
+      for (let i = 0; i < 24; i++) {
+        const u = (Math.random() * 2 - 1), v = (Math.random() * 2 - 1);
+        if (u * u + v * v > 1) continue;
+        const x = Math.round(cx * scaleToSrc + u * a * cos - v * b * sin);
+        const y = Math.round(cy * scaleToSrc + u * a * sin + v * b * cos);
+        if (x < 0 || y < 0 || x >= srcCanvas.width || y >= srcCanvas.height) continue;
+        const d = g.getImageData(x, y, 1, 1).data;
+        sum += Math.hypot(d[0] - bg[0], d[1] - bg[1], d[2] - bg[2]); n++;
+      }
+      return n ? sum / n : 0;
+    }
+    function drawHypotheses(ctx, result, scale, srcCanvas) {
+      const withShape = result.regions.filter((r) => r.shape && (r.units || 1) === 1);
+      if (!withShape.length) return null;
+      const bg = backgroundEstimate(srcCanvas);
+      const scaleToSrc = srcCanvas.width / result.width;
+      const scores = withShape.map((r) =>
+        pillPhotometry(srcCanvas, bg, r.cx, r.cy, r.shape.major, r.shape.minor, r.shape.theta || 0, scaleToSrc));
+      const medScore = [...scores].sort((a, b) => a - b)[scores.length >> 1] || 1;
+      let invalid = 0;
+      withShape.forEach((r, i) => {
+        // Self-calibrated: a pill's interior should look at least vaguely as
+        // un-background-like as the photo's median pill does.
+        const ok = scores[i] >= Math.max(12, medScore * 0.4);
+        if (!ok) invalid++;
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(r.cx * scale, r.cy * scale,
+          (r.shape.major / 2) * scale, (r.shape.minor / 2) * scale,
+          r.shape.theta || 0, 0, Math.PI * 2);
+        ctx.strokeStyle = ok ? 'rgba(64,200,255,.95)' : 'rgba(255,60,60,.95)';
+        ctx.lineWidth = ok ? 1.8 : 2.6;
+        if (!ok) ctx.setLineDash([5, 4]);
+        ctx.stroke();
+        ctx.restore();
+      });
+      return { total: withShape.length, invalid };
+    }
+
     function drawTruth(ctx, pp, scale) {
       for (const t of pp.truth) {
         ctx.beginPath(); ctx.arc(t.x * scale, t.y * scale, t.hit ? 4 : 6, 0, 7);
@@ -363,6 +431,14 @@
               + (pp.missed.length ? ` · missed ${pp.missed.length}` : '')
               + (pp.spurious.length ? ` · spurious ${pp.spurious.length}` : '');
             card.querySelector('.meta').appendChild(line);
+          }
+          const hyp = drawHypotheses(annotated.getContext('2d'), result,
+            annotated.width / result.width, canvas);
+          if (hyp && hyp.invalid) {
+            const hl = document.createElement('div');
+            hl.className = 'ppline bad';
+            hl.textContent = `geometry: ${hyp.invalid}/${hyp.total} hypothesis outline(s) FAIL pixel validation`;
+            card.querySelector('.meta').appendChild(hl);
           }
           attachInspector(wrap, 600, result);
           wrap.appendChild(annotated);

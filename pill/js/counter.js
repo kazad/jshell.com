@@ -1390,11 +1390,97 @@ function seamSpectrum(srcData, srcW, srcH, bl, w, l, box) {
   events.sort((a, b) => b.v - a.v);
   const toXY = (p) => ({ x: x0 + (p % bw2), y: y0 + ((p / bw2) | 0) });
   return {
-    events: events.map((e) => ({ v: e.v, ...toXY(e.p) })),
-    survivor: toXY(survivor),
+    events: events.map((e) => ({ v: e.v, p: e.p, ...toXY(e.p) })),
+    survivor: { p: survivor, ...toXY(survivor) },
     p10: q(0.10), p25: q(0.25), p50: q(0.50), p75: q(0.75), p90: q(0.90),
     n: px.length,
+    // the relief itself, for partitioning the blob into candidate cells
+    relief: g, rw: bw2, rx0: x0, ry0: y0, px,
   };
+}
+
+// Partition a blob into k cells by priority-flooding the luma relief from the
+// top-k persistence maxima (basins grow from high ground down, so each basin
+// is one candidate pill). Returns per-cell {n, cx, cy, fill, aspect, err}
+// using the same oriented-extent convention as the per-region geometry pass
+// at the end of countPills — so a cell's `err` is directly comparable to the
+// photo's own single-pill residuals.
+function seamCells(seam, k) {
+  const { relief: g, rw, rx0, ry0, px } = seam;
+  const markers = [seam.survivor.p];
+  for (let i = 0; i < k - 1 && i < seam.events.length; i++) markers.push(seam.events[i].p);
+  if (markers.length < k) return null;
+  const lab = new Map();
+  const heap = [];
+  const push = (p, v) => {
+    heap.push([v, p]);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const par = (i - 1) >> 1;
+      if (heap[par][0] >= heap[i][0]) break;
+      const t = heap[par]; heap[par] = heap[i]; heap[i] = t; i = par;
+    }
+  };
+  const pop = () => {
+    const top = heap[0], last = heap.pop();
+    if (heap.length) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        const lft = 2 * i + 1, rgt = lft + 1;
+        let m = i;
+        if (lft < heap.length && heap[lft][0] > heap[m][0]) m = lft;
+        if (rgt < heap.length && heap[rgt][0] > heap[m][0]) m = rgt;
+        if (m === i) break;
+        const t = heap[m]; heap[m] = heap[i]; heap[i] = t; i = m;
+      }
+    }
+    return top;
+  };
+  const inSet = new Set(px);
+  markers.forEach((p, i) => { if (!lab.has(p)) lab.set(p, i); push(p, g[p]); });
+  if (lab.size < k) return null; // duplicate maxima — partition impossible
+  while (heap.length) {
+    const [, p] = pop();
+    const id = lab.get(p);
+    for (const nq of [p - 1, p + 1, p - rw, p + rw]) {
+      if (!inSet.has(nq) || lab.has(nq)) continue;
+      lab.set(nq, id);
+      push(nq, g[nq]);
+    }
+  }
+  // per-cell moments -> orientation -> oriented extents -> fill/aspect/fit
+  const acc = markers.map(() => ({ n: 0, sx: 0, sy: 0, sxx: 0, sxy: 0, syy: 0 }));
+  for (const [p, id] of lab) {
+    const x = p % rw, y = (p / rw) | 0;
+    const a = acc[id];
+    a.n++; a.sx += x; a.sy += y; a.sxx += x * x; a.sxy += x * y; a.syy += y * y;
+  }
+  for (const a of acc) {
+    if (a.n < 20) continue;
+    const mx = a.sx / a.n, my = a.sy / a.n;
+    const cxx = a.sxx / a.n - mx * mx, cxy = a.sxy / a.n - mx * my, cyy = a.syy / a.n - my * my;
+    a.th = 0.5 * Math.atan2(2 * cxy, cxx - cyy);
+    a.mx = mx; a.my = my;
+    a.pLo = Infinity; a.pHi = -Infinity; a.qLo = Infinity; a.qHi = -Infinity;
+  }
+  for (const [p, id] of lab) {
+    const a = acc[id];
+    if (a.n < 20 || a.th === undefined) continue;
+    const x = (p % rw) - a.mx, y = ((p / rw) | 0) - a.my;
+    const c = Math.cos(a.th), sn = Math.sin(a.th);
+    const pp = x * c + y * sn, qq = -x * sn + y * c;
+    if (pp < a.pLo) a.pLo = pp; if (pp > a.pHi) a.pHi = pp;
+    if (qq < a.qLo) a.qLo = qq; if (qq > a.qHi) a.qHi = qq;
+  }
+  return acc.map((a) => {
+    if (a.n < 20 || a.th === undefined) return { n: a.n, err: Infinity, fill: 0, aspect: 0, cx: 0, cy: 0 };
+    const e1 = a.pHi - a.pLo + 1, e2 = a.qHi - a.qLo + 1;
+    const major = Math.max(e1, e2), minor = Math.max(1, Math.min(e1, e2));
+    const aspect = major / minor;
+    const fill = a.n / (major * minor);
+    return { n: a.n, cx: rx0 + a.mx, cy: ry0 + a.my, fill, aspect, err: fitPrimitive(fill, aspect).err };
+  });
 }
 
 /**
@@ -3056,7 +3142,10 @@ export function countPills(cv, source, opts = {}) {
           }
 
           // 6. SEAM witness (luma-relief persistence; see seamSpectrum).
-          const seam = a.box
+          // Computed eagerly only under debug (the measurement harness reads
+          // the full spectrum); in production it is computed lazily below,
+          // only for blobs where a raise candidate actually needs certifying.
+          let seam = (opts.debug && a.box)
             ? seamSpectrum(src.data, w, h, bl, w, l, a.box) : null;
           if (seam && opts.debug) {
             opts.debug({ stage: 'seam', blob: l, box: a.box, n: seam.n,
@@ -3274,7 +3363,8 @@ export function countPills(cv, source, opts = {}) {
             && !massContradicts && !belowLenFloor && k >= regs.length
             && (broadAmbiguity || k === a.unitsSum || corroboratedRise
               || corroboratedDescent);
-          opts.debug?.({ stage: 'panel', blob: l, votes, k, agreed, base: a.unitsSum });
+          opts.debug?.({ stage: 'panel', blob: l, votes, k, agreed, base: a.unitsSum,
+            massFrac: +massFrac.toFixed(2) });
 
           // ARC RECONCILIATION. kMass is the RAW mass ratio, before the
           // length veto — the veto exists for end-to-end reasoning and is
@@ -3316,6 +3406,170 @@ export function countPills(cv, source, opts = {}) {
             if (arcTo === kFinal0) arcTo = 0;
             if (arcTo) opts.debug?.({ stage: 'arcrec', blob: l, from: kFinal0,
               to: arcTo, arcLo, arcHi, kMass, agreed });
+          }
+
+          // SEAM RE-PARTITION — the hybrid routing step. The panel's seam-
+          // blind majority (ws/crease/ero all need a mask neck) habitually
+          // freezes a grouped clump below the mass vote, and massoverride's
+          // length arm cannot see pills lying ABREAST. This is where the
+          // luma-relief persistence localizer (docs/dense-separation-research
+          // .md: 81.3% per-pill recall vs the DT family's 74.8%) is routed in
+          // — for exactly the clump regions where the settled answer is
+          // contested, and nowhere else.
+          //
+          // It does not COUNT. The research proved k-selection by threshold
+          // has no global constant (r-f5d11815 vs r-7ff7fd99 need opposite
+          // image-level settings), and at region level the measured per-blob
+          // windows are just as hostile: the two lined rafts' k=16 windows,
+          // (12.0,12.7) vs (12.7,13.7) absolute luma, do not even intersect
+          // EACH OTHER; r-7ff7fd99 blob 11's 4th seam (19.3, IQR 27.3) and
+          // r-76385b11 blob 13's false 2nd event (17.3, IQR 25.9) sit ~5%
+          // apart in every normalization tried. No threshold, however
+          // self-calibrated, takes both sides of those pairs.
+          //
+          // So the seam witness CERTIFIES a candidate someone else proposed:
+          //   A1: the mass vote itself (massV > the blob's settled answer);
+          //   A2: arcHi when mass overshoots the boundary interval.
+          // A candidate k is certified iff the blob's own luma relief holds
+          // at least k-1 merge events of persistence >= 0.67 * the blob's
+          // luma IQR. Self-calibrated: a blob whose seams measure ~0 (flat
+          // synthetic raft, buried flush contact) certifies nothing and the
+          // witness ABSTAINS rather than votes.
+          //
+          // THE 0.67 CONSTANT, measured corpus-wide on the 48-image design
+          // set (24 real+lined with per-pill centers, 24 dense synth): every
+          // FALSE proposal on labeled blobs certifies at <= 0.469 of the
+          // blob's IQR (worst: c-2448027d blob 6, mass wants 7 over truth 5,
+          // event depth 21.7 vs IQR 46.3); every TRUE proposal certifies at
+          // >= 0.965 (c-2448027d blob 1, 4th pill's seam 29.6 vs IQR 30.7;
+          // blob 3, 3rd pill's seam 24.7 vs IQR 22.0). The populations are
+          // 2.06x apart with no overlap — the same acceptance bar
+          // docs/lined-paper-fix.md set for the chain-density gate (1.4x, no
+          // overlap). 0.67 is the geometric midpoint, >=1.4x margin each way.
+          //
+          // The certified k must then survive a PARTITION-VALIDITY veto (the
+          // cells of the k-basin partition must classify like this photo's
+          // own pills — see below), the raise is capped by the physical-
+          // capacity invariant, and it only ever RAISES: the on-edge single
+          // population that dooms every unsolicited-split scheme proposes
+          // nothing and is never touched.
+          //
+          // Tried and REJECTED, both measured on the design set (session
+          // scratchpad lat/):
+          //   - kSeam by event-counting at any per-blob threshold: r-7ff7fd99
+          //     blob 11's 4th seam (19.3 luma, IQR 27.3) vs r-76385b11 blob
+          //     13's false 2nd event (17.3 luma, IQR 25.9) sit ~5% apart in
+          //     every normalization — a genuine region-level proof pair.
+          //   - partition-shape as the ACCEPTOR (choose smallest k whose
+          //     cells classify pill-like, no depth floor): a (k-1)-partition
+          //     of k tight pills still yields pill-shaped cells (measured:
+          //     r-7ff7fd99 blob 11 at k=3, the lined rafts at k=14), and
+          //     half-cells of a split single classify as clean circles
+          //     (r-d87c4d5f blob 17 halves: resid 0.012/0.181) — output
+          //     shape alone can neither find the buried pill nor refuse the
+          //     false split. It works only as a veto on top of the floor.
+          //   - ceil(massFrac) as a third candidate arm: the on-edge single
+          //     population at massFrac 1.30-1.35 proposes k=2 everywhere and
+          //     broke 4-6 real photos at every floor setting.
+          let seamTo = 0, seamConf = 'high', seamCellsOut = null;
+          {
+            const kFinal0 = arcTo || (agreed ? k : a.unitsSum);
+            const massW = votes.find((x) => x.m === 'mass');
+            const cands = [];
+            if (massW && massW.v > kFinal0) cands.push({ v: massW.v, conf: 'high' }); // A1
+            if (massW && arcS && arcHi >= 1 && massW.v > arcHi && arcHi > kFinal0) {
+              // mass overshoots the boundary interval: also offer the
+              // boundary's own ceiling, per the arcrec philosophy ("no
+              // further than the boundary certifies"). Flagged low — the
+              // witnesses genuinely disagree above arcHi.
+              cands.push({ v: arcHi, conf: 'low' });                          // A2
+            }
+            if (cands.length) {
+              // Physical-capacity invariant, as in massoverride. The peak
+              // may be junction-inflated (pills ABREAST merge material at
+              // the contact and the DT there runs above one pill's
+              // half-width); >1.5x the ridge median is that signature, and
+              // the ridge median IS one pill's half-width, so it is the
+              // honest denominator. Unlike massoverride this does not also
+              // require clumpUnitFired: here the raise must additionally be
+              // seam-certified below, so the blanket-relaxation hazard that
+              // motivated the narrow scope there does not arise.
+              const capPeakS = (ridgePk > 0 && peaks[l] > 1.5 * ridgePk)
+                ? ridgePk : peaks[l];
+              const capacityS = peaks[l] >= MIN_PEAK
+                ? Math.max(1, Math.floor((2 * blobAreas[l]) / (Math.PI * capPeakS * capPeakS)))
+                : Infinity;
+              if (!seam && a.box) seam = seamSpectrum(src.data, w, h, bl, w, l, a.box);
+              if (seam && seam.events.length) {
+                const iqr = Math.max(1, seam.p75 - seam.p25);
+                const floorT = 0.67 * iqr;
+                const okC = cands.filter((cd) => cd.v > kFinal0 && cd.v <= capacityS
+                  && seam.events.length >= cd.v - 1 && seam.events[cd.v - 2].v >= floorT)
+                  .sort((x2, y2) => x2.v - y2.v);
+                if (okC.length) {
+                  // PARTITION-VALIDITY ACCEPTANCE (cell-shape veto). Before
+                  // adopting the certified k, partition the blob into k luma
+                  // basins grown from the top-k persistence maxima and
+                  // require every cell to classify like a pill of THIS photo
+                  // (same oriented-extent fit as the shipped per-region
+                  // geometry pass, same single-pill residual bar as the
+                  // shape template) and the cells to be mutually size-
+                  // coherent (same medication => same size; flat-vs-on-edge
+                  // spans <=1.67x, so 2.2x is generous headroom while a
+                  // pill+webbing-fragment split measures far beyond it).
+                  // Measured on the accepted design-set fires: worst cell
+                  // residual 0.103 vs bar 0.30, worst size ratio 1.37.
+                  const kAcc = okC[0].v;
+                  const cells = seamCells(seam, kAcc);
+                  const residBar = template
+                    ? Math.max(0.30, 4 * template.residual + 0.12) : 0.30;
+                  let ok = !!cells && cells.length === kAcc;
+                  if (ok) {
+                    let nLo = Infinity, nHi = 0;
+                    for (const cl of cells) {
+                      if (cl.n < 20 || cl.err > residBar) { ok = false; break; }
+                      if (cl.n < nLo) nLo = cl.n;
+                      if (cl.n > nHi) nHi = cl.n;
+                    }
+                    if (ok && nHi > 2.2 * nLo) ok = false;
+                  }
+                  opts.debug?.({ stage: 'seamcells', blob: l, k: kAcc, valid: ok,
+                    cells: cells ? cells.map((cl) => ({ n: cl.n,
+                      err: +cl.err.toFixed(3), aspect: +cl.aspect.toFixed(2) })) : null });
+                  if (ok) {
+                    seamTo = kAcc;
+                    seamConf = okC[0].conf;
+                    seamCellsOut = cells;
+                    opts.debug?.({ stage: 'seamrec', blob: l, from: kFinal0,
+                      to: seamTo, conf: seamConf, floorT: +floorT.toFixed(1),
+                      iqr: +iqr.toFixed(1), massV: massW.v, arcLo, arcHi,
+                      capacity: capacityS });
+                  } else {
+                    // The seams certify the depth but the resulting cells do
+                    // not look like this photo's pills: the witnesses
+                    // disagree irreconcilably. Keep the count, flag it —
+                    // never silently pick.
+                    lowConfidence++;
+                    opts.debug?.({ stage: 'seaminvalid', blob: l, kFinal0, kAcc });
+                  }
+                }
+              }
+            }
+          }
+          if (seamTo) {
+            if (seamConf === 'low') lowConfidence++;
+            count -= a.unitsSum;
+            count += seamTo;
+            // Badge placement: the accepted cells' centroids ARE the pill
+            // locations (basin centroids, the localizer's proven strength).
+            // `arc: true` exempts them from fragment consolidation for the
+            // same reason as the arc witness: this raise exists precisely
+            // because the outline under-reports the pills inside it.
+            for (const cl of seamCellsOut) {
+              regions.push({ cx: cl.cx, cy: cl.cy, area: cl.n, units: 1,
+                confidence: seamConf, arc: true, seam: true });
+            }
+            continue;
           }
           if (arcTo) {
             // Route the arc answer through the same accounting as an agreed
@@ -3501,10 +3755,8 @@ export function countPills(cv, source, opts = {}) {
     }
 
     let boundaries = null;
-    if (withOverlay) {
-      boundaries = new Uint8Array(activeMd.length);
-      for (let i = 0; i < activeMd.length; i++) if (activeMd[i] === -1) boundaries[i] = 1;
-    }
+    // (built AFTER the per-region geometry pass below, which derives each
+    // final region's watershed label — see the overlay-honesty note there)
 
     // PER-REGION GEOMETRY. Every counted region gets classified against the
     // primitive catalogue (circle / ellipse / capsule / roundrect) with a fit
@@ -3571,7 +3823,35 @@ export function countPills(cv, source, opts = {}) {
           fill: +fill.toFixed(3),
           major: +major.toFixed(1),
           minor: +minor.toFixed(1),
+          // Orientation, so a hypothesis layer can DRAW the fitted primitive
+          // back onto the photo and validate it against the pixels.
+          theta: +a.th.toFixed(4),
         };
+      }
+    }
+
+    // OVERLAY HONESTY. `boundaries` used to be every watershed -1 pixel —
+    // the WATERSHED-TIME partition. Regions later merged or discarded by
+    // consolidation/vetoes left their cut-lines in the overlay, rendering
+    // scraggly borders on top of pills where no counted region exists, and
+    // the debug reader took them for claimed pill boundaries. Keep only the
+    // ridge pixels that touch at least one FINAL region's label; if label
+    // derivation found nothing (rare non-watershed paths), fall back to the
+    // full ridge set rather than blanking the overlay.
+    if (withOverlay && activeMd) {
+      const finalLbls = new Set();
+      for (const r of regions) if (r.label != null) finalLbls.add(r.label);
+      boundaries = new Uint8Array(activeMd.length);
+      for (let i = 0; i < activeMd.length; i++) {
+        if (activeMd[i] !== -1) continue;
+        if (!finalLbls.size) { boundaries[i] = 1; continue; }
+        const x = i % w;
+        if ((x > 0 && finalLbls.has(activeMd[i - 1]))
+          || (x < w - 1 && finalLbls.has(activeMd[i + 1]))
+          || (i >= w && finalLbls.has(activeMd[i - w]))
+          || (i + w < activeMd.length && finalLbls.has(activeMd[i + w]))) {
+          boundaries[i] = 1;
+        }
       }
     }
 
