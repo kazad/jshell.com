@@ -1474,13 +1474,41 @@ function seamCells(seam, k) {
     if (qq < a.qLo) a.qLo = qq; if (qq > a.qHi) a.qHi = qq;
   }
   return acc.map((a) => {
-    if (a.n < 20 || a.th === undefined) return { n: a.n, err: Infinity, fill: 0, aspect: 0, cx: 0, cy: 0 };
+    if (a.n < 20 || a.th === undefined) return { n: a.n, err: Infinity, fill: 0, aspect: 0, cx: 0, cy: 0, theta: 0, major: 0, minor: 0 };
     const e1 = a.pHi - a.pLo + 1, e2 = a.qHi - a.qLo + 1;
     const major = Math.max(e1, e2), minor = Math.max(1, Math.min(e1, e2));
     const aspect = major / minor;
     const fill = a.n / (major * minor);
-    return { n: a.n, cx: rx0 + a.mx, cy: ry0 + a.my, fill, aspect, err: fitPrimitive(fill, aspect).err };
+    // theta is the direction of the MAJOR axis in image coordinates
+    const theta = e1 >= e2 ? a.th : a.th + Math.PI / 2;
+    return { n: a.n, cx: rx0 + a.mx, cy: ry0 + a.my, fill, aspect,
+      err: fitPrimitive(fill, aspect).err, theta, major, minor };
   });
+}
+
+// Photometric validation of one pill hypothesis (owner's render-and-verify
+// idea, counter side): sample the interior of the hypothesized outline at
+// ~0.7x scale on the distance-from-background map and return the mean. A
+// placement over pill material reads far above the photo's own Otsu cut; a
+// placement over bare surface reads below it. Constant-free: the bar is the
+// photo's own segmentation threshold.
+function pillPhotoScore(distData, w, h, pill) {
+  const c = Math.cos(pill.theta), s = Math.sin(pill.theta);
+  const a = 0.35 * pill.major, b = 0.35 * pill.minor; // 0.7x of half-extents
+  let sum = 0, n = 0;
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 4; j++) {
+      // grid over the inscribed ellipse
+      const u = ((i + 0.5) / 6 * 2 - 1), v = ((j + 0.5) / 4 * 2 - 1);
+      if (u * u + v * v > 1) continue;
+      const x = Math.round(pill.cx + u * a * c - v * b * s);
+      const y = Math.round(pill.cy + u * a * s + v * b * c);
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      sum += distData[y * w + x];
+      n++;
+    }
+  }
+  return n ? sum / n : 0;
 }
 
 /**
@@ -3533,10 +3561,28 @@ export function countPills(cv, source, opts = {}) {
                     }
                     if (ok && nHi > 2.2 * nLo) ok = false;
                   }
-                  opts.debug?.({ stage: 'seamcells', blob: l, k: kAcc, valid: ok,
+                  // PHOTOMETRIC ACCEPTANCE (the second, independent half of
+                  // the render-and-verify test): each hypothesized pill's
+                  // interior must be MADE of pill pixels, not just shaped
+                  // like one. Sampled on the distance-from-background map;
+                  // the bar is the photo's own Otsu segmentation cut, so it
+                  // is constant-free. Only meaningful when the mask came
+                  // from color distance in the first place.
+                  let photoOk = true;
+                  if (ok && cells) {
+                    const dd8 = distBg.data;
+                    for (const cl of cells) {
+                      cl.photo = pillPhotoScore(dd8, w, h, cl);
+                      if (usedColorDist && cl.photo < otsuThr) photoOk = false;
+                    }
+                  }
+                  opts.debug?.({ stage: 'seamcells', blob: l, k: kAcc,
+                    valid: ok, photoOk,
                     cells: cells ? cells.map((cl) => ({ n: cl.n,
-                      err: +cl.err.toFixed(3), aspect: +cl.aspect.toFixed(2) })) : null });
-                  if (ok) {
+                      err: +cl.err.toFixed(3), aspect: +cl.aspect.toFixed(2),
+                      photo: cl.photo != null ? +cl.photo.toFixed(1) : null })) : null,
+                    otsuThr: +otsuThr.toFixed(1) });
+                  if (ok && photoOk) {
                     seamTo = kAcc;
                     seamConf = okC[0].conf;
                     seamCellsOut = cells;
@@ -3545,12 +3591,14 @@ export function countPills(cv, source, opts = {}) {
                       iqr: +iqr.toFixed(1), massV: massW.v, arcLo, arcHi,
                       capacity: capacityS });
                   } else {
-                    // The seams certify the depth but the resulting cells do
-                    // not look like this photo's pills: the witnesses
-                    // disagree irreconcilably. Keep the count, flag it —
-                    // never silently pick.
+                    // The seams certify the depth but the resulting cells
+                    // fail the photo's own pill-shape bar or read
+                    // background-like inside: the witnesses disagree
+                    // irreconcilably. Keep the count, flag it — never
+                    // silently pick.
                     lowConfidence++;
-                    opts.debug?.({ stage: 'seaminvalid', blob: l, kFinal0, kAcc });
+                    opts.debug?.({ stage: 'seaminvalid', blob: l, kFinal0, kAcc,
+                      shapeOk: ok, photoOk });
                   }
                 }
               }
@@ -3560,15 +3608,24 @@ export function countPills(cv, source, opts = {}) {
             if (seamConf === 'low') lowConfidence++;
             count -= a.unitsSum;
             count += seamTo;
-            // Badge placement: the accepted cells' centroids ARE the pill
-            // locations (basin centroids, the localizer's proven strength).
-            // `arc: true` exempts them from fragment consolidation for the
-            // same reason as the arc witness: this raise exists precisely
-            // because the outline under-reports the pills inside it.
-            for (const cl of seamCellsOut) {
-              regions.push({ cx: cl.cx, cy: cl.cy, area: cl.n, units: 1,
-                confidence: seamConf, arc: true, seam: true });
-            }
+            // OUTPUT CONTRACT: one multi-unit region per re-partitioned
+            // clump, carrying per-pill placements in `pills` — cell basin
+            // centroids (the localizer's proven strength: 81.3% per-pill
+            // recall) with each cell's own oriented extents, plus the
+            // photometric score normalized to the partition's median so the
+            // display can color per-pill hypotheses. `arc: true` exempts the
+            // region from fragment consolidation for the same reason as the
+            // arc witness: this raise exists precisely because the outline
+            // under-reports the pills inside it.
+            const medPhoto = median(seamCellsOut.map((cl) => cl.photo || 0)) || 1;
+            const pills = seamCellsOut.map((cl) => ({
+              cx: cl.cx, cy: cl.cy, theta: +cl.theta.toFixed(3),
+              major: +cl.major.toFixed(1), minor: +cl.minor.toFixed(1),
+              valid: +Math.min(1, (cl.photo || 0) / medPhoto).toFixed(2),
+            }));
+            regions.push({ cx: a.sx / blobAreas[l], cy: a.sy / blobAreas[l],
+              area: blobAreas[l], units: seamTo, confidence: seamConf,
+              arc: true, seam: true, pills });
             continue;
           }
           if (arcTo) {
