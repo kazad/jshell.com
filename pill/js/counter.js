@@ -3912,6 +3912,144 @@ export function countPills(cv, source, opts = {}) {
       }
     }
 
+    // PLACE AGREED CLUMPS + ENFORCE PHYSICS (output-only; counts are settled).
+    //
+    // 1) PLACEMENT PARITY. The seam router attaches per-pill placements only
+    //    to clumps whose count it re-partitioned. Clumps whose count was
+    //    never in dispute stayed as bare "units: k" regions — drawn as a
+    //    yellow ring, never as pills. Measured on the exact-tangency angle
+    //    sweep: counts are 8/8 at EVERY contact angle, but parallel-flush
+    //    pairs place 4/8 — counted, never placed. Every multi-pill region now
+    //    gets placements: fixed-k Lloyd over the region's own pixels, seeded
+    //    along its principal axis, template-sized from the photo's singles.
+    //
+    // 2) RIGID BODIES. The owner: "pills would be touching but not on top of
+    //    each other — there's no intersection." A capsule is a line segment
+    //    with radius, so interpenetration is EXACT: segment distance < sum of
+    //    half-widths. First audit found 8 violating pairs (worst 6.1px) in
+    //    shipped placements. A relaxation pass pushes violators apart along
+    //    the contact normal; singles stay anchored (their own blob is the
+    //    evidence for where they are), only clump members move.
+    if (regions.length && activeMd) {
+      const singlesG = regions.filter((g) => (g.units || 1) === 1 && g.shape);
+      const tMajor = median(singlesG.map((g) => g.shape.major)) || 40;
+      const tMinor = median(singlesG.map((g) => g.shape.minor)) || tMajor * 0.45;
+
+      // pixels per label, one pass, only for labels that need placing
+      const needPlace = regions.filter((g) => (g.units || 1) >= 2 && !(g.pills && g.pills.length) && g.label != null);
+      if (needPlace.length) {
+        const wantLbl = new Map(needPlace.map((g) => [g.label, []]));
+        for (let i = 0; i < activeMd.length; i++) {
+          const arr = wantLbl.get(activeMd[i]);
+          if (arr) arr.push(i);
+        }
+        for (const g of needPlace) {
+          const idx = wantLbl.get(g.label);
+          if (!idx || idx.length < 40) continue;
+          const k = g.units;
+          const pxs = idx.map((i) => [i % w, (i / w) | 0]);
+          // principal axis for seeding
+          let mx = 0, my = 0;
+          for (const [x, y] of pxs) { mx += x; my += y; }
+          mx /= pxs.length; my /= pxs.length;
+          let sxx = 0, sxy = 0, syy = 0;
+          for (const [x, y] of pxs) { const dx = x - mx, dy = y - my; sxx += dx * dx; sxy += dx * dy; syy += dy * dy; }
+          const th0 = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+          const ux = Math.cos(th0), uy = Math.sin(th0);
+          let lo = Infinity, hi = -Infinity;
+          for (const [x, y] of pxs) { const t = (x - mx) * ux + (y - my) * uy; if (t < lo) lo = t; if (t > hi) hi = t; }
+          let C = Array.from({ length: k }, (_, i) => {
+            const t = lo + (hi - lo) * (i + 0.5) / k;
+            return [mx + ux * t, my + uy * t];
+          });
+          const asg = new Array(pxs.length).fill(0);
+          for (let it = 0; it < 18; it++) {
+            let moved = false;
+            for (let i = 0; i < pxs.length; i++) {
+              let b = 0, bd = Infinity;
+              for (let c = 0; c < k; c++) {
+                const d2 = (pxs[i][0] - C[c][0]) ** 2 + (pxs[i][1] - C[c][1]) ** 2;
+                if (d2 < bd) { bd = d2; b = c; }
+              }
+              if (asg[i] !== b) { asg[i] = b; moved = true; }
+            }
+            const sum = Array.from({ length: k }, () => [0, 0, 0]);
+            for (let i = 0; i < pxs.length; i++) { const s2 = sum[asg[i]]; s2[0] += pxs[i][0]; s2[1] += pxs[i][1]; s2[2]++; }
+            for (let c = 0; c < k; c++) if (sum[c][2]) C[c] = [sum[c][0] / sum[c][2], sum[c][1] / sum[c][2]];
+            if (!moved) break;
+          }
+          // per-cell orientation from its own pixels; dims from the template
+          const cs2 = Array.from({ length: k }, () => ({ n: 0, sx: 0, sy: 0, sxx: 0, sxy: 0, syy: 0 }));
+          for (let i = 0; i < pxs.length; i++) {
+            const a2 = cs2[asg[i]], [x, y] = pxs[i];
+            a2.n++; a2.sx += x; a2.sy += y; a2.sxx += x * x; a2.sxy += x * y; a2.syy += y * y;
+          }
+          const pills = [];
+          for (const a2 of cs2) {
+            if (a2.n < 15) continue;
+            const cx = a2.sx / a2.n, cy = a2.sy / a2.n;
+            const cxx = a2.sxx / a2.n - cx * cx, cxy2 = a2.sxy / a2.n - cx * cy, cyy = a2.syy / a2.n - cy * cy;
+            const th = 0.5 * Math.atan2(2 * cxy2, cxx - cyy);
+            pills.push({ cx, cy, theta: +th.toFixed(3), major: tMajor, minor: tMinor, photo: 0 });
+          }
+          if (pills.length) {
+            for (const p2 of pills) p2.photo = pillPhotoScore(distBg.data, w, h, p2);
+            const medP = median(pills.map((p2) => p2.photo)) || 1;
+            for (const p2 of pills) { p2.valid = +Math.min(1, p2.photo / medP).toFixed(2); delete p2.photo; }
+            g.pills = pills;
+            g.placed = 'lloyd';
+          }
+        }
+      }
+
+      // ---- rigid-body relaxation over every placement ----
+      const bodies = [];
+      for (const g of regions) {
+        if (g.pills) for (const p2 of g.pills) bodies.push({ p: p2, movable: true });
+        else if ((g.units || 1) === 1 && g.shape)
+          bodies.push({ p: { cx: g.cx, cy: g.cy, theta: g.shape.theta || 0, major: g.shape.major, minor: g.shape.minor }, movable: false });
+      }
+      const closest = (A, B) => {
+        const ah = Math.max(0, (A.major - A.minor) / 2), bh = Math.max(0, (B.major - B.minor) / 2);
+        const ac = Math.cos(A.theta), as2 = Math.sin(A.theta), bc = Math.cos(B.theta), bs = Math.sin(B.theta);
+        let best = Infinity, nx = 1, ny = 0;
+        for (let i = 0; i <= 16; i++) for (let j = 0; j <= 16; j++) {
+          const t1 = -ah + 2 * ah * i / 16, t2 = -bh + 2 * bh * j / 16;
+          const x1 = A.cx + ac * t1, y1 = A.cy + as2 * t1;
+          const x2 = B.cx + bc * t2, y2 = B.cy + bs * t2;
+          const dx = x1 - x2, dy = y1 - y2, d = Math.hypot(dx, dy);
+          if (d < best) { best = d; if (d > 1e-6) { nx = dx / d; ny = dy / d; } }
+        }
+        return { d: best, nx, ny };
+      };
+      let pairsFixed = 0, worstBefore = 0, worstAfter = 0;
+      for (let iter = 0; iter < 12; iter++) {
+        let worst = 0;
+        for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
+          const A = bodies[i].p, B = bodies[j].p;
+          const reach = (A.major + B.major) / 2 + 4;
+          if (Math.abs(A.cx - B.cx) > reach || Math.abs(A.cy - B.cy) > reach) continue;
+          const { d, nx, ny } = closest(A, B);
+          const need = (A.minor + B.minor) / 2;
+          const pen = need - d;
+          if (pen <= 0.75) continue;
+          if (iter === 0) { pairsFixed++; if (pen > worstBefore) worstBefore = pen; }
+          if (pen > worst) worst = pen;
+          const mA = bodies[i].movable, mB = bodies[j].movable;
+          const step = pen / 2 + 0.2;
+          if (mA && mB) {
+            A.cx += nx * step; A.cy += ny * step;
+            B.cx -= nx * step; B.cy -= ny * step;
+          } else if (mA) { A.cx += nx * (pen + 0.3); A.cy += ny * (pen + 0.3); }
+          else if (mB) { B.cx -= nx * (pen + 0.3); B.cy -= ny * (pen + 0.3); }
+        }
+        worstAfter = worst;
+        if (worst <= 0.75) break;
+      }
+      if (pairsFixed) opts.debug?.({ stage: 'physics', pairs: pairsFixed,
+        worstBefore: +worstBefore.toFixed(1), worstAfter: +worstAfter.toFixed(1) });
+    }
+
     const out = { count, regions, scale, boundaries, width: w, height: h, unitArea, thr: otsuThr };
     if (opts.variant === 'consensus') out.lowConfidence = lowConfidence;
     if (opts.variant === 'consensus' && consensusEligible <= 2 && regions.length) {

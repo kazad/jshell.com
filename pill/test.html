@@ -271,7 +271,16 @@
       return n ? sum / n : 0;
     }
     function drawHypotheses(ctx, result, scale, srcCanvas) {
-      const withShape = result.regions.filter((r) => r.shape && (r.units || 1) === 1);
+      // Singles carry their own fitted shape; clump members carry the
+      // counter's per-pill placements (r.pills) — every counted pill is a
+      // drawn, photometrically-validated hypothesis now.
+      const withShape = [];
+      for (const r of result.regions) {
+        if (r.pills?.length) for (const p of r.pills)
+          withShape.push({ cx: p.cx, cy: p.cy,
+            shape: { major: p.major, minor: p.minor, theta: p.theta } });
+        else if (r.shape && (r.units || 1) === 1) withShape.push(r);
+      }
       if (!withShape.length) return null;
       const bg = backgroundEstimate(srcCanvas);
       const scaleToSrc = srcCanvas.width / result.width;
