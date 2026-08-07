@@ -4079,38 +4079,67 @@ export function countPills(cv, source, opts = {}) {
           if (x < 0 || y < 0 || x >= w || y >= h) return 0;
           return activeMd[(y | 0) * w + (x | 0)] > 0 ? 1 : 0;
         };
+        const lumAt = (x, y) => {
+          const i = ((y | 0) * w + (x | 0)) * 4;
+          return (src.data[i] + src.data[i + 1] + src.data[i + 2]) / 3;
+        };
         const poseScore = (p2, cx, cy, th) => {
           const c = Math.cos(th), s2 = Math.sin(th);
           const a = 0.46 * p2.major, b = 0.46 * p2.minor;
           let inFg = 0, inBg = 0;
+          const lums = [];
           for (let i = 0; i < 9; i++) for (let j = 0; j < 5; j++) {
             const u = (i / 8) * 2 - 1, v = (j / 4) * 2 - 1;
             if (u * u + v * v > 1.05) continue;
             const x = cx + u * a * c - v * b * s2;
             const y = cy + u * a * s2 + v * b * c;
-            fgAt(x, y) ? inFg++ : inBg++;
+            if (fgAt(x, y)) { inFg++; lums.push(lumAt(x, y)); }
+            else inBg++;
           }
-          return inFg - 2 * inBg;    // claiming background is worse than
-        };                            // leaving foreground for a neighbour
-        for (const g of regions) {
-          if (!g.pills) continue;
-          for (const p2 of g.pills) {
-            let best = { s: poseScore(p2, p2.cx, p2.cy, p2.theta),
-              cx: p2.cx, cy: p2.cy, th: p2.theta };
-            for (let pass = 0; pass < 2; pass++) {
-              const dth = pass === 0 ? Math.PI / 12 : Math.PI / 48;   // 15°, then 3.75°
-              const dxy = pass === 0 ? 2.5 : 1;
-              for (let r2 = -6; r2 <= 6; r2++) {
-                const th = best.th + r2 * dth;
-                for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
-                  const sc = poseScore(p2, best.cx + ox * dxy, best.cy + oy * dxy, th);
-                  if (sc > best.s) best = { s: sc, cx: best.cx + ox * dxy, cy: best.cy + oy * dxy, th };
+          // SEAM AVOIDANCE (owner: "the pixels inside the outline should be
+          // similar — a seam inside means you're covering two pills"). A pose
+          // that straddles two pills crosses the dark contact line between
+          // them; its interior then contains samples well below its own
+          // median. Penalize those. The 15-luma margin sits below the
+          // measured real-photo seam depth (19-64 luma) and above pill
+          // speckle spread, so single-pill interiors are untouched.
+          let seam = 0;
+          if (lums.length >= 6) {
+            const sl = [...lums].sort((x2, y2) => x2 - y2);
+            const medL = sl[sl.length >> 1];
+            for (const L of lums) if (L < medL - 15) seam++;
+          }
+          return inFg - 2 * inBg - 1.5 * seam;
+        };
+        const refinePoses = () => {
+          for (const g of regions) {
+            if (!g.pills) continue;
+            for (const p2 of g.pills) {
+              let best = { s: poseScore(p2, p2.cx, p2.cy, p2.theta),
+                cx: p2.cx, cy: p2.cy, th: p2.theta };
+              // ESCAPE RECOVERY: a placement mostly over background (shoved
+              // there by collision resolution) needs reach, not fine-tuning —
+              // widen the first pass's search radius until it can get home.
+              const maxIn = 33; // samples inside the u,v disc
+              const lost = best.s < maxIn * 0.2;
+              for (let pass = 0; pass < 2; pass++) {
+                const dth = pass === 0 ? Math.PI / 12 : Math.PI / 48;
+                const dxy = pass === 0 ? (lost ? 6 : 2.5) : 1;
+                const reach = pass === 0 && lost ? 3 : 1;
+                for (let r2 = -6; r2 <= 6; r2++) {
+                  const th = best.th + r2 * dth;
+                  for (let ox = -reach; ox <= reach; ox++) for (let oy = -reach; oy <= reach; oy++) {
+                    const sc = poseScore(p2, best.cx + ox * dxy, best.cy + oy * dxy, th);
+                    if (sc > best.s) best = { s: sc, cx: best.cx + ox * dxy, cy: best.cy + oy * dxy, th };
+                  }
                 }
               }
+              p2.cx = best.cx; p2.cy = best.cy; p2.theta = +best.th.toFixed(3);
             }
-            p2.cx = best.cx; p2.cy = best.cy; p2.theta = +best.th.toFixed(3);
           }
-        }
+        };
+        refinePoses();
+        regions.__refinePoses = refinePoses;   // second pass after physics
       }
 
       // ---- rigid-body relaxation over every placement ----
@@ -4147,18 +4176,86 @@ export function countPills(cv, source, opts = {}) {
           if (iter === 0) { pairsFixed++; if (pen > worstBefore) worstBefore = pen; }
           if (pen > worst) worst = pen;
           const mA = bodies[i].movable, mB = bodies[j].movable;
+          // Packed rigid pills resolve contact by ROTATING as much as by
+          // sliding (the owner's point) — and a translation push can shove a
+          // pill clean off the foreground. Try both: small counter-rotations
+          // of each movable body, or the translation push; keep whichever
+          // resolves the most penetration per unit of background claimed.
+          const fgFrac = (P) => {
+            const c2 = Math.cos(P.theta), s3 = Math.sin(P.theta);
+            const a2 = 0.42 * P.major, b2 = 0.42 * P.minor;
+            let f = 0, n2 = 0;
+            for (let ii = 0; ii < 5; ii++) for (let jj = 0; jj < 3; jj++) {
+              const u = (ii / 4) * 2 - 1, v = (jj / 2) * 2 - 1;
+              if (u * u + v * v > 1.05) continue;
+              n2++;
+              if (activeMd[((P.cy + u * a2 * s3 + v * b2 * c2) | 0) * w +
+                           ((P.cx + u * a2 * c2 - v * b2 * s3) | 0)] > 0) f++;
+            }
+            return n2 ? f / n2 : 0;
+          };
+          const trial = (dA, dB, rA, rB) => {
+            const A2 = { ...A, cx: A.cx + nx * dA, cy: A.cy + ny * dA, theta: A.theta + rA };
+            const B2 = { ...B, cx: B.cx - nx * dB, cy: B.cy - ny * dB, theta: B.theta + rB };
+            const { d: d2 } = closest(A2, B2);
+            const resolved = d2 - d;                      // how much gap gained
+            const fg2 = (mA ? fgFrac(A2) : 1) + (mB ? fgFrac(B2) : 1);
+            return { A2, B2, gain: resolved + 1.2 * fg2 };
+          };
           const step = pen / 2 + 0.2;
-          if (mA && mB) {
-            A.cx += nx * step; A.cy += ny * step;
-            B.cx -= nx * step; B.cy -= ny * step;
-          } else if (mA) { A.cx += nx * (pen + 0.3); A.cy += ny * (pen + 0.3); }
-          else if (mB) { B.cx -= nx * (pen + 0.3); B.cy -= ny * (pen + 0.3); }
+          const cands = [];
+          if (mA && mB) cands.push(trial(step, step, 0, 0));
+          else if (mA) cands.push(trial(pen + 0.3, 0, 0, 0));
+          else if (mB) cands.push(trial(0, pen + 0.3, 0, 0));
+          const ROT = Math.PI / 16;
+          if (mA) { cands.push(trial(0, 0, ROT, 0)); cands.push(trial(0, 0, -ROT, 0)); }
+          if (mB) { cands.push(trial(0, 0, 0, ROT)); cands.push(trial(0, 0, 0, -ROT)); }
+          if (cands.length) {
+            const bestC = cands.sort((x2, y2) => y2.gain - x2.gain)[0];
+            if (mA) { A.cx = bestC.A2.cx; A.cy = bestC.A2.cy; A.theta = bestC.A2.theta; }
+            if (mB) { B.cx = bestC.B2.cx; B.cy = bestC.B2.cy; B.theta = bestC.B2.theta; }
+          }
         }
         worstAfter = worst;
         if (worst <= 0.75) break;
       }
       if (pairsFixed) opts.debug?.({ stage: 'physics', pairs: pairsFixed,
         worstBefore: +worstBefore.toFixed(1), worstAfter: +worstAfter.toFixed(1) });
+      // settle poses once more after collisions moved anything
+      if (pairsFixed && regions.__refinePoses) regions.__refinePoses();
+      delete regions.__refinePoses;
+
+      // INVALID-PLACEMENT RECOVERY. When a blob's count is short, one
+      // placement has no pill of its own; collision resolution tends to
+      // evict it onto bare board, where it draws as a runaway lasso over
+      // nothing. Snap any placement that ended over background BACK onto
+      // the densest foreground — physics exemption granted — and mark it
+      // invalid. Two overlapping claims on the same material, one dashed
+      // red, IS the honest picture of an under-count: the display shows
+      // where the extra pill claim landed, and valid=0 feeds the flag.
+      for (const g of regions) {
+        if (!g.pills) continue;
+        for (const p2 of g.pills) {
+          const st3 = pillPhotoStats(distBg.data, w, h, p2, otsuThr);
+          if (st3.bgFrac <= 0.3) continue;
+          // foreground-only pose search: home is wherever the mask is
+          let best = null;
+          const lbl = g.label;
+          for (let dy = -14; dy <= 14; dy += 3) for (let dx = -14; dx <= 14; dx += 3) {
+            for (let r3 = 0; r3 < 6; r3++) {
+              const th = p2.theta + (r3 - 2.5) * Math.PI / 12;
+              const cand = { ...p2, cx: p2.cx + dx, cy: p2.cy + dy, theta: th };
+              const st4 = pillPhotoStats(distBg.data, w, h, cand, otsuThr);
+              const sc = st4.mean * (1 - st4.bgFrac);
+              if (!best || sc > best.sc) best = { sc, cand, bg: st4.bgFrac };
+            }
+          }
+          if (best && best.bg < st3.bgFrac - 0.1) {
+            p2.cx = best.cand.cx; p2.cy = best.cand.cy; p2.theta = +best.cand.theta.toFixed(3);
+          }
+          p2.valid = 0;   // photo rejected it wherever it stands — flag it
+        }
+      }
     }
 
     const out = { count, regions, scale, boundaries, width: w, height: h, unitArea, thr: otsuThr };
