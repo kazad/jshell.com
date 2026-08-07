@@ -1511,6 +1511,35 @@ function pillPhotoScore(distData, w, h, pill) {
   return n ? sum / n : 0;
 }
 
+// Patch-based interior statistics (owner's refinement of render-and-verify):
+// speckled pills on speckled boards make single-pixel reads noisy, so sample
+// 3x3 PATCH MEANS instead; and a mean alone can hide a background corner
+// inside the outline, so also report bgFrac — the fraction of interior
+// patches that read BELOW the photo's own Otsu cut, i.e. patches of actual
+// background color inside the claimed pill. A correct outline has bgFrac ~0
+// regardless of speckle; a wrong-angle or oversized outline pokes into the
+// board and bgFrac says so immediately.
+function pillPhotoStats(distData, w, h, pill, otsuCut) {
+  const c = Math.cos(pill.theta), s = Math.sin(pill.theta);
+  const a = 0.38 * pill.major, b = 0.38 * pill.minor;
+  let sum = 0, n = 0, bg = 0;
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 4; j++) {
+      const u = (i / 5) * 2 - 1, v = (j / 3) * 2 - 1;
+      const px = Math.round(pill.cx + u * a * c - v * b * s);
+      const py = Math.round(pill.cy + u * a * s + v * b * c);
+      if (px < 1 || py < 1 || px >= w - 1 || py >= h - 1) { bg++; n++; continue; }
+      let pm = 0;                                   // 3x3 patch mean
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++)
+        pm += distData[(py + dy) * w + (px + dx)];
+      pm /= 9;
+      sum += pm; n++;
+      if (pm < otsuCut) bg++;
+    }
+  }
+  return { mean: n ? sum / n : 0, bgFrac: n ? bg / n : 1 };
+}
+
 /**
  * Count pills in an image.
  * @param {object} cv - OpenCV module
@@ -3955,49 +3984,131 @@ export function countPills(cv, source, opts = {}) {
           let sxx = 0, sxy = 0, syy = 0;
           for (const [x, y] of pxs) { const dx = x - mx, dy = y - my; sxx += dx * dx; sxy += dx * dy; syy += dy * dy; }
           const th0 = 0.5 * Math.atan2(2 * sxy, sxx - syy);
-          const ux = Math.cos(th0), uy = Math.sin(th0);
-          let lo = Infinity, hi = -Infinity;
-          for (const [x, y] of pxs) { const t = (x - mx) * ux + (y - my) * uy; if (t < lo) lo = t; if (t > hi) hi = t; }
-          let C = Array.from({ length: k }, (_, i) => {
-            const t = lo + (hi - lo) * (i + 0.5) / k;
-            return [mx + ux * t, my + uy * t];
-          });
-          const asg = new Array(pxs.length).fill(0);
-          for (let it = 0; it < 18; it++) {
-            let moved = false;
-            for (let i = 0; i < pxs.length; i++) {
-              let b = 0, bd = Infinity;
-              for (let c = 0; c < k; c++) {
-                const d2 = (pxs[i][0] - C[c][0]) ** 2 + (pxs[i][1] - C[c][1]) ** 2;
-                if (d2 < bd) { bd = d2; b = c; }
+          // A k-pill blob can be near-square (two horizontal pills stacked
+          // vertically), making the principal axis a coin flip — seeding
+          // along the wrong one splits every pill in half and every cell's
+          // orientation comes out 90 degrees wrong (field report: vertical
+          // capsules drawn over horizontal pills). So run Lloyd from BOTH
+          // candidate axes and let the photo choose: score each partition by
+          // its cells' interiors at TEMPLATE dims — a wrong-orientation
+          // template sticks out of the pill material and samples background,
+          // scoring visibly lower. Same render-and-verify principle as
+          // everywhere else; no constant involved.
+          const runLloyd = (axTheta) => {
+            const ux = Math.cos(axTheta), uy = Math.sin(axTheta);
+            let lo = Infinity, hi = -Infinity;
+            for (const [x, y] of pxs) { const t = (x - mx) * ux + (y - my) * uy; if (t < lo) lo = t; if (t > hi) hi = t; }
+            const C = Array.from({ length: k }, (_, i) => {
+              const t = lo + (hi - lo) * (i + 0.5) / k;
+              return [mx + ux * t, my + uy * t];
+            });
+            const asg = new Array(pxs.length).fill(0);
+            for (let it = 0; it < 18; it++) {
+              let moved = false;
+              for (let i = 0; i < pxs.length; i++) {
+                let b = 0, bd = Infinity;
+                for (let c = 0; c < k; c++) {
+                  const d2 = (pxs[i][0] - C[c][0]) ** 2 + (pxs[i][1] - C[c][1]) ** 2;
+                  if (d2 < bd) { bd = d2; b = c; }
+                }
+                if (asg[i] !== b) { asg[i] = b; moved = true; }
               }
-              if (asg[i] !== b) { asg[i] = b; moved = true; }
+              const sum = Array.from({ length: k }, () => [0, 0, 0]);
+              for (let i = 0; i < pxs.length; i++) { const s2 = sum[asg[i]]; s2[0] += pxs[i][0]; s2[1] += pxs[i][1]; s2[2]++; }
+              for (let c = 0; c < k; c++) if (sum[c][2]) C[c] = [sum[c][0] / sum[c][2], sum[c][1] / sum[c][2]];
+              if (!moved) break;
             }
-            const sum = Array.from({ length: k }, () => [0, 0, 0]);
-            for (let i = 0; i < pxs.length; i++) { const s2 = sum[asg[i]]; s2[0] += pxs[i][0]; s2[1] += pxs[i][1]; s2[2]++; }
-            for (let c = 0; c < k; c++) if (sum[c][2]) C[c] = [sum[c][0] / sum[c][2], sum[c][1] / sum[c][2]];
-            if (!moved) break;
-          }
-          // per-cell orientation from its own pixels; dims from the template
-          const cs2 = Array.from({ length: k }, () => ({ n: 0, sx: 0, sy: 0, sxx: 0, sxy: 0, syy: 0 }));
-          for (let i = 0; i < pxs.length; i++) {
-            const a2 = cs2[asg[i]], [x, y] = pxs[i];
-            a2.n++; a2.sx += x; a2.sy += y; a2.sxx += x * x; a2.sxy += x * y; a2.syy += y * y;
-          }
-          const pills = [];
-          for (const a2 of cs2) {
-            if (a2.n < 15) continue;
-            const cx = a2.sx / a2.n, cy = a2.sy / a2.n;
-            const cxx = a2.sxx / a2.n - cx * cx, cxy2 = a2.sxy / a2.n - cx * cy, cyy = a2.syy / a2.n - cy * cy;
-            const th = 0.5 * Math.atan2(2 * cxy2, cxx - cyy);
-            pills.push({ cx, cy, theta: +th.toFixed(3), major: tMajor, minor: tMinor, photo: 0 });
-          }
+            const cs2 = Array.from({ length: k }, () => ({ n: 0, sx: 0, sy: 0, sxx: 0, sxy: 0, syy: 0 }));
+            for (let i = 0; i < pxs.length; i++) {
+              const a2 = cs2[asg[i]], [x, y] = pxs[i];
+              a2.n++; a2.sx += x; a2.sy += y; a2.sxx += x * x; a2.sxy += x * y; a2.syy += y * y;
+            }
+            const pills2 = [];
+            for (const a2 of cs2) {
+              if (a2.n < 15) continue;
+              const cx = a2.sx / a2.n, cy = a2.sy / a2.n;
+              const cxx = a2.sxx / a2.n - cx * cx, cxy2 = a2.sxy / a2.n - cx * cy, cyy = a2.syy / a2.n - cy * cy;
+              const th = 0.5 * Math.atan2(2 * cxy2, cxx - cyy);
+              pills2.push({ cx, cy, theta: +th.toFixed(3), major: tMajor, minor: tMinor, photo: 0 });
+            }
+            let score = 0, bgSum = 0;
+            for (const p2 of pills2) {
+              const st2 = pillPhotoStats(distBg.data, w, h, p2, otsuThr);
+              p2.photo = st2.mean; p2.bgFrac = st2.bgFrac;
+              score += st2.mean; bgSum += st2.bgFrac;
+            }
+            return { pills: pills2, score, bgSum };
+          };
+          const candA = runLloyd(th0);
+          const candB = runLloyd(th0 + Math.PI / 2);
+          // Primary criterion: NO background inside the outlines (rigid pills
+          // never contain board). Only when both are equally clean does the
+          // stronger interior signal decide.
+          const winner =
+            candB.bgSum < candA.bgSum - 0.05 ? candB :
+            candA.bgSum < candB.bgSum - 0.05 ? candA :
+            (candB.score > candA.score ? candB : candA);
+          const pills = winner.pills;
+          if (candA.pills.length && candB.pills.length)
+            opts.debug?.({ stage: 'placeaxis', label: g.label, k,
+              a: +candA.score.toFixed(1), b: +candB.score.toFixed(1),
+              chose: winner === candB ? 'perp' : 'principal' });
           if (pills.length) {
-            for (const p2 of pills) p2.photo = pillPhotoScore(distBg.data, w, h, p2);
             const medP = median(pills.map((p2) => p2.photo)) || 1;
-            for (const p2 of pills) { p2.valid = +Math.min(1, p2.photo / medP).toFixed(2); delete p2.photo; }
+            for (const p2 of pills) {
+              p2.valid = +((1 - (p2.bgFrac || 0)) * Math.min(1, p2.photo / medP)).toFixed(2);
+              delete p2.photo; delete p2.bgFrac;
+            }
             g.pills = pills;
             g.placed = 'lloyd';
+          }
+        }
+      }
+
+      // ---- POSE REFINEMENT: consume the residual signal ----
+      // The owner, reading the residual view: "why isn't it clear that
+      // ROTATING would fix the overlap?" It is — blue lobes (outline over
+      // background) perpendicular to red lobes (mask no outline explains)
+      // are exactly a rotation error, and red/blue displaced to one side is
+      // a translation error. So each placed pill now locally optimizes its
+      // pose against the mask itself: maximize (foreground covered) minus
+      // (background claimed), over rotations up to ±90° and small shifts.
+      // No constants beyond the search grid; the objective IS the residual.
+      {
+        const fgAt = (x, y) => {
+          if (x < 0 || y < 0 || x >= w || y >= h) return 0;
+          return activeMd[(y | 0) * w + (x | 0)] > 0 ? 1 : 0;
+        };
+        const poseScore = (p2, cx, cy, th) => {
+          const c = Math.cos(th), s2 = Math.sin(th);
+          const a = 0.46 * p2.major, b = 0.46 * p2.minor;
+          let inFg = 0, inBg = 0;
+          for (let i = 0; i < 9; i++) for (let j = 0; j < 5; j++) {
+            const u = (i / 8) * 2 - 1, v = (j / 4) * 2 - 1;
+            if (u * u + v * v > 1.05) continue;
+            const x = cx + u * a * c - v * b * s2;
+            const y = cy + u * a * s2 + v * b * c;
+            fgAt(x, y) ? inFg++ : inBg++;
+          }
+          return inFg - 2 * inBg;    // claiming background is worse than
+        };                            // leaving foreground for a neighbour
+        for (const g of regions) {
+          if (!g.pills) continue;
+          for (const p2 of g.pills) {
+            let best = { s: poseScore(p2, p2.cx, p2.cy, p2.theta),
+              cx: p2.cx, cy: p2.cy, th: p2.theta };
+            for (let pass = 0; pass < 2; pass++) {
+              const dth = pass === 0 ? Math.PI / 12 : Math.PI / 48;   // 15°, then 3.75°
+              const dxy = pass === 0 ? 2.5 : 1;
+              for (let r2 = -6; r2 <= 6; r2++) {
+                const th = best.th + r2 * dth;
+                for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+                  const sc = poseScore(p2, best.cx + ox * dxy, best.cy + oy * dxy, th);
+                  if (sc > best.s) best = { s: sc, cx: best.cx + ox * dxy, cy: best.cy + oy * dxy, th };
+                }
+              }
+            }
+            p2.cx = best.cx; p2.cy = best.cy; p2.theta = +best.th.toFixed(3);
           }
         }
       }
