@@ -4140,6 +4140,12 @@ export function countPills(cv, source, opts = {}) {
         };
         refinePoses();
         regions.__refinePoses = refinePoses;   // second pass after physics
+        // `var` hoists past this block: invalid-placement recovery below
+        // scores its relocation candidates with the SAME objective the
+        // refiner uses (fg - bg - seam), not a photometry-only score, which
+        // is degenerate inside pill crowds (any pose centered in a white
+        // pocket reads 100% pill; only the seam term knows it straddles).
+        var poseScoreHoisted = poseScore;
       }
 
       // ---- rigid-body relaxation over every placement ----
@@ -4233,27 +4239,120 @@ export function countPills(cv, source, opts = {}) {
       // invalid. Two overlapping claims on the same material, one dashed
       // red, IS the honest picture of an under-count: the display shows
       // where the extra pill claim landed, and valid=0 feeds the flag.
+      const strandedByLbl = new Map();
       for (const g of regions) {
-        if (!g.pills) continue;
+        if (!g.pills || g.label == null) continue;
         for (const p2 of g.pills) {
           const st3 = pillPhotoStats(distBg.data, w, h, p2, otsuThr);
-          if (st3.bgFrac <= 0.3) continue;
-          // foreground-only pose search: home is wherever the mask is
-          let best = null;
-          const lbl = g.label;
-          for (let dy = -14; dy <= 14; dy += 3) for (let dx = -14; dx <= 14; dx += 3) {
-            for (let r3 = 0; r3 < 6; r3++) {
-              const th = p2.theta + (r3 - 2.5) * Math.PI / 12;
-              const cand = { ...p2, cx: p2.cx + dx, cy: p2.cy + dy, theta: th };
-              const st4 = pillPhotoStats(distBg.data, w, h, cand, otsuThr);
-              const sc = st4.mean * (1 - st4.bgFrac);
-              if (!best || sc > best.sc) best = { sc, cand, bg: st4.bgFrac };
+          if (st3.bgFrac > 0.3) {
+            if (!strandedByLbl.has(g.label)) strandedByLbl.set(g.label, []);
+            strandedByLbl.get(g.label).push({ g, p2, st3 });
+          }
+        }
+      }
+      if (strandedByLbl.size) {
+        // Home is the blob's OWN pixels — searched globally. Physics can
+        // pinball a surplus claim from anchored single to anchored single
+        // until it pops out into open board, arbitrarily far from its blob;
+        // any search centered on where it LANDED inherits that error. So
+        // candidate centers come from the blob's label pixels themselves.
+        const homePx = new Map([...strandedByLbl.keys()].map((l) => [l, []]));
+        for (let i = 0; i < activeMd.length; i++) {
+          const arr = homePx.get(activeMd[i]);
+          if (arr) arr.push(i);
+        }
+        const segPts = (q) => {
+          const a2 = Math.max(0, (q.major - q.minor) / 2), pts = [];
+          for (let t = -1; t <= 1; t += 0.25)
+            pts.push([q.cx + Math.cos(q.theta) * a2 * t, q.cy + Math.sin(q.theta) * a2 * t]);
+          return pts;
+        };
+        // Cap-aware radial score: pillPhotoStats under-samples the cap ends
+        // (a claim can hang both caps into board and still read bgFrac 0.04),
+        // so score along 16 exact stadium radii out to 0.92R instead — the
+        // same geometry the spoke proof draws.
+        const radialR = (a2, rho, phi) => {
+          const c = Math.abs(Math.cos(phi)), s4 = Math.abs(Math.sin(phi));
+          if (s4 < 1e-6) return a2 + rho;
+          const r1 = rho / s4;
+          if (r1 * c <= a2) return r1;
+          return a2 * c + Math.sqrt(Math.max(0, a2 * a2 * c * c - a2 * a2 + rho * rho));
+        };
+        const radialScore = (cand) => {
+          const a2 = Math.max(0, (cand.major - cand.minor) / 2), rho = cand.minor / 2;
+          let ok = 0, n3 = 0, sum = 0;
+          for (let k2 = 0; k2 < 16; k2++) {
+            const phi = k2 * Math.PI / 8, R = radialR(a2, rho, phi);
+            const wx = Math.cos(cand.theta + phi), wy = Math.sin(cand.theta + phi);
+            for (const t of [0.3, 0.6, 0.92]) {
+              const x = (cand.cx + wx * R * t) | 0, y = (cand.cy + wy * R * t) | 0;
+              if (x < 0 || y < 0 || x >= w || y >= h) { n3++; continue; }
+              const v = distBg.data[y * w + x];
+              n3++; sum += v; if (v > otsuThr) ok++;
             }
           }
-          if (best && best.bg < st3.bgFrac - 0.1) {
+          return n3 ? ok / n3 + 0.1 * (sum / n3) / 255 : 0;
+        };
+        for (const list of strandedByLbl.values()) for (const { g, p2, st3 } of list) {
+          const idx = homePx.get(g.label) || [];
+          const stride = Math.max(1, (idx.length / 160) | 0);
+          const sibs = g.pills.filter((q) => q !== p2).map(segPts);
+          let best = null;
+          for (let ii = 0; ii < idx.length; ii += stride) {
+            const cx4 = idx[ii] % w, cy4 = (idx[ii] / w) | 0;
+            for (let r3 = 0; r3 < 8; r3++) {
+              const th = r3 * Math.PI / 8;
+              const cand = { ...p2, cx: cx4, cy: cy4, theta: th };
+              // Photometry alone is degenerate inside a pill crowd: any pose
+              // centered in white material reads ~100% pill even when it
+              // straddles two. Combine the cap-aware radial read with the
+              // refiner's own seam-aware objective, which knows the
+              // difference (a straddling pose crosses the dark contact line).
+              let sc = radialScore(cand)
+                + 0.02 * poseScoreHoisted(cand, cand.cx, cand.cy, cand.theta);
+              // soft anti-doubling: flush parallel neighbours legitimately
+              // sit at core distance ~minor, so only penalize genuine
+              // interpenetration, and gently — photometry breaks near-ties.
+              const mine = segPts(cand);
+              for (const sp of sibs) {
+                let dmin = 1e9;
+                for (const [xa, ya] of mine) for (const [xb, yb] of sp) {
+                  const d3 = Math.hypot(xa - xb, ya - yb);
+                  if (d3 < dmin) dmin = d3;
+                }
+                if (dmin < p2.minor * 0.75) { sc *= 0.75; break; }
+              }
+              if (!best || sc > best.sc) best = { sc, cand };
+            }
+          }
+          if (best) best.bg = pillPhotoStats(distBg.data, w, h, best.cand, otsuThr).bgFrac;
+          if (best && best.bg < st3.bgFrac - 0.02) {
             p2.cx = best.cand.cx; p2.cy = best.cand.cy; p2.theta = +best.cand.theta.toFixed(3);
           }
-          p2.valid = 0;   // photo rejected it wherever it stands — flag it
+          // Verdict where it finally stands. A recovered claim that reads
+          // clean AND has its own material is a real pill again; only a
+          // dirty stand or a doubled-up claim stays flagged.
+          const stF = pillPhotoStats(distBg.data, w, h, p2, otsuThr);
+          let doubled = 0;
+          const seg = (q) => {
+            const a2 = Math.max(0, (q.major - q.minor) / 2);
+            return [q.cx - Math.cos(q.theta) * a2, q.cy - Math.sin(q.theta) * a2,
+                    q.cx + Math.cos(q.theta) * a2, q.cy + Math.sin(q.theta) * a2];
+          };
+          const [ax0, ay0, ax1, ay1] = seg(p2);
+          for (const q of g.pills) {
+            if (q === p2) continue;
+            const [bx0, by0, bx1, by1] = seg(q);
+            let dmin = 1e9;
+            for (let i2 = 0; i2 <= 8; i2++) for (let j2 = 0; j2 <= 8; j2++) {
+              const xa = ax0 + (ax1 - ax0) * i2 / 8, ya = ay0 + (ay1 - ay0) * i2 / 8;
+              const xb = bx0 + (bx1 - bx0) * j2 / 8, yb = by0 + (by1 - by0) * j2 / 8;
+              const d2 = Math.hypot(xa - xb, ya - yb);
+              if (d2 < dmin) dmin = d2;
+            }
+            if (dmin < (p2.minor + q.minor) / 2 * 0.8) { doubled = 1; break; }
+          }
+          p2.valid = (stF.bgFrac < 0.15 && !doubled) ? +(1 - stF.bgFrac).toFixed(2) : 0;
         }
       }
     }

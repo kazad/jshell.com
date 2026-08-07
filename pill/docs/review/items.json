@@ -1,66 +1,87 @@
 {
-  "items": [
+ "items": [
+  {
+   "id": "spoke-proof",
+   "title": "Geometry proof: spokes + interior colour, whole real corpus",
+   "context": "You asked for proof the pills are actually being identified, not just counted. Every claimed pill is drawn as a 16-spoke wheel: each spoke runs from the claimed centre to the claimed boundary at that angle (exact stadium radius, so the spoke tips ARE the outline). A spoke is CYAN when the pixels along it read closer to the pill colour than to the background colour, RED when they read background. The disc at each hub is filled with the measured average colour inside that claim \u2014 compare it to the two swatches in the legend strip: it should look like the 'pill' swatch, never the 'bg' swatch.\n\nCorpus result: 12 of 20 real photos have EVERY claim clean on all 16 spokes. Interior averages sit 1-17 units from the pill reference and 170-200 units from the background \u2014 no claim is 'sort of' on a pill. Where spokes go red, the algorithm is telling on itself: the worst two claims in the entire corpus are both inside r-7ff7fd99's short blob, the one image whose count is wrong (19 vs 20). Two claims cannot cleanly cover three pills, and the proof shows exactly that rather than hiding it.",
+   "images": [
     {
-      "id": "7ff-flush-pair",
-      "title": "The last real-corpus miss: is this really 4 pills?",
-      "context": "r-7ff7fd99 counts 19; the label says 20. The disputed blob is the group right of centre. The claim: the two caplets on the right of the crop are a FLUSH PARALLEL PAIR (making this blob 4 pills), separated only by a faint seam. The counter reads 3, and accepting its 4th seam would \u2014 measurably \u2014 invent a phantom pill in a different photo (the signals are ~5% apart in every normalization tried). Before any further work: a human ruling on what is physically there.",
-      "images": [
-        {
-          "src": "7ff-geometry.png",
-          "caption": "THE CLAIM, drawn: every counted pill as a fitted capsule outline (cyan). The YELLOW RING is the one region claimed by count (2 pills) but not individually placed \u2014 the disputed blob."
-        },
-        {
-          "src": "7ff-maskcut.png",
-          "caption": "Same claim on the black/green foreground mask: white cutouts = placed pills carving the green."
-        },
-        {
-          "src": "7ff-residual.png",
-          "caption": "What the claim FAILS to explain: dim green = explained, BRIGHT RED = foreground no pill accounts for. All surplus red concentrates inside the yellow ring \u2014 2.6 pills' worth where 2 are claimed. The extra ~0.6 unit is likely your 20th pill."
-        },
-        {
-          "src": "7ff-pair.png",
-          "caption": "4\u00d7 crop of that spot: one wide caplet, or two flush caplets with a faint seam?"
-        },
-        {
-          "src": "7ff-dots.png",
-          "caption": "The 20-pill label as dots, for reference."
-        }
-      ],
-      "question": "In the crop, how many pills do you see in the right-hand mass?",
-      "options": [
-        "2 flush caplets \u2014 label 20 stands",
-        "1 wide caplet \u2014 label should go back to 19",
-        "Can't tell from the photo"
-      ]
+     "src": "spokes-corpus.png",
+     "caption": "Four representative photos. Top row: all-clean placements (19/19 each) \u2014 every wheel centred, every spoke cyan to the boundary. Bottom left r-cc7a2ada: count exact at 19, but in the dense middle one pill carries no wheel while a neighbour carries two \u2014 a placement error, visible without ground truth. Bottom right r-7ff7fd99: the one wrong count, its two red-spoked claims sitting in the short blob."
     },
     {
-      "id": "lined-raft-blocked",
-      "title": "Lined-paper raft: accept 'evidence-limited' verdict?",
-      "context": "The lined trio remains 18/18/21 against labels of 20. Three independent investigations concluded the central raft is genuinely flush \u2014 measured seam windows for the missing pills sit at noise level, and two attempted fixes produced the right TOTAL from wrong pills (caught by per-pill scoring, rejected). The proposed standing verdict: these photos are counted as well as their evidence allows; the honest handling is the amber flag they already get, not more tuning.",
-      "images": [
-        {
-          "src": "lined-raft.png",
-          "caption": "4\u00d7 crop of the central raft. The claim: contacts are flush with no recoverable seams at this resolution."
-        }
-      ],
-      "question": "Do you accept 'evidence-limited, keep amber-flagged' as the standing verdict for the lined trio?",
-      "options": [
-        "Yes \u2014 accept and stop tuning these",
-        "No \u2014 keep attacking them",
-        "Let me re-photograph the scene at higher quality instead"
-      ]
-    },
-    {
-      "id": "fullres-reexam",
-      "title": "Build full-resolution re-examination of ambiguous blobs?",
-      "context": "The 7ff-class miss is resolution-limited: the seam carries ~19 luma at stored resolution, but the phone's sensor frame holds 3-4x more pixels on that seam at capture time. Proposal: when a blob is ambiguous (certified-but-vetoed, or near the seam bar), re-crop JUST that blob from the full-resolution capture and re-run the seam spectrum on it. Costs little (one small region), only fires on ambiguity, and has a physical reason to work. It cannot help old stored photos \u2014 only fresh captures.",
-      "images": [],
-      "question": "Green-light this experiment?",
-      "options": [
-        "Yes \u2014 build it",
-        "Not now \u2014 current accuracy is enough",
-        "Only if it also helps the lined-paper case"
-      ]
+     "src": "7ff-spokes.png",
+     "caption": "r-7ff7fd99 full size. 17 of 19 claims are clean; the two flagged ones are in the three-pill blob that counts as two."
     }
-  ]
+   ],
+   "question": "Does this convince you the pills are being identified correctly on the clean images?",
+   "options": [
+    "Yes \u2014 the geometry proof is convincing",
+    "Partly \u2014 show me a specific case I don't trust",
+    "No \u2014 I want a different kind of proof"
+   ]
+  },
+  {
+   "id": "7ff-flush-pair",
+   "title": "The last real-corpus miss: is this really 4 pills?",
+   "context": "r-7ff7fd99 counts 19; the label says 20. The disputed blob is the group right of centre. The claim: the two caplets on the right of the crop are a FLUSH PARALLEL PAIR (making this blob 4 pills), separated only by a faint seam. The counter reads 3, and accepting its 4th seam would \u2014 measurably \u2014 invent a phantom pill in a different photo (the signals are ~5% apart in every normalization tried). Before any further work: a human ruling on what is physically there.",
+   "images": [
+    {
+     "src": "7ff-geometry.png",
+     "caption": "THE CLAIM, drawn: every counted pill as a fitted capsule outline (cyan). The YELLOW RING is the one region claimed by count (2 pills) but not individually placed \u2014 the disputed blob."
+    },
+    {
+     "src": "7ff-maskcut.png",
+     "caption": "Same claim on the black/green foreground mask: white cutouts = placed pills carving the green."
+    },
+    {
+     "src": "7ff-residual.png",
+     "caption": "What the claim FAILS to explain: dim green = explained, BRIGHT RED = foreground no pill accounts for. All surplus red concentrates inside the yellow ring \u2014 2.6 pills' worth where 2 are claimed. The extra ~0.6 unit is likely your 20th pill."
+    },
+    {
+     "src": "7ff-pair.png",
+     "caption": "4\u00d7 crop of that spot: one wide caplet, or two flush caplets with a faint seam?"
+    },
+    {
+     "src": "7ff-dots.png",
+     "caption": "The 20-pill label as dots, for reference."
+    }
+   ],
+   "question": "In the crop, how many pills do you see in the right-hand mass?",
+   "options": [
+    "2 flush caplets \u2014 label 20 stands",
+    "1 wide caplet \u2014 label should go back to 19",
+    "Can't tell from the photo"
+   ]
+  },
+  {
+   "id": "lined-raft-blocked",
+   "title": "Lined-paper raft: accept 'evidence-limited' verdict?",
+   "context": "The lined trio remains 18/18/21 against labels of 20. Three independent investigations concluded the central raft is genuinely flush \u2014 measured seam windows for the missing pills sit at noise level, and two attempted fixes produced the right TOTAL from wrong pills (caught by per-pill scoring, rejected). The proposed standing verdict: these photos are counted as well as their evidence allows; the honest handling is the amber flag they already get, not more tuning.",
+   "images": [
+    {
+     "src": "lined-raft.png",
+     "caption": "4\u00d7 crop of the central raft. The claim: contacts are flush with no recoverable seams at this resolution."
+    }
+   ],
+   "question": "Do you accept 'evidence-limited, keep amber-flagged' as the standing verdict for the lined trio?",
+   "options": [
+    "Yes \u2014 accept and stop tuning these",
+    "No \u2014 keep attacking them",
+    "Let me re-photograph the scene at higher quality instead"
+   ]
+  },
+  {
+   "id": "fullres-reexam",
+   "title": "Build full-resolution re-examination of ambiguous blobs?",
+   "context": "The 7ff-class miss is resolution-limited: the seam carries ~19 luma at stored resolution, but the phone's sensor frame holds 3-4x more pixels on that seam at capture time. Proposal: when a blob is ambiguous (certified-but-vetoed, or near the seam bar), re-crop JUST that blob from the full-resolution capture and re-run the seam spectrum on it. Costs little (one small region), only fires on ambiguity, and has a physical reason to work. It cannot help old stored photos \u2014 only fresh captures.",
+   "images": [],
+   "question": "Green-light this experiment?",
+   "options": [
+    "Yes \u2014 build it",
+    "Not now \u2014 current accuracy is enough",
+    "Only if it also helps the lined-paper case"
+   ]
+  }
+ ]
 }
