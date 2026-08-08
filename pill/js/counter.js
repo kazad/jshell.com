@@ -91,15 +91,36 @@ function borderColor(rgba, w, h) {
 // Color difference vs a reference, damping only shadow-like shifts (darker
 // than the reference at near-identical chroma). White pills on white counters
 // keep full luminance weight; cast shadows don't.
-function colorDist(dr, dg, db) {
+function colorDist(dr, dg, db, bg, hueAware) {
   const dl = (dr + dg + db) / 3;
   const cr = dr - dl, cg = dg - dl, cb = db - dl;
   const chroma2 = cr * cr + cg * cg + cb * cb;
   // Shadow = luminance-dominant darkening. On saturated surfaces (wood),
   // shading is multiplicative, so deep shadows shift chroma proportionally —
   // the gate must scale with |dl| rather than stay absolute.
-  const lumaW = dl < 0 && chroma2 < Math.max(400, 0.5 * dl * dl) ? 0.12 : 1;
-  return Math.min(255, Math.sqrt(chroma2 + lumaW * dl * dl) | 0);
+  let shadowish = dl < 0 && chroma2 < Math.max(400, 0.5 * dl * dl);
+  // OPT-IN hue check, used only when the plain metric has already been shown
+  // to fail on this photo (see the chromatic-rescue block). "Chroma is small
+  // in absolute terms" also describes a modestly coloured DARK object, and
+  // damping one to 12% deletes it: measured on the glossy beads, interiors
+  // read 18-46 against an Otsu cut of 49, so every pill pixel fell below the
+  // threshold and the mask came out as gnawed fragments.
+  //
+  // The physical distinction is direction, not magnitude. Shadow SCALES the
+  // background colour and preserves its RGB direction; a coloured body
+  // rotates it. Measured on that photo: true shadow 0.18-0.36 degrees off the
+  // background vector, shaded board 0.6-4.1, bead pixels 9.8-15.2 — a 25x
+  // margin. Applying it globally is NOT safe (it also undamps board shading,
+  // which lifted the threshold and merged clumps: r-7ff7fd99 19 -> 12), so it
+  // stays behind the per-photo gate.
+  if (hueAware && shadowish && bg) {
+    const px = bg[0] + dr, py = bg[1] + dg, pz = bg[2] + db;
+    const dot = px * bg[0] + py * bg[1] + pz * bg[2];
+    const n1 = Math.sqrt(px * px + py * py + pz * pz);
+    const n2 = Math.sqrt(bg[0] * bg[0] + bg[1] * bg[1] + bg[2] * bg[2]);
+    if (n1 > 1 && n2 > 1 && dot / (n1 * n2) < 0.99065) shadowish = false;
+  }
+  return Math.min(255, Math.sqrt(chroma2 + (shadowish ? 0.12 : 1) * dl * dl) | 0);
 }
 
 // Per-pixel color distance from the NEAREST background color, as a CV_8U Mat.
@@ -107,7 +128,7 @@ function colorDist(dr, dg, db) {
 // slightly darker than a light background look like shadows to the damped
 // metric, but the rescue stage can re-examine them in the raw map where its
 // pill-shape filters (not luma damping) reject actual cast shadows.
-function distanceFromBackground(cv, rgbaMat) {
+function distanceFromBackground(cv, rgbaMat, hueAware) {
   const w = rgbaMat.cols, h = rgbaMat.rows;
   const d = rgbaMat.data;
   const bgs = borderColor(d, w, h);
@@ -118,7 +139,7 @@ function distanceFromBackground(cv, rgbaMat) {
     let m = 255, mr = 255;
     for (const [br, bg, bb] of bgs) {
       const dr = d[p] - br, dg = d[p + 1] - bg, db = d[p + 2] - bb;
-      const v = colorDist(dr, dg, db);
+      const v = colorDist(dr, dg, db, [br, bg, bb], hueAware);
       if (v < m) m = v;
       const dl = (dr + dg + db) / 3;
       const cr = dr - dl, cg = dg - dl, cb = db - dl;
@@ -129,6 +150,109 @@ function distanceFromBackground(cv, rgbaMat) {
     ro[i] = mr;
   }
   return { mat: out, raw, color: bgs[0] };
+}
+
+// CHROMATIC distance from a LOCAL background estimate.
+//
+// Two failures of the border-median/absolute-colour metric above, both
+// measured on the glossy-bead photos (testdata/shiny):
+//
+//   1. One background colour cannot describe a lit surface. That leather
+//      runs rgb(180,123,92) top-right to (131,80,53) bottom, so bare board
+//      sits 46-52 units from the border median while a BEAD interior sits at
+//      33 — the classes overlap and no threshold can separate them. Result:
+//      33% of the frame classified as pill (true coverage ~8%), separate
+//      beads welded into clumps, "the boundaries are really off".
+//
+//   2. A specular highlight blows a glossy pill toward white in the middle,
+//      so a brightness-sensitive metric punches a hole through every bead
+//      and the mask becomes a shell around a hollow core.
+//
+// Both are fixed by comparing CHROMATICITY (r,g,b normalized by intensity)
+// against a heavily-blurred local estimate of the surface: normalizing kills
+// the highlight's brightness, and the local reference tracks the gradient.
+//
+// This does NOT replace the absolute metric — it is its complement. White
+// caplets share the board's chromaticity and differ only in brightness, so
+// this map is nearly blind to them, exactly where the absolute metric is
+// strongest. The caller measures both and keeps whichever yields a coherent
+// pill population (see cueSelect).
+function chromaticDistance(cv, rgbaMat) {
+  const w = rgbaMat.cols, h = rgbaMat.rows, d = rgbaMat.data;
+  // Local surface estimate: downsample hard, median-blur, upsample. The
+  // median (not mean) keeps pills from dragging their own neighbourhood.
+  const SS = Math.max(1, Math.round(Math.min(w, h) / 90));
+  const sw = Math.max(1, (w / SS) | 0), sh = Math.max(1, (h / SS) | 0);
+  const sm = new Float32Array(sw * sh * 3);
+  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+    const p = ((Math.min(h - 1, y * SS) * w) + Math.min(w - 1, x * SS)) * 4;
+    const q = (y * sw + x) * 3;
+    sm[q] = d[p]; sm[q + 1] = d[p + 1]; sm[q + 2] = d[p + 2];
+  }
+  const R = Math.max(2, Math.round(Math.min(sw, sh) / 6));
+  const bgf = new Float32Array(sw * sh * 3);
+  const buf = [];
+  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+    for (let c = 0; c < 3; c++) {
+      buf.length = 0;
+      for (let j = -R; j <= R; j += 2) for (let i = -R; i <= R; i += 2) {
+        const yy = y + j, xx = x + i;
+        if (yy < 0 || xx < 0 || yy >= sh || xx >= sw) continue;
+        buf.push(sm[(yy * sw + xx) * 3 + c]);
+      }
+      buf.sort((a, b) => a - b);
+      bgf[(y * sw + x) * 3 + c] = buf[buf.length >> 1] || 0;
+    }
+  }
+  const out = new cv.Mat(h, w, cv.CV_8UC1);
+  const o = out.data;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const p = (y * w + x) * 4;
+    const sx = Math.min(sw - 1, (x / SS) | 0), sy = Math.min(sh - 1, (y / SS) | 0);
+    const q = (sy * sw + sx) * 3;
+    const s1 = d[p] + d[p + 1] + d[p + 2] + 1e-6;
+    const s2 = bgf[q] + bgf[q + 1] + bgf[q + 2] + 1e-6;
+    const dr = d[p] / s1 - bgf[q] / s2;
+    const dg = d[p + 1] / s1 - bgf[q + 1] / s2;
+    const db = d[p + 2] / s1 - bgf[q + 2] / s2;
+    // chromaticity deltas are ~0..0.35; scale into the 0..255 the rest of
+    // the pipeline (Otsu, absFloor, rescue) already speaks
+    o[y * w + x] = Math.min(255, Math.sqrt(dr * dr + dg * dg + db * db) * 900) | 0;
+  }
+  return out;
+}
+
+// Which distance map actually separates pills here? Not "which histogram is
+// more bimodal" — board texture makes both bimodal, and on the bead photos
+// the two scored 0.693 vs 0.695, a coin flip. Ask instead whether the mask a
+// cue produces looks like a POPULATION OF PILLS: identical medication means
+// blobs repeat at one size, and the tightness of that repeat is a strong,
+// well-separated signal (measured: absolute wins by 0.10-0.30 on every white-
+// caplet photo, chromatic wins by a comparable margin on both bead photos).
+function cueScore(cv, distMat, minArea) {
+  const bw = new cv.Mat();
+  const thr = cv.threshold(distMat, bw, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
+  const lab = new cv.Mat(), stats = new cv.Mat(), cent = new cv.Mat();
+  const n = cv.connectedComponentsWithStats(bw, lab, stats, cent, 8, cv.CV_32S);
+  const areas = [];
+  let fgArea = 0;
+  for (let i = 1; i < n; i++) {
+    const a = stats.intAt(i, cv.CC_STAT_AREA);
+    fgArea += a;
+    if (a >= minArea) areas.push(a);
+  }
+  bw.delete(); lab.delete(); stats.delete(); cent.delete();
+  const frac = fgArea / (distMat.rows * distMat.cols);
+  // absurd coverage means the cue is describing the surface, not the pills
+  if (areas.length < 3 || frac > 0.42 || frac < 0.005) return { score: -1, thr, frac };
+  const med = median(areas);
+  const singles = areas.filter((a) => a > 0.6 * med && a < 1.5 * med);
+  if (singles.length < 2) return { score: -1, thr, frac };
+  const mean = singles.reduce((s, a) => s + a, 0) / singles.length;
+  const sd = Math.sqrt(singles.reduce((s, a) => s + (a - mean) ** 2, 0) / singles.length);
+  const cv2 = sd / (mean || 1);
+  const share = singles.reduce((s, a) => s + a, 0) / areas.reduce((s, a) => s + a, 0);
+  return { score: (1 - cv2) * 0.6 + share * 0.4, thr, frac, n: singles.length };
 }
 
 // Visualize a CV_8UC1 mat as a green-tinted ImageData-like object (for the
@@ -1583,7 +1707,45 @@ export function countPills(cv, source, opts = {}) {
     cv.GaussianBlur(distBgRaw, distBgRaw, new cv.Size(5, 5), 0);
     if (emit) emit('bgcolor', dfb.color);
     cv.GaussianBlur(distBg, distBg, new cv.Size(5, 5), 0);
-    if (emit) emit('distmap', grayToStage(distBg));
+
+    // CHROMATIC RESCUE. The shadow-damping in colorDist protects against
+    // counting cast shadows, but it cannot tell a modestly-coloured DARK pill
+    // from a shadow of the board, and it deletes the pill when it guesses
+    // wrong. Measured on the glossy-bead photos: every bead interior landed
+    // 18-46 on this map against an Otsu cut of 49, so the mask came out as
+    // gnawed fragments and isolated "singles" scattered over a 2.7x area
+    // range — the owner's read, "we erode too much of the pill", exactly.
+    //
+    // Fixing it globally is not safe: undamping also lifts board shading into
+    // the foreground, which raises the threshold and fuses clumps (measured:
+    // r-7ff7fd99 19 -> 12, r-295482c1 19 -> 22). So it is a RESCUE, tried only
+    // when this photo's own blob population says the default map failed, and
+    // adopted only when the retry is clearly more coherent.
+    //
+    // The score is population coherence, not histogram shape: identical
+    // medication means blobs repeat at one size. On the caplet corpus the
+    // default map scores 0.78-0.94 and this never fires; on the bead photos
+    // it scores below the floor and the hue-aware retry wins outright.
+    {
+      const minA = Math.max(30, (src.cols * src.rows) / 6000);
+      const s0 = cueScore(cv, distBg, minA);
+      if (s0.score < 0.62) {
+        const alt = distanceFromBackground(cv, src, true);
+        cv.GaussianBlur(alt.mat, alt.mat, new cv.Size(5, 5), 0);
+        const s1 = cueScore(cv, alt.mat, minA);
+        // Both scores can be -1 (no coherent population either way, e.g. a
+        // graph-paper grid that floods the mask). A rescue is only meaningful
+        // when the retry itself is coherent; -1 > -1*1.08 would otherwise
+        // "win" on two invalid measurements.
+        const win = s1.score > 0 && s1.score > s0.score * 1.08;
+        opts.debug?.({ stage: 'cue', base: +s0.score.toFixed(3), hue: +s1.score.toFixed(3),
+          baseFrac: +(s0.frac || 0).toFixed(3), hueFrac: +(s1.frac || 0).toFixed(3),
+          chose: win ? 'hue-aware' : 'default' });
+        if (win) alt.mat.copyTo(distBg);
+        alt.mat.delete(); alt.raw.delete();
+      }
+    }
+
     const bw = track(new cv.Mat());
     let otsuThr = cv.threshold(distBg, bw, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
     // Live mode passes the previous frame's threshold: blending it in stops

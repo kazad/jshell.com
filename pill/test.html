@@ -106,6 +106,7 @@
     @media (min-width: 1100px) { #zoom .pair { grid-template-columns: 1fr 1fr; } }
     #zoom canvas { max-width: 100%; height: auto; }
   </style>
+  <script src="docs/counter-hash.js"></script>
 </head>
 <body>
   <header>
@@ -192,12 +193,66 @@
         version = 'build ' + (sw.match(/valeye-(v\d+)/)?.[1] ?? '?');
       } catch { version = ''; }
       await loadManifest();
+      // BAKED RESULTS. Recounting ~260 images in the browser takes minutes,
+      // which made this page useless as a quick check after a change. Counts
+      // are deterministic per counter.js, so the build bakes them
+      // (tools/bake-results.mjs) and the page renders them instantly. The
+      // in-browser run is still one click away for a live pass after an edit.
+      const auto = new URLSearchParams(location.search).get('auto');
+      let baked = null;
+      try {
+        baked = await (await fetch('docs/test-results.json', { cache: 'no-store' })).json();
+      } catch { /* no bake yet — fall back to the live run */ }
       statusEl.textContent = `${manifest.length} images · loading engine… · ${version}`;
       cv = await loadCV('vendor/opencv.js');
-      statusEl.textContent = `${manifest.length} images · engine ready · ${version}`;
       for (const b of ['#run', '#run-syn', '#run-real']) $(b).disabled = false;
-      // Auto-run the full suite on load (opt out with ?auto=0).
-      if (new URLSearchParams(location.search).get('auto') !== '0') runSuite(() => true);
+      if (baked && auto !== 'live') {
+        renderBaked(baked);
+      } else if (auto !== '0') {
+        statusEl.textContent = `${manifest.length} images · engine ready · ${version}`;
+        runSuite(() => true);
+      } else {
+        statusEl.textContent = `${manifest.length} images · engine ready · ${version}`;
+      }
+    }
+
+    // Render the build-time results: same pass/fail split as a live run, but
+    // counts-only (no per-image overlay — those need the actual pass, which
+    // is what "Run all" is for).
+    function renderBaked(baked) {
+      gridFail.innerHTML = ''; gridPass.innerHTML = '';
+      const rows = Object.entries(baked.results);
+      let exact = 0;
+      for (const [file, r] of rows.sort((a, b) => a[0].localeCompare(b[0]))) {
+        // The bench's headline stat is EXACT, not grade() (which allows 10%
+        // slack). Cards keep the grade colouring; the split is exact-or-not,
+        // matching how a live run sorts them.
+        // Colour must agree with the grid the card lands in: an exact hit is
+        // green, anything else takes grade()'s warn/fail colour. Using
+        // grade() alone painted a 31-vs-29 miss green inside the Misses grid.
+        const isExact = r.count === r.expected;
+        const g = isExact ? 'pass' : (grade(r.count, r.expected) === 'fail' ? 'fail' : 'warn');
+        if (isExact) exact++;
+        const card = document.createElement('div');
+        card.className = 'card ' + g;
+        const synthetic = /^synth|^test-pills/.test(file);
+        card.innerHTML = `<div class="imgwrap"><img loading="lazy" src="testdata/${file}" style="width:100%;display:block"></div>
+          <div class="meta">
+            <div class="name">${file}</div>
+            <div class="nums"><span class="got">${r.count ?? '—'}</span>
+              <span class="exp">expected ${r.expected}</span><span class="ms">${r.ms} ms</span></div>
+            <span class="tag">${synthetic ? 'synthetic' : 'real photo'}${r.low ? ' · low confidence' : ''}</span>
+          </div>`;
+        (isExact ? gridPass : gridFail).appendChild(card);
+      }
+      $('#fail-head').hidden = false; $('#pass-head').hidden = false;
+      const stamp = new Date(baked.generated).toLocaleString();
+      // A stale bake is worse than no bake: say so loudly rather than quietly
+      // showing numbers that no longer describe the shipped counter.
+      const stale = window.__counterHash && baked.counterHash !== window.__counterHash;
+      statusEl.innerHTML = `<b>${exact}/${rows.length} exact</b> · baked ${stamp} · counter ${baked.counterHash}`
+        + (stale ? ' · <span style="color:#ffb020">STALE — counter.js changed since bake</span>' : '')
+        + ` · <a href="?auto=live" style="color:#7ac">re-run live in browser</a>`;
     }
 
     // ---- per-pill ground truth (testdata/centers/<base>.json) ----
