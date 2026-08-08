@@ -2883,12 +2883,26 @@ export function countPills(cv, source, opts = {}) {
         if (crests.length >= 8) {
           const pk = median(crests);
           ridgePk = pk;
-          // 8.8 is the measured median of (true single-pill area) / pk^2 across
-          // the 24 hand-annotated photos, where it ranges 6.7-13.8 -- a 2.1x
-          // spread across pills from 7.4px to 85.7px half-width. It is a SHAPE
-          // constant, which is why it is so much tighter than the 3.0x spread
-          // that caps the mass-division family in docs/splitting-bakeoff.md.
-          const rescued = 8.8 * pk * pk;
+          // Thickness -> area, SHAPE-AWARE. For a stadium of aspect a and
+          // half-width r, area = r^2 * (4a - 4 + pi): aspect 2.4 gives 8.74,
+          // which is why the old fixed 8.8 (measured on the caplet corpus)
+          // worked there -- it was the capsule value of this formula. A
+          // CIRCLE is a = 1 -> pi, 2.8x smaller. Using the capsule constant
+          // on round pills under-sized the unit ~40%, pushed impliedPerBlob
+          // over the 2.5 gate, and fired this rescue on healthy images
+          // (measured: synth t65 round pills, unit 664 -> 360, which then
+          // starved the mass vote and shipped flush pairs as singles).
+          //
+          // Half-width comes from radiusEst (median of per-blob DT peaks),
+          // not the crest median: a capsule's spine crest IS its half-width,
+          // but a circle has no spine -- its crest sample is mostly junction
+          // ridges and noise (measured 6.4 vs a true half-width of 14.6).
+          // Both measures are contact-independent, which is the whole point:
+          // flush contact cannot change interior thickness.
+          const halfW = radiusEst >= MIN_PEAK ? radiusEst : pk;
+          const aspectEst = unitLen > 0 && halfW > 0 ? unitLen / (2 * halfW) : 2.4;
+          const shapeK = Math.min(14, Math.max(Math.PI, 4 * aspectEst - 4 + Math.PI));
+          const rescued = shapeK * halfW * halfW;
           // HOW MANY PILLS DOES THE AVERAGE BLOB HOLD? Total foreground divided
           // by (blob count x one pill's ridge-derived area). This is the
           // discriminator, and it must be measured this way rather than by any
@@ -3263,6 +3277,69 @@ export function countPills(cv, source, opts = {}) {
           turnMass: +arcCal.turnMass.toFixed(1), ok: arcCalOk,
           ridgePk: +ridgePk.toFixed(1), radiusEst: +radiusEst.toFixed(1) });
 
+        // HOUGH CIRCLE WITNESS — the round-pill counterpart of the boundary
+        // arcs. Every seam-family method needs a mask neck and the arc
+        // witness needs cap/junction notches, but two flush ROUND pills have
+        // neither: their union is a smooth peanut whose waist never dips
+        // (measured: caps=1 notches=0 on true pairs across the t65 sweep).
+        // What flush contact cannot hide is that each pill is still a
+        // circle of KNOWN radius — radiusEst is contact-independent — and
+        // the Hough transform finds circle centers from partial arcs alone.
+        // Only computed when the pill population is round (unitLen ~ its own
+        // diameter); capsules keep the arc witness.
+        let houghPts = null, houghGray = null;
+        // The unitLen arm alone is forgeable: glare-shattered gel caps
+        // collapse unitLen (documented 21.7 vs a true ~100 on the advil
+        // photos), which makes an elongated population read "round". The
+        // shape template cannot be forged the same way — its aspect comes
+        // from vouched single-pill outlines — so when one exists it must
+        // AGREE the pills are round.
+        const roundPop = unitLen > 0 && radiusEst >= MIN_PEAK
+          && unitLen < 2.7 * radiusEst
+          && (!template || template.aspect <= 1.3)
+          // Independent agreement: on true circles the boundary's cap
+          // curvature equals the interior thickness (measured 13.6 vs 14.6);
+          // on glare-shattered gels the DT "radius" is half-LENGTH, not
+          // half-width, and the two diverge (measured 32.1 vs 52.6 on the
+          // advil photo that leaked through as "round" and gained 2 pills).
+          && arcCalOk && arcCal.capR >= 0.7 * radiusEst && arcCal.capR <= 1.45 * radiusEst;
+        if (roundPop) {
+          try {
+            // On the GRAYSCALE PHOTO, not the mask: a binary union of flush
+            // circles has no interior edge, so mask-Hough returns one circle
+            // per blob (measured: 23 for 30). The photo still shows each
+            // pill's rim at the contact, and Canny inside HoughCircles reads
+            // it. Centers are then gated to the foreground so board texture
+            // cannot vote.
+            const gray8 = track(new cv.Mat());
+            cv.cvtColor(src, gray8, cv.COLOR_RGBA2GRAY);
+            houghGray = gray8;
+            const circles = track(new cv.Mat());
+            cv.HoughCircles(gray8, circles, cv.HOUGH_GRADIENT, 1,
+              Math.max(4, radiusEst * 1.5), 60, 13,
+              Math.max(2, Math.round(radiusEst * 0.72)),
+              Math.round(radiusEst * 1.28));
+            houghPts = [];
+            for (let i = 0; i < circles.cols; i++) {
+              const hx = circles.data32F[i * 3], hy = circles.data32F[i * 3 + 1];
+              // RIGID-BODY DEDUPE. Two real pills' centers cannot sit closer
+              // than ~2R (tangency); a glare highlight rides ON a pill, so
+              // its phantom circle lands 1.5-1.9R from the true center —
+              // inside the band HoughCircles' own minDist (1.5R) admits.
+              // Circles arrive strongest-first: keep the stronger, drop any
+              // center that would interpenetrate it. Same non-intersection
+              // law the placement physics enforces, applied to the census.
+              let clash = false;
+              for (const [kx, ky] of houghPts) {
+                if (Math.hypot(hx - kx, hy - ky) < radiusEst * 1.9) { clash = true; break; }
+              }
+              if (!clash) houghPts.push([hx, hy]);
+            }
+            opts.debug?.({ stage: 'hough', circles: houghPts.length,
+              r: +radiusEst.toFixed(1) });
+          } catch { houghPts = null; }
+        }
+
         for (const a of ambiguous) {
           const { l, regs } = a;
           // A single pill of this blob's thickness can cover at most ~4*pi*peak^2
@@ -3626,6 +3703,90 @@ export function countPills(cv, source, opts = {}) {
             if (arcTo) opts.debug?.({ stage: 'arcrec', blob: l, from: kFinal0,
               to: arcTo, arcLo, arcHi, kMass, agreed });
           }
+          // HOUGH RECONCILIATION (round populations). Raise a blob to the
+          // number of circle centers standing on it, when pixel mass
+          // independently supports at least that many — the same two-witness
+          // rule as arcrec, with Hough playing the boundary's role. Never a
+          // descent, and capped by mass so stray accumulator peaks on
+          // textured board cannot invent pills.
+          if (houghPts && massFrac > 0) {
+            const kFinal0h = agreed ? k : a.unitsSum;
+            // ONE verification for every circle, photometry-free (the colour
+            // metric's failure is why pills go missing in the first place):
+            //   edge support  — >= 9 of 16 radial luma steps at the rim; the
+            //     boundary Canny voted for must be real all the way around.
+            //   pill face     — either SMOOTH (camouflaged white pill:
+            //     measured interior std 1.4-2.3) or a shaded dome whose
+            //     interior clears its rim by >= 8 luma (coloured pills:
+            //     std up to 15.4, in-rim delta 8.5-35). Junction phantoms
+            //     between pills have neither signature.
+            // Assignment is soft (most of the core on THIS blob) because a
+            // half-eroded pill's center pixel is a hole.
+            let hV = 0;
+            const rr2 = Math.max(2, radiusEst * 0.45);
+            const lum2 = (x, y) => {
+              const xi = x | 0, yi = y | 0;
+              return (xi < 0 || yi < 0 || xi >= w || yi >= h || !houghGray) ? 255
+                : houghGray.data[yi * w + xi];
+            };
+            for (const [hx, hy] of houghPts) {
+              const tally = new Map();
+              for (const [ox, oy] of [[0, 0], [rr2, 0], [-rr2, 0], [0, rr2], [0, -rr2],
+                                      [rr2 * 0.7, rr2 * 0.7], [-rr2 * 0.7, rr2 * 0.7],
+                                      [rr2 * 0.7, -rr2 * 0.7], [-rr2 * 0.7, -rr2 * 0.7]]) {
+                const xi = Math.round(hx + ox), yi = Math.round(hy + oy);
+                if (xi < 0 || yi < 0 || xi >= w || yi >= h) continue;
+                const lb = bl[yi * w + xi];
+                if (lb) tally.set(lb, (tally.get(lb) || 0) + 1);
+              }
+              let bestL = 0, bestN = 0;
+              for (const [lb, n2] of tally) if (n2 > bestN) { bestN = n2; bestL = lb; }
+              if (bestL !== l || bestN < 2) continue;
+              let ePos = 0, eNeg = 0, inS = 0, rimS = 0;
+              const ins = [];
+              for (let k3 = 0; k3 < 16; k3++) {
+                const a3 = k3 * Math.PI / 8, cA = Math.cos(a3), sA = Math.sin(a3);
+                const li = lum2(hx + cA * radiusEst * 0.78, hy + sA * radiusEst * 0.78);
+                const lo = lum2(hx + cA * radiusEst * 1.24, hy + sA * radiusEst * 1.24);
+                if (li - lo >= 6) ePos++; else if (lo - li >= 6) eNeg++;
+                inS += lum2(hx + cA * radiusEst * 0.45, hy + sA * radiusEst * 0.45);
+                rimS += lum2(hx + cA * radiusEst, hy + sA * radiusEst);
+                if (k3 < 8) ins.push(lum2(hx + cA * radiusEst * 0.4, hy + sA * radiusEst * 0.4));
+              }
+              // A disc edge steps the same DIRECTION all the way round; a
+              // grain ring or noise ridge alternates. Coherence, not just
+              // magnitude.
+              const edgeN = Math.max(ePos, eNeg);
+              ins.push(lum2(hx, hy));
+              const inM = ins.reduce((x2, y2) => x2 + y2, 0) / ins.length;
+              const inStd = Math.sqrt(ins.reduce((x2, y2) => x2 + (y2 - inM) ** 2, 0) / ins.length);
+              // Smooth faces earn the loose edge bar; DOME faces (bright
+              // interior over rim) must be near-unanimous on the rim —
+              // glossy glare on a textured board fakes the dome signature
+              // but never a coherent ring (measured: advil-dark counted +5
+              // and +14 from glare circles; ibuprofen countertop 13 -> 59).
+              // Owned circles get a looser face bar (coloured pills measure
+              // std up to 15.4, dome deltas from 6.7) because the raise
+              // below is mass-corroborated: material must back every pill.
+              if ((inStd <= 16 && edgeN >= 9)
+                || ((inS - rimS) / 16 >= 6 && edgeN >= 12)) hV++;
+            }
+            // Raise only, and never beyond what the blob box can physically
+            // hold at this radius. For ROUND populations the circles beat
+            // the notch-based arc reading, so a hough answer replaces an
+            // arcrec one (arcrec fired above; overwrite is intentional).
+            const cap = Math.max(1, Math.round(
+              ((a.box.x1 - a.box.x0 + 2 * radiusEst) * (a.box.y1 - a.box.y0 + 2 * radiusEst))
+              / (Math.PI * radiusEst * radiusEst * 0.9)));
+            // Mass corroboration is the glare-killer: an under-split
+            // cluster has the material for every circle (massFrac ~ hV); a
+            // glare phantom adds a pill the mask cannot back (mass stays at
+            // k, so massFrac < hV - 0.6 and the raise is refused).
+            if (hV > Math.max(kFinal0h, arcTo) && hV <= cap) {
+              arcTo = hV;
+              opts.debug?.({ stage: 'houghrec', blob: l, from: kFinal0h, to: hV, cap });
+            }
+          }
 
           // SEAM RE-PARTITION — the hybrid routing step. The panel's seam-
           // blind majority (ws/crease/ero all need a mask neck) habitually
@@ -3870,6 +4031,82 @@ export function countPills(cv, source, opts = {}) {
           } else {
             const area = blobAreas[l];
             regions.push({ cx: a.sx / area, cy: a.sy / area, area, units: k, confidence: 'high' });
+          }
+        }
+
+        // HOUGH TOP-UP (round populations). Image-level arbitration, after
+        // every per-blob channel has spoken. Measured across the round
+        // synthetic family, the verified circle census is more accurate
+        // than the assembled pipeline (170/186 exact raw); its remaining
+        // failure modes — phantom rings on coarse texture, zero circles on
+        // dark boards — are exactly what the verification and the
+        // raise-only rule below neutralize. Per-blob reconciliation still
+        // runs first because it fixes counts AND placements; this catches
+        // what no blob-level channel can: a pill whose mask fragments were
+        // counted under other labels while the pill itself went unclaimed
+        // (measured: camouflaged white pills, owned by their own crumbs,
+        // invisible to both houghrec and an unowned-circle test).
+        if (houghPts && houghGray && houghPts.length) {
+          const gd2 = houghGray.data;
+          const lum3 = (x, y) => {
+            const xi = x | 0, yi = y | 0;
+            return (xi < 0 || yi < 0 || xi >= w || yi >= h) ? 255 : gd2[yi * w + xi];
+          };
+          const verified = [];
+          for (const [hx, hy] of houghPts) {
+            let ePos = 0, eNeg = 0, inS = 0, rimS = 0;
+            const ins = [];
+            for (let k3 = 0; k3 < 16; k3++) {
+              const a3 = k3 * Math.PI / 8, cA = Math.cos(a3), sA = Math.sin(a3);
+              const li = lum3(hx + cA * radiusEst * 0.78, hy + sA * radiusEst * 0.78);
+              const lo = lum3(hx + cA * radiusEst * 1.24, hy + sA * radiusEst * 1.24);
+              if (li - lo >= 6) ePos++; else if (lo - li >= 6) eNeg++;
+              inS += lum3(hx + cA * radiusEst * 0.45, hy + sA * radiusEst * 0.45);
+              rimS += lum3(hx + cA * radiusEst, hy + sA * radiusEst);
+              if (k3 < 8) ins.push(lum3(hx + cA * radiusEst * 0.4, hy + sA * radiusEst * 0.4));
+            }
+            const edgeN = Math.max(ePos, eNeg);
+            ins.push(lum3(hx, hy));
+            const inM = ins.reduce((x2, y2) => x2 + y2, 0) / ins.length;
+            const inStd = Math.sqrt(ins.reduce((x2, y2) => x2 + (y2 - inM) ** 2, 0) / ins.length);
+            if ((inStd <= 12 && edgeN >= 9)
+              || ((inS - rimS) / 16 >= 8 && edgeN >= 12)) verified.push([hx, hy, inStd]);
+          }
+          // A census that dwarfs the mask count is the PHANTOM signature,
+          // not a rescue: legitimate camouflage recoveries measured +8-15%
+          // (29->30, 111->120); the failures measured +104% and +354%
+          // (advil glare, ibuprofen countertop). Bound the rescue.
+          if (verified.length > count && verified.length <= count * 1.25 + 2) {
+            // The uncounted pills are the verified circles farthest from any
+            // counted detection — place the top-up there.
+            const dets = [];
+            for (const g2 of regions) dets.push([g2.cx, g2.cy]);
+            // A candidate for ADDITION must wear the camouflage profile —
+            // the one scenario this rescue exists for. A pill invisible to
+            // the mask matches the board, so its face is nearly featureless:
+            // measured std 1.4-2.3 on true rescues, >6 on every phantom
+            // (glare cores, wood grain, noise). Counted pills keep whatever
+            // texture they like; ADDITIONS must be smooth.
+            const ranked = verified.map(([hx, hy]) => {
+              let dmin = 1e9;
+              for (const [dx2, dy2] of dets) {
+                const d3 = Math.hypot(hx - dx2, hy - dy2);
+                if (d3 < dmin) dmin = d3;
+              }
+              return { hx, hy, dmin };
+            }).sort((x2, y2) => y2.dmin - x2.dmin);
+            const add = verified.length - count;
+            let added = 0;
+            for (let i2 = 0; i2 < ranked.length && added < add; i2++) {
+              const { hx, hy, dmin } = ranked[i2];
+              // a real uncounted pill does not sit on a counted center
+              if (dmin < radiusEst * 1.3) break;   // ranked by dmin: rest are closer
+              regions.push({ cx: hx, cy: hy, area: Math.PI * radiusEst * radiusEst,
+                units: 1, confidence: 'high', arc: true, hough: true });
+              added++;
+            }
+            count += added;
+            if (added) opts.debug?.({ stage: 'hough-topup', added, verified: verified.length });
           }
         }
       }

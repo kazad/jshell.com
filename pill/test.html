@@ -214,6 +214,31 @@
       } else {
         statusEl.textContent = `${manifest.length} images · engine ready · ${version}`;
       }
+      // Deep link: ?img=<file> runs exactly one image live, with the full
+      // stage strip — the fast path for debugging one photo after an edit.
+      const one = new URLSearchParams(location.search).get('img');
+      if (one) runSuite((i) => i.file === one);
+    }
+
+    // Baked per-image decision traces, fetched once on first use. Every
+    // debug event the counter emitted during the build's own pass — the
+    // owner's "debug logs ready to go for ALL tests".
+    let bakedTraces = null;
+    async function showBakedTrace(file) {
+      if (!bakedTraces) {
+        try {
+          bakedTraces = (await (await fetch('docs/test-debug.json', { cache: 'no-store' })).json()).traces;
+        } catch { bakedTraces = {}; }
+      }
+      const lines = bakedTraces[file] || ['(no trace baked for this image — re-run tools/bake-results.mjs)'];
+      const pane = document.createElement('div');
+      pane.style.cssText = 'max-width:1100px;max-height:88vh;overflow:auto;background:#101418;border-radius:12px;padding:18px';
+      pane.innerHTML = `<div style="color:#d9efe3;font-weight:700;margin-bottom:8px">${file} — baked decision trace (${lines.length} events)</div>`
+        + `<pre style="color:#9fd4b8;font:11px ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all">${
+          lines.map((l) => l.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('\n')}</pre>`;
+      zoom.innerHTML = '';
+      zoom.appendChild(pane);
+      zoom.classList.add('show');
     }
 
     // Render the build-time results: same pass/fail split as a live run, but
@@ -242,7 +267,15 @@
             <div class="nums"><span class="got">${r.count ?? '—'}</span>
               <span class="exp">expected ${r.expected}</span><span class="ms">${r.ms} ms</span></div>
             <span class="tag">${synthetic ? 'synthetic' : 'real photo'}${r.low ? ' · low confidence' : ''}</span>
+            <div style="margin-top:6px;display:flex;gap:10px">
+              <a href="#" class="dbg-link" data-file="${file}" style="font-size:11px;color:#7ac">debug trace</a>
+              <a href="?auto=0&img=${encodeURIComponent(file)}" style="font-size:11px;color:#7ac">run live</a>
+            </div>
           </div>`;
+        card.querySelector('.dbg-link').addEventListener('click', async (ev) => {
+          ev.preventDefault();
+          showBakedTrace(file);
+        });
         (isExact ? gridPass : gridFail).appendChild(card);
       }
       $('#fail-head').hidden = false; $('#pass-head').hidden = false;
