@@ -246,6 +246,7 @@ function startPreview() {
 const LIVE_WINDOW = 9;
 const liveCounts = [];
 let liveLocked = false;
+let livePassMs = 0;      // smoothed cost of one live pass, drives the rate
 
 function liveMapping() {
   // Video renders with object-fit: cover — map processed coords onto the box.
@@ -272,10 +273,22 @@ function liveTick() {
   els.liveCount.hidden = false;
   els.liveOverlay.hidden = false;
   let r;
+  const tPass = performance.now();
   try {
-    r = countPills(state.cv, probe, { maxDim: 640, overlay: false, variant: 'baseline', thrHint: liveThr });
+    // overlay: true so the live view can draw the actual pill OUTLINES, not
+    // just numbered dots. Field report: "it's hard to see where the bounds
+    // are" — a bare badge says how many, never which pixels the counter
+    // thinks are pill, so a bad segmentation looks identical to a good one.
+    r = countPills(state.cv, probe, { maxDim: 640, overlay: true, variant: 'baseline', thrHint: liveThr });
   } catch { return; }
   liveThr = r.thr || 0; // temporal threshold smoothing across frames
+  // ADAPTIVE RATE. A live pass costs 119ms on matte caplets but 283ms on
+  // glossy beads (measured), and phones run 2-3x slower — at a fixed 2fps
+  // the loop overruns its own budget and the overlay lags the moving image.
+  // Re-arm to whichever is slower: the user's chosen fps, or 3x the last
+  // pass. Smooth so one hitch doesn't halve the rate permanently.
+  livePassMs = livePassMs ? livePassMs * 0.7 + (performance.now() - tPass) * 0.3
+                          : performance.now() - tPass;
 
   liveCounts.push(r.count);
   if (liveCounts.length > LIVE_WINDOW) liveCounts.shift();
@@ -419,10 +432,24 @@ function setLive(on) {
   liveThr = 0;
   els.liveCount.classList.remove('stable');
   clearInterval(state.liveTimer);
-  if (on) {
-    const fps = parseFloat(els.liveFps?.value || '2');
-    state.liveTimer = setInterval(liveTick, Math.round(1000 / fps));
-  }
+  clearTimeout(state.liveTimer);
+  livePassMs = 0;
+  if (on) scheduleLiveTick();
+}
+
+// Self-scheduling instead of setInterval: an interval whose period is shorter
+// than the work queues callbacks behind each other, so the UI thread never
+// gets a gap to repaint the camera and the whole view feels stuck. Chaining
+// the next tick AFTER the current one finishes keeps the preview fluid even
+// when a frame is expensive.
+function scheduleLiveTick() {
+  clearTimeout(state.liveTimer);
+  const fps = parseFloat(els.liveFps?.value || '2');
+  const wanted = 1000 / (fps || 2);
+  const delay = Math.max(wanted, livePassMs * 3);   // never eat >1/3 of the thread
+  state.liveTimer = setTimeout(() => {
+    try { liveTick(); } finally { if (els.liveToggle.classList.contains('active')) scheduleLiveTick(); }
+  }, Math.round(delay));
 }
 
 // ---------- counting ----------

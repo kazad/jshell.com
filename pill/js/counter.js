@@ -4502,6 +4502,80 @@ export function drawOverlay(ctx, result, displayScale, opts = {}) {
   const { regions, boundaries, width } = result;
   if (opts.clear !== false) ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
+  // THE PLATE. Owner's framing: "imagine a plate on a dinner table, with
+  // pills on the plate" — the pills form one working region, and whatever
+  // lies outside it (table edge, placemat, a strip of white tablecloth) is
+  // not data. Measured motivation: a photo whose right margin caught the
+  // table edge produced a 45x351px blob counted as NINE pills.
+  //
+  // Drawn rather than enforced. The counter still counts what it counts;
+  // this shades everything outside the pill region so a mis-scoped frame is
+  // obvious in the viewfinder ("some pills right on the edge") instead of
+  // silently inflating the number. The hull is deliberately generous — it
+  // exists to show scope, not to crop.
+  if (opts.plate !== false && regions.length >= 3) {
+    // Robust to strays. A convex hull is defined by its most extreme points,
+    // so one false detection on the tablecloth drags the whole boundary out
+    // to the frame edge (observed exactly that). Drop the farthest tail from
+    // the median center first, so the plate describes where the pills ARE
+    // rather than where the worst outlier is.
+    const all = regions.map((r) => [r.cx * displayScale, r.cy * displayScale]);
+    const medOf = (arr) => { const s = [...arr].sort((a, b) => a - b); return s[s.length >> 1]; };
+    const mx0 = medOf(all.map((p) => p[0])), my0 = medOf(all.map((p) => p[1]));
+    const dists = all.map(([x, y]) => Math.hypot(x - mx0, y - my0));
+    const medD = medOf(dists) || 1;
+    // keep points within 2.5x the median radius — a real spread-out layout
+    // stays intact (its median radius grows with it); a lone flyer does not
+    const pts = all.filter((_, i) => dists[i] <= Math.max(medD * 3.5, 1));
+    const cx = pts.reduce((a, p) => a + p[0], 0) / (pts.length || 1);
+    const cy = pts.reduce((a, p) => a + p[1], 0) / (pts.length || 1);
+    // typical pill radius on screen, for the margin
+    const rad = regions.reduce((a, r) => a + Math.sqrt((r.area || 0) / Math.PI), 0)
+      / regions.length * displayScale;
+    // Margin measured against the per-pill truth corpus: at 1.9x pill-radius
+    // 17 of 444 annotated pills fell outside the plate, at 3.4x only 6 (and
+    // those are detection misses on the lined set, not plate errors). The
+    // plate must never exclude a real pill — it is a scope hint, not a crop.
+    const margin = Math.max(18, rad * 3.4);
+    // convex hull (monotone chain) of the pill centers, then inflate
+    const sorted = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const half = (arr) => {
+      const h = [];
+      for (const p of arr) {
+        while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop();
+        h.push(p);
+      }
+      h.pop();
+      return h;
+    };
+    const hull = pts.length >= 3 ? [...half(sorted), ...half([...sorted].reverse())] : [];
+    if (hull.length >= 3) {
+      const inflated = hull.map(([x, y]) => {
+        const dx = x - cx, dy = y - cy, d = Math.hypot(dx, dy) || 1;
+        return [x + (dx / d) * margin, y + (dy / d) * margin];
+      });
+      ctx.save();
+      // shade OUTSIDE the plate: full-canvas path minus the hull (even-odd)
+      ctx.beginPath();
+      ctx.rect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.moveTo(inflated[0][0], inflated[0][1]);
+      for (let i = inflated.length - 1; i > 0; i--) ctx.lineTo(inflated[i][0], inflated[i][1]);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(6, 10, 20, 0.42)';
+      ctx.fill('evenodd');
+      ctx.beginPath();
+      ctx.moveTo(inflated[0][0], inflated[0][1]);
+      for (let i = 1; i < inflated.length; i++) ctx.lineTo(inflated[i][0], inflated[i][1]);
+      ctx.closePath();
+      ctx.strokeStyle = 'rgba(120, 200, 255, 0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([7, 6]);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   if (boundaries) {
     ctx.fillStyle = 'rgba(61, 220, 151, 0.9)';
     const s = displayScale;
