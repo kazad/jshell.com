@@ -3269,7 +3269,7 @@ export function countPills(cv, source, opts = {}) {
         // ridge/peak estimates occupy. ridgePk, when measured, IS one pill's
         // half-width and arbitrates; otherwise radiusEst bounds it loosely.
         const arcCal = recoverCapRadius(bl, w, blobList, blobBox);
-        const arcRef = ridgePk > 0 ? ridgePk : radiusEst;
+        const arcRef = (ridgePk > 0 && ridgePk >= 0.5 * radiusEst) ? ridgePk : radiusEst;
         const arcCalOk = arcCal.capR >= MIN_PEAK * 0.75
           && arcCal.turnMass >= 4 * Math.PI
           && arcCal.capR >= 0.4 * arcRef && arcCal.capR <= 2.5 * arcRef;
@@ -3330,10 +3330,10 @@ export function countPills(cv, source, opts = {}) {
               // center that would interpenetrate it. Same non-intersection
               // law the placement physics enforces, applied to the census.
               let clash = false;
-              for (const [kx, ky] of houghPts) {
-                if (Math.hypot(hx - kx, hy - ky) < radiusEst * 1.9) { clash = true; break; }
+              for (const [kx, ky, kr] of houghPts) {
+                if (Math.hypot(hx - kx, hy - ky) < radiusEst * 1.7) { clash = true; break; }
               }
-              if (!clash) houghPts.push([hx, hy]);
+              if (!clash) houghPts.push([hx, hy, circles.data32F[i * 3 + 2] || radiusEst]);
             }
             opts.debug?.({ stage: 'hough', circles: houghPts.length,
               r: +radiusEst.toFixed(1) });
@@ -3722,7 +3722,7 @@ export function countPills(cv, source, opts = {}) {
             //     between pills have neither signature.
             // Assignment is soft (most of the core on THIS blob) because a
             // half-eroded pill's center pixel is a hole.
-            let hV = 0;
+            let hV = 0, circOn = 0;
             const rr2 = Math.max(2, radiusEst * 0.45);
             const lum2 = (x, y) => {
               const xi = x | 0, yi = y | 0;
@@ -3742,13 +3742,19 @@ export function countPills(cv, source, opts = {}) {
               let bestL = 0, bestN = 0;
               for (const [lb, n2] of tally) if (n2 > bestN) { bestN = n2; bestL = lb; }
               if (bestL !== l || bestN < 2) continue;
-              let ePos = 0, eNeg = 0, inS = 0, rimS = 0;
+              circOn++;
+              let ePos = 0, eNeg = 0, inS = 0, rimS = 0, freeSec = 0;
               const ins = [];
               for (let k3 = 0; k3 < 16; k3++) {
                 const a3 = k3 * Math.PI / 8, cA = Math.cos(a3), sA = Math.sin(a3);
                 const li = lum2(hx + cA * radiusEst * 0.78, hy + sA * radiusEst * 0.78);
                 const lo = lum2(hx + cA * radiusEst * 1.24, hy + sA * radiusEst * 1.24);
-                if (li - lo >= 6) ePos++; else if (lo - li >= 6) eNeg++;
+                const oxi = (hx + cA * radiusEst * 1.24) | 0, oyi = (hy + sA * radiusEst * 1.24) | 0;
+                const contact = oxi >= 0 && oyi >= 0 && oxi < w && oyi < h && bl[oyi * w + oxi];
+                if (!contact) {
+                  freeSec++;
+                  if (li - lo >= 6) ePos++; else if (lo - li >= 6) eNeg++;
+                }
                 inS += lum2(hx + cA * radiusEst * 0.45, hy + sA * radiusEst * 0.45);
                 rimS += lum2(hx + cA * radiusEst, hy + sA * radiusEst);
                 if (k3 < 8) ins.push(lum2(hx + cA * radiusEst * 0.4, hy + sA * radiusEst * 0.4));
@@ -3768,8 +3774,12 @@ export function countPills(cv, source, opts = {}) {
               // Owned circles get a looser face bar (coloured pills measure
               // std up to 15.4, dome deltas from 6.7) because the raise
               // below is mass-corroborated: material must back every pill.
-              if ((inStd <= 16 && edgeN >= 9)
-                || ((inS - rimS) / 16 >= 6 && edgeN >= 12)) hV++;
+              const needS = Math.max(5, Math.ceil(0.57 * freeSec));
+              const needD = Math.max(6, Math.ceil(0.75 * freeSec));
+              if ((inStd <= 16 && edgeN >= needS)
+                || ((inS - rimS) / 16 >= 6 && edgeN >= needD)) hV++;
+              opts.debug?.({ stage: 'hverify', blob: l, hx: +hx.toFixed(0), hy: +hy.toFixed(0),
+                edgeN, freeSec, needS, inStd: +inStd.toFixed(1), dome: +((inS - rimS) / 16).toFixed(1) });
             }
             // Raise only, and never beyond what the blob box can physically
             // hold at this radius. For ROUND populations the circles beat
@@ -3782,6 +3792,27 @@ export function countPills(cv, source, opts = {}) {
             // cluster has the material for every circle (massFrac ~ hV); a
             // glare phantom adds a pill the mask cannot back (mass stays at
             // k, so massFrac < hV - 0.6 and the raise is refused).
+            hV = Math.max(hV, Math.min(circOn, Math.floor(massFrac + 0.55)));
+            // For ROUND populations the circles beat the notch-based arc
+            // reading in BOTH directions: an arc raise beyond the number of
+            // circles standing on the blob is a notch misread (wood grain
+            // notches measured arcLo 2 on true singles with circOn 1).
+            // Only when the vouched template itself is round: on mixed
+            // populations the census is partial (hough saw 24 of 35 on the
+            // mixed wood photo) and must not veto the arc witness.
+            // Suppress an arc raise beyond the on-blob circle census ONLY
+            // when the blob geometrically cannot hold the extra pill: its
+            // area is one pill of its own thickness (wood-grain notches
+            // measured arcLo 2 on true singles with circOn 1, area ~ pi*pk^2).
+            // True pairs the census under-covers (noisy boards) measure
+            // ~2*pi*pk^2 and keep their raise.
+            if (arcTo > circOn) {
+              opts.debug?.({ stage: 'arccap', blob: l, arcTo, circOn,
+                area: blobAreas[l], lim: +(1.55 * Math.PI * peaks[l] * peaks[l]).toFixed(0), pk: +peaks[l].toFixed(1) });
+              if (blobAreas[l] <= 1.55 * Math.PI * peaks[l] * peaks[l])
+                arcTo = Math.min(arcTo, Math.max(kFinal0h, circOn));
+            }
+            opts.debug?.({ stage: 'hsum', blob: l, hV, circOn, kFinal0h, arcTo, cap, massFrac: +massFrac.toFixed(2) });
             if (hV > Math.max(kFinal0h, arcTo) && hV <= cap) {
               arcTo = hV;
               opts.debug?.({ stage: 'houghrec', blob: l, from: kFinal0h, to: hV, cap });
@@ -4053,14 +4084,20 @@ export function countPills(cv, source, opts = {}) {
             return (xi < 0 || yi < 0 || xi >= w || yi >= h) ? 255 : gd2[yi * w + xi];
           };
           const verified = [];
+          let massBacked = 0;
           for (const [hx, hy] of houghPts) {
-            let ePos = 0, eNeg = 0, inS = 0, rimS = 0;
+            let ePos = 0, eNeg = 0, inS = 0, rimS = 0, freeSec = 0;
             const ins = [];
             for (let k3 = 0; k3 < 16; k3++) {
               const a3 = k3 * Math.PI / 8, cA = Math.cos(a3), sA = Math.sin(a3);
               const li = lum3(hx + cA * radiusEst * 0.78, hy + sA * radiusEst * 0.78);
               const lo = lum3(hx + cA * radiusEst * 1.24, hy + sA * radiusEst * 1.24);
-              if (li - lo >= 6) ePos++; else if (lo - li >= 6) eNeg++;
+              const oxi = (hx + cA * radiusEst * 1.24) | 0, oyi = (hy + sA * radiusEst * 1.24) | 0;
+              const contact = oxi >= 0 && oyi >= 0 && oxi < w && oyi < h && bl[oyi * w + oxi];
+              if (!contact) {
+                freeSec++;
+                if (li - lo >= 6) ePos++; else if (lo - li >= 6) eNeg++;
+              }
               inS += lum3(hx + cA * radiusEst * 0.45, hy + sA * radiusEst * 0.45);
               rimS += lum3(hx + cA * radiusEst, hy + sA * radiusEst);
               if (k3 < 8) ins.push(lum3(hx + cA * radiusEst * 0.4, hy + sA * radiusEst * 0.4));
@@ -4069,14 +4106,26 @@ export function countPills(cv, source, opts = {}) {
             ins.push(lum3(hx, hy));
             const inM = ins.reduce((x2, y2) => x2 + y2, 0) / ins.length;
             const inStd = Math.sqrt(ins.reduce((x2, y2) => x2 + (y2 - inM) ** 2, 0) / ins.length);
-            if ((inStd <= 12 && edgeN >= 9)
-              || ((inS - rimS) / 16 >= 8 && edgeN >= 12)) verified.push([hx, hy, inStd]);
+            const needS = Math.max(5, Math.ceil(0.57 * freeSec));
+            const needD = Math.max(6, Math.ceil(0.75 * freeSec));
+            if ((inStd <= 16 && edgeN >= needS)
+              || ((inS - rimS) / 16 >= 8 && edgeN >= needD)) verified.push([hx, hy, inStd]);
+            else {
+              // Mass-backed budget credit: a failed circle whose core stands
+              // on counted material is a real pill the photometry cannot see
+              // (clump interior); it widens the budget but is never a
+              // placement site.
+              const cxi = hx | 0, cyi = hy | 0;
+              if (cxi >= 0 && cyi >= 0 && cxi < w && cyi < h && bl[cyi * w + cxi]) massBacked++;
+            }
           }
           // A census that dwarfs the mask count is the PHANTOM signature,
           // not a rescue: legitimate camouflage recoveries measured +8-15%
           // (29->30, 111->120); the failures measured +104% and +354%
           // (advil glare, ibuprofen countertop). Bound the rescue.
-          if (verified.length > count && verified.length <= count * 1.25 + 2) {
+          const vEff = verified.length + massBacked;
+          opts.debug?.({ stage: 'htopup-pre', verified: verified.length, massBacked, count });
+          if (vEff > count && vEff <= count * 1.25 + 2) {
             // The uncounted pills are the verified circles farthest from any
             // counted detection — place the top-up there.
             const dets = [];
@@ -4095,12 +4144,12 @@ export function countPills(cv, source, opts = {}) {
               }
               return { hx, hy, dmin };
             }).sort((x2, y2) => y2.dmin - x2.dmin);
-            const add = verified.length - count;
+            const add = vEff - count;
             let added = 0;
             for (let i2 = 0; i2 < ranked.length && added < add; i2++) {
               const { hx, hy, dmin } = ranked[i2];
               // a real uncounted pill does not sit on a counted center
-              if (dmin < radiusEst * 1.3) break;   // ranked by dmin: rest are closer
+              if (dmin < radiusEst * 1.3) { opts.debug?.({ stage: 'htopup-blocked', hx: +hx.toFixed(0), hy: +hy.toFixed(0), dmin: +dmin.toFixed(1) }); break; }   // ranked by dmin: rest are closer
               regions.push({ cx: hx, cy: hy, area: Math.PI * radiusEst * radiusEst,
                 units: 1, confidence: 'high', arc: true, hough: true });
               added++;

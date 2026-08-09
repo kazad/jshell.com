@@ -241,6 +241,27 @@
       zoom.classList.add('show');
     }
 
+    // Baked VISUAL stage debug for misses: thumbnails written by the build
+    // under docs/test-stages/<slug>/. The owner's "visual debug for the
+    // misses" — see how the mask/markers went wrong without recomputing.
+    function showBakedStages(file, r) {
+      const slug = file.replace(/[\/.]/g, '_');
+      const pane = document.createElement('div');
+      pane.style.cssText = 'max-width:1200px;max-height:90vh;overflow:auto;background:#101418;border-radius:12px;padding:18px';
+      pane.innerHTML = `<div style="color:#d9efe3;font-weight:700;margin-bottom:10px">
+          ${file} — pipeline stages (baked) · got ${r.count}, expected ${r.expected}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">
+        ${STAGE_ORDER.filter(([k]) => (r.stages || []).includes(k)).map(([k, label]) =>
+          `<figure style="margin:0">
+             <img src="docs/test-stages/${slug}/${k}.png" style="width:100%;background:#000;border-radius:8px" loading="lazy">
+             <figcaption style="color:#8a8f9e;font:10.5px ui-monospace,Menlo,monospace;text-align:center;margin-top:3px">${label}</figcaption>
+           </figure>`).join('')}
+        </div>`;
+      zoom.innerHTML = '';
+      zoom.appendChild(pane);
+      zoom.classList.add('show');
+    }
+
     // Render the build-time results: same pass/fail split as a live run, but
     // counts-only (no per-image overlay — those need the actual pass, which
     // is what "Run all" is for).
@@ -270,11 +291,16 @@
             <div style="margin-top:6px;display:flex;gap:10px">
               <a href="#" class="dbg-link" data-file="${file}" style="font-size:11px;color:#7ac">debug trace</a>
               <a href="?auto=0&img=${encodeURIComponent(file)}" style="font-size:11px;color:#7ac">run live</a>
+              ${r.stages ? `<a href="#" class="stg-link" data-file="${file}" style="font-size:11px;color:#e9a13b">stages</a>` : ''}
             </div>
           </div>`;
         card.querySelector('.dbg-link').addEventListener('click', async (ev) => {
           ev.preventDefault();
           showBakedTrace(file);
+        });
+        card.querySelector('.stg-link')?.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          showBakedStages(file, r);
         });
         (isExact ? gridPass : gridFail).appendChild(card);
       }
