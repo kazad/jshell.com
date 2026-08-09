@@ -1,6 +1,10 @@
 // Pill counting pipeline: threshold -> morphology -> distance transform -> watershed.
 // Touching pills are split by watershed; oversized regions get an area-ratio fallback.
 // Environment-agnostic: runs in the browser and in Node (see tools/count-cli.mjs).
+//
+// CANDIDATE: stamp-router integration (see js/stamp.js). Last-resort
+// arbitration by stamp-peel-repeat, fired only on weak-evidence images.
+import { stampArbitrate, stadArea as stampStadArea } from './stamp.js';
 
 let cvReady = null;
 
@@ -1675,7 +1679,11 @@ export function countPills(cv, source, opts = {}) {
   const maxDim = opts.maxDim || 1280;
   const withOverlay = opts.overlay !== false;
 
-  const src = cv.matFromImageData(toImageData(source));
+  // Kept for the stamp router's interior photometry (it samples the ORIGINAL
+  // photo, not the working-scale flattened copy). For ImageData-like sources
+  // this is the same object — no copy, no cost.
+  const srcImageFull = toImageData(source);
+  const src = cv.matFromImageData(srcImageFull);
   const mats = [src];
   const track = (m) => { mats.push(m); return m; };
 
@@ -1770,6 +1778,11 @@ export function countPills(cv, source, opts = {}) {
     const absFloor = Math.pow(Math.min(src.cols, src.rows) * 0.012, 2);
 
     if (emit) emit('mask-otsu', grayToStage(bw));
+    // Snapshot the pre-purge otsu mask for the stamp router's retry (a) and
+    // the cleaned-vs-otsu coverage signature. One memcpy; the mask evolves
+    // in place after this point.
+    const stampOtsu = opts.variant === 'consensus' && opts.stamp !== false
+      ? new Uint8Array(bw.data) : null;
 
     // Plates/trays segment as one huge blob; re-segment those against their
     // own surface color (twice, for nested surfaces like table -> plate).
@@ -4377,6 +4390,130 @@ export function countPills(cv, source, opts = {}) {
       // per-region upgrades above.
       lowConfidence = regions.reduce((n2, g2) => n2 + (g2.confidence === 'low' ? 1 : 0), 0);
 
+      // ---- STAMP ROUTER (candidate) ----
+      // Last-resort arbitration by stamp-peel-repeat (js/stamp.js), mirroring
+      // the seam router's accounting: replace counts for exactly the
+      // contested material, per-pill placements attached, `arc: true`
+      // consolidation exemption, evidence dossier per placed pill.
+      //
+      // FIRE CONDITION (weak evidence only — normal photos pay just these
+      // O(w*h) scans, never the stamp itself):
+      //   - a region the panel flagged low with no witness upgrade, OR
+      //   - a single whose area exceeds 1.25x the thickness-implied pill
+      //     area with no witness (the pair-merge corruption signature), OR
+      //   - pill-scale foreground no region owns (uncounted material), OR
+      //   - explained-foreground < 0.65 (low-conf + unowned material
+      //     dominates the mask).
+      // The stamp's raft/otsu retries additionally require the BEIGE
+      // signature — cleaned mask explains <0.65 of the otsu mask. The shiny
+      // signature (glare-shredded blobs, HIGH otsu coverage) must not reach
+      // them: measured, that path was a +4 overcount on the shiny pair.
+      if (opts.variant === 'consensus' && stampOtsu && regions.length) {
+        const tS0 = Date.now();
+        const bwd = bw.data;
+        let totalFgS = 0;
+        for (let i = 0; i < bwd.length; i++) if (bwd[i]) totalFgS++;
+        let nO = 0, nI = 0;
+        for (let i = 0; i < bwd.length; i++) if (stampOtsu[i]) { nO++; if (bwd[i]) nI++; }
+        const cover = nO ? nI / nO : 1;
+        const singlesS = regions.filter((g) => (g.units || 1) === 1 && g.shape);
+        const tMajS = median(singlesS.map((g) => g.shape.major)) || 0;
+        const tMinS = median(singlesS.map((g) => g.shape.minor)) || 0;
+        const IMPLIED_S = radiusEst > 0
+          ? stampStadArea(Math.max(2 * radiusEst, tMinS > 0 ? tMajS * 2 * radiusEst / tMinS : 2 * radiusEst), 2 * radiusEst)
+          : (tMajS && tMinS ? stampStadArea(tMajS, tMinS) : 0);
+        // region -> final-mask blob label (bl from the shared labeling above)
+        const lblAt = (x0, y0) => {
+          const xi = Math.max(0, Math.min(w - 1, x0 | 0)), yi = Math.max(0, Math.min(h - 1, y0 | 0));
+          if (bl[yi * w + xi] > 0) return bl[yi * w + xi];
+          for (let rr = 1; rr < 8; rr++) for (let dy = -rr; dy <= rr; dy++) for (let dx = -rr; dx <= rr; dx++) {
+            const X = xi + dx, Y = yi + dy;
+            if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+            if (bl[Y * w + X] > 0) return bl[Y * w + X];
+          }
+          return 0;
+        };
+        const pipeByLbl = new Float64Array(peaks.length);
+        for (const g of regions) { const l = lblAt(g.cx, g.cy); if (l > 0 && l < pipeByLbl.length) pipeByLbl[l] += (g.units || 1); }
+        const witS = (g) => !!(g.arc || g.seam || g.hough || g.geoCorroborated);
+        const lowRegs = regions.filter((g) => g.confidence === 'low');
+        const oversized = IMPLIED_S > 0
+          ? regions.filter((g) => (g.units || 1) === 1 && g.shape && !witS(g)
+            && g.confidence !== 'low' && g.area > 1.25 * IMPLIED_S)
+          : [];
+        const unownedFloor = Math.max(absFloor * 2, 0.3 * IMPLIED_S);
+        const unownedLbl = new Set();
+        let unownedArea = 0;
+        for (let l = 1; l < peaks.length; l++) {
+          if (pipeByLbl[l] || !blobAreas[l]) continue;
+          if (blobAreas[l] >= unownedFloor && peaks[l] >= MIN_PEAK) { unownedLbl.add(l); unownedArea += blobAreas[l]; }
+        }
+        const unownedSeeds = [];
+        if (unownedLbl.size) {
+          const need = new Set(unownedLbl);
+          for (let i = 0; i < bl.length && need.size; i++) {
+            const l = bl[i];
+            if (need.has(l)) { need.delete(l); unownedSeeds.push([i % w, (i / w) | 0]); }
+          }
+        }
+        const unownedBlobs = unownedLbl.size;
+        const lowAreaS = lowRegs.reduce((a, g) => a + g.area, 0);
+        const explainedFrac = totalFgS ? 1 - (lowAreaS + unownedArea) / totalFgS : 1;
+        const reasons = [];
+        if (lowRegs.length) reasons.push(`low-conf(${lowRegs.length})`);
+        if (oversized.length) reasons.push(`oversized(${oversized.length})`);
+        if (unownedBlobs) reasons.push(`unowned(${unownedBlobs})`);
+        if (explainedFrac < 0.65) reasons.push(`explained(${explainedFrac.toFixed(2)})`);
+        const fired = lowRegs.length > 0 || oversized.length > 0 || unownedBlobs > 0
+          || explainedFrac < 0.65;
+        if (!fired) {
+          opts.debug?.({ stage: 'stamp', fired: false, reason: 'strong-evidence',
+            before: count, after: count,
+            explained: { frac: +explainedFrac.toFixed(3), cover: +cover.toFixed(3) },
+            ms: Date.now() - tS0 });
+        } else {
+          // heavy inputs, built only on fired images
+          const lumaS = new Float32Array(w * h);
+          const sd = src.data;
+          for (let i = 0; i < w * h; i++) lumaS[i] = 0.299 * sd[i * 4] + 0.587 * sd[i * 4 + 1] + 0.114 * sd[i * 4 + 2];
+          const fgFinalS = new Uint8Array(w * h);
+          for (let i = 0; i < w * h; i++) fgFinalS[i] = bwd[i] ? 1 : 0;
+          const fgOtsuS = new Uint8Array(w * h);
+          for (let i = 0; i < w * h; i++) fgOtsuS[i] = stampOtsu[i] ? 1 : 0;
+          const iw = srcImageFull.width, ih = srcImageFull.height, idat = srcImageFull.data;
+          const sampleRGBS = (x, y) => {
+            let cr = 0, cg = 0, cb = 0, n = 0;
+            for (let dy = -4; dy <= 4; dy += 4) for (let dx = -4; dx <= 4; dx += 4) {
+              const X = Math.min(iw - 1, Math.max(0, Math.round((x + dx) * iw / w)));
+              const Y = Math.min(ih - 1, Math.max(0, Math.round((y + dy) * ih / h)));
+              const i = (Y * iw + X) * 4; cr += idat[i]; cg += idat[i + 1]; cb += idat[i + 2]; n++;
+            }
+            return [cr / n, cg / n, cb / n];
+          };
+          const verdict = stampArbitrate(cv, {
+            w, h, fgFinal: fgFinalS, fgOtsu: fgOtsuS, cover,
+            luma: lumaS, sampleRGB: sampleRGBS,
+            regions, count,
+            contestedRegions: lowRegs.concat(oversized),
+            unownedSeeds,
+            debug: opts.debug,
+          });
+          const before = count;
+          if (verdict && verdict.changed) {
+            regions = regions.filter((g) => !verdict.remove.has(g)).concat(verdict.add);
+            count += verdict.countDelta;
+            lowConfidence = regions.reduce((n2, g2) => n2 + (g2.confidence === 'low' ? 1 : 0), 0);
+          }
+          opts.debug?.({ stage: 'stamp', fired: true, reason: reasons.join('+'),
+            before, after: count,
+            explained: { frac: +explainedFrac.toFixed(3), cover: +cover.toFixed(3),
+              stampExpl: verdict ? +verdict.expl.toFixed(3) : null },
+            maskUsed: verdict ? verdict.maskUsed : 'none',
+            notes: verdict ? `${verdict.maskNote || ''}${verdict.retried || ''}${verdict.edgeNote || ''}` : '',
+            ms: Date.now() - tS0 });
+        }
+      }
+
       // GEOMETRY STAGE (owner: "i want to see that you know what the shape
       // is"). Draw every fitted outline back onto the photo — singles from
       // their template fit, clump members from their placements — as a
@@ -4616,6 +4753,11 @@ export function countPills(cv, source, opts = {}) {
         const refinePoses = () => {
           for (const g of regions) {
             if (!g.pills) continue;
+            // Stamp placements are already coordinate-ascent refined against
+            // the mask the stamp counted on; in otsu mode that material is
+            // invisible to activeMd and this refiner would drag the pills
+            // onto the purged crescents. Leave them where the evidence is.
+            if (g.stamp) continue;
             for (const p2 of g.pills) {
               let best = { s: poseScore(p2, p2.cx, p2.cy, p2.theta),
                 cx: p2.cx, cy: p2.cy, th: p2.theta };
@@ -4653,7 +4795,7 @@ export function countPills(cv, source, opts = {}) {
       // ---- rigid-body relaxation over every placement ----
       const bodies = [];
       for (const g of regions) {
-        if (g.pills) for (const p2 of g.pills) bodies.push({ p: p2, movable: true });
+        if (g.pills) for (const p2 of g.pills) bodies.push({ p: p2, movable: !g.stamp });
         else if ((g.units || 1) === 1 && g.shape)
           bodies.push({ p: { cx: g.cx, cy: g.cy, theta: g.shape.theta || 0, major: g.shape.major, minor: g.shape.minor }, movable: false });
       }
