@@ -479,7 +479,7 @@ body {
 
 .result-photo {
   position: relative;
-  margin: 0 14px;
+  margin: 0 10px;
   border-radius: var(--radius);
   overflow: hidden;
   background: #1c1f2b;
@@ -490,11 +490,10 @@ body {
      summing to a double offset that pinned it to the right edge (reported
      from the field on a wide window). One owner for positioning. */
   place-items: start;
-  /* The photo is the working surface (badges must be readable, the crop box
-     must be draggable) — but it must YIELD space so the action row below is
-     never pushed off-screen. */
-  flex: 0 1 auto;
-  max-height: 52vh;
+  /* THE PHOTO IS THE APP (field report: "most of the UI should be the
+     image"). It claims every pixel the compact panel doesn't need; the
+     panel below is fixed-size and never scrolls off. */
+  flex: 1 1 auto;
   min-height: 0;
 }
 .result-photo { touch-action: none; } /* pinch/pan belongs to the photo */
@@ -525,56 +524,86 @@ body {
 /* The panel must always be fully reachable: the page height is fixed and
    body overflow is hidden, so without its own scroll the Save/Adjust row
    was sliced off the bottom on tall photos (user-reported). */
-.result-panel {
-  padding: 16px 24px calc(16px + min(env(safe-area-inset-bottom), 10px));
+.result-panel.compact {
+  padding: 8px 12px calc(8px + min(env(safe-area-inset-bottom), 10px));
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  align-items: center;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  gap: 7px;
+  flex: 0 0 auto;   /* fixed-size bar; the photo takes the rest */
 }
 
-.count-row {
+.panel-main {
   display: flex;
   align-items: center;
-  gap: 28px;
+  gap: 10px;
 }
+.panel-main .icon-btn.big { width: 42px; height: 42px; font-size: 22px; flex: 0 0 auto; }
+.panel-main #save-btn { margin-left: auto; padding: 11px 22px; }
 
-.count-display { text-align: center; }
+.count-display { display: flex; align-items: baseline; gap: 6px; }
 .count-value {
-  font-size: 64px;
+  font-size: 34px;
   font-weight: 800;
   line-height: 1;
   color: var(--accent-dark);
   font-variant-numeric: tabular-nums;
 }
 .count-label {
-  font-size: 13px;
+  font-size: 11px;
   color: var(--text-dim);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 2px;
-  margin-top: 4px;
+  letter-spacing: 1.5px;
 }
 
-.target-info { font-size: 15px; font-weight: 700; min-height: 20px; }
+.panel-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;          /* belt-and-suspenders on very narrow phones */
+  scrollbar-width: none;
+}
+.panel-tools::-webkit-scrollbar { display: none; }
+.pill-btn.mini {
+  padding: 7px 10px;
+  font-size: 12.5px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.panel-tools #med-name { flex: 1 1 60px; min-width: 0; }
+
+.helper-strip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 0;
+}
+.helper-strip .helper-dog.small { width: 24px; height: 24px; }
+.helper-bubble.slim {
+  font-size: 12px;
+  padding: 4px 10px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.target-info { font-size: 12.5px; font-weight: 700; }
+.target-info:empty { display: none; }
 .target-info.ok { color: var(--accent-dark); }
 .target-info.over { color: var(--warn); }
 .target-info.short { color: var(--danger); }
 
 #med-name {
-  width: 100%;
-  max-width: 360px;
   background: var(--surface);
   border: 1.5px solid var(--surface-2);
   box-shadow: var(--shadow);
   color: var(--text);
-  font-size: 15px;
-  padding: 13px 16px;
-  border-radius: 14px;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 10px;
 }
 #med-name:focus { outline: 2.5px solid var(--accent); border-color: transparent; }
 #med-name::placeholder { color: var(--text-dim); }
@@ -684,8 +713,8 @@ body {
 .sheet-actions { display: flex; gap: 12px; }
 .sheet-actions .pill-btn { flex: 1; }
 
-.report-btn { font-size: 13px; margin-top: -4px; }
-.debug-btn { font-size: 13px; margin-top: -8px; }
+.report-btn { }
+.debug-btn { }
 
 /* Debug sheet: the pipeline's intermediate images. Deliberately a dark,
    instrument-panel look — these are machine-vision masks, and white pills on

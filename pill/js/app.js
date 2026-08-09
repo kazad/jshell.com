@@ -546,7 +546,7 @@ function showPhoto(sourceCanvas) {
   els.overlayCanvas.width = dw;
   els.overlayCanvas.height = dh;
   els.overlayCanvas.getContext('2d').clearRect(0, 0, dw, dh);
-  els.reportBtn.textContent = '⚠︎ Count is wrong — report it';
+  els.reportBtn.textContent = '⚠︎ Wrong';
   els.reportBtn.classList.remove('sent');
   const rating = document.getElementById('rating');
   if (rating) rating.hidden = true;
@@ -554,7 +554,7 @@ function showPhoto(sourceCanvas) {
   crop.on = false;
   document.getElementById('crop-box').hidden = true;
   els.adjustBtn.classList.remove('adjusting');
-  els.adjustBtn.textContent = 'Adjust area';
+  els.adjustBtn.textContent = '⛶ Adjust';
   resetZoom();
   requestAnimationFrame(syncOverlayBox); // after the screen is visible
 }
@@ -1221,7 +1221,7 @@ document.getElementById('sheet-submit').addEventListener('click', () => {
 
   state.count = n;
   updateCountUI();
-  els.reportBtn.textContent = `✓ Reported — thank you! (actual: ${n})`;
+  els.reportBtn.textContent = `✓ Sent (${n})`;
   els.reportBtn.classList.add('sent');
   els.helperReact.textContent = 'Got it — I saved this one so I can learn from it. 🐾';
 });
@@ -1496,7 +1496,7 @@ function setAdjust(on) {
   const box = document.getElementById('crop-box');
   box.hidden = !on;
   els.adjustBtn.classList.toggle('adjusting', on);
-  els.adjustBtn.textContent = on ? 'Done' : 'Adjust area';
+  els.adjustBtn.textContent = on ? '✓ Done' : '⛶ Adjust';
   if (on) {
     const src = state.sourceCanvas;
     crop.x = 0; crop.y = 0; crop.w = src.width; crop.h = src.height;

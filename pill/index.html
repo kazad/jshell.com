@@ -139,28 +139,32 @@
       </div>
     </div>
 
-    <div class="result-panel">
-      <div class="count-row">
+    <!-- COMPACT PANEL. Field report: "the app doesn't use vertical space
+         well... most of the UI should be the image." The photo above is the
+         working surface (zoom / pan / adjust area); everything down here is
+         two thin rows + a one-line helper strip. -->
+    <div class="result-panel compact">
+      <div class="panel-main">
         <button id="adjust-minus" class="icon-btn big" aria-label="Decrease count">−</button>
         <div class="count-display">
-          <div id="count-value" class="count-value">0</div>
-          <div class="count-label">pills</div>
+          <span id="count-value" class="count-value">0</span>
+          <span class="count-label">pills</span>
         </div>
         <button id="adjust-plus" class="icon-btn big" aria-label="Increase count">+</button>
+        <div id="target-info" class="target-info"></div>
+        <button id="save-btn" class="pill-btn primary">Save</button>
       </div>
-      <div id="target-info" class="target-info"></div>
-      <div class="helper helper-inline">
+      <div class="panel-tools">
+        <button id="retake-btn" class="pill-btn mini">⟲ Retake</button>
+        <button id="adjust-btn" class="pill-btn mini">⛶ Adjust</button>
+        <button id="report-btn" class="pill-btn mini report-btn" title="Count is wrong — report it">⚠︎ Wrong</button>
+        <button id="debug-btn" class="pill-btn mini debug-btn" title="See what ValEye saw">◧ Debug</button>
+        <input id="med-name" type="text" placeholder="Med name" autocomplete="off" />
+      </div>
+      <div class="helper helper-strip">
         <img src="icons/doodle.svg" alt="" class="helper-dog small" />
-        <div id="helper-react" class="helper-bubble">Counting done!</div>
+        <div id="helper-react" class="helper-bubble slim">Counting done!</div>
       </div>
-      <input id="med-name" type="text" placeholder="Medication name (optional)" autocomplete="off" />
-      <div class="result-actions">
-        <button id="retake-btn" class="pill-btn">Retake</button>
-        <button id="adjust-btn" class="pill-btn">Adjust area</button>
-        <button id="save-btn" class="pill-btn primary">Save count</button>
-      </div>
-      <button id="report-btn" class="pill-btn subtle report-btn">⚠︎ Count is wrong — report it</button>
-      <button id="debug-btn" class="pill-btn subtle debug-btn">◧ See what ValEye saw</button>
 
       <!-- Shown after a save: one tap to say whether the count was right.
            Cheap signal, and it labels the photo for the test corpus. -->
