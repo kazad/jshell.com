@@ -1239,6 +1239,7 @@ const STAGE_NOTES = {
   'mask-final': ['5 · Cleaned mask', 'After rescue, hole-filling and shape filters. This is what gets counted.'],
   disttransform: ['6 · Distance transform', 'Bright = deep inside a blob. Peaks mark pill centres.'],
   markers: ['7 · Seeds', 'One dot per pill. Two touching pills MUST show two dots here.'],
+  geometry: ['8 · Fitted shapes', 'Every counted pill drawn as its fitted outline. Green = confident, amber = flagged. The outline should hug the pill.'],
 };
 
 // Render a stage as hard monochrome (pure white on black) instead of the

@@ -4361,6 +4361,60 @@ export function countPills(cv, source, opts = {}) {
           // back onto the photo and validate it against the pixels.
           theta: +a.th.toFixed(4),
         };
+        // TEMPLATE CORROBORATION. A single whose fitted outline matches the
+        // medication's own template is confirmed by GEOMETRY even when the
+        // consensus panel was thin (field report: isolated pills wearing
+        // "20?" — the panel's mass voter abstains on odd-unit photos and a
+        // lone ws vote reads as doubt, but the shape residual says plainly
+        // "this is one pill of the right shape").
+        if ((r.units || 1) === 1 && r.confidence === 'low'
+          && f.err <= 0.08 && aspect < 4) {
+          r.confidence = 'high';
+          r.geoCorroborated = 1;
+        }
+      }
+      // lowConfidence drives the amber messaging; keep it in sync with the
+      // per-region upgrades above.
+      lowConfidence = regions.reduce((n2, g2) => n2 + (g2.confidence === 'low' ? 1 : 0), 0);
+
+      // GEOMETRY STAGE (owner: "i want to see that you know what the shape
+      // is"). Draw every fitted outline back onto the photo — singles from
+      // their template fit, clump members from their placements — as a
+      // first-class debug stage beside mask/markers. Green = confident,
+      // amber = flagged. This is the render-and-verify layer made visible.
+      if (emit) {
+        const g8 = new Uint8ClampedArray(src.data);
+        const putPx = (x, y, rr2, gg, bb) => {
+          const xi = x | 0, yi = y | 0;
+          if (xi < 1 || yi < 1 || xi >= w - 1 || yi >= h - 1) return;
+          for (let a2 = -1; a2 <= 0; a2++) for (let b2 = -1; b2 <= 0; b2++) {
+            const i2 = ((yi + a2) * w + (xi + b2)) * 4;
+            g8[i2] = rr2; g8[i2 + 1] = gg; g8[i2 + 2] = bb; g8[i2 + 3] = 255;
+          }
+        };
+        const stadium = (cx, cy, major, minor, th, ok) => {
+          const a2 = Math.max(0, (major - minor) / 2), rho = minor / 2;
+          const c2 = Math.cos(th), s2 = Math.sin(th);
+          for (let k2 = 0; k2 < 160; k2++) {
+            const phi = k2 * Math.PI * 2 / 160;
+            const cc = Math.abs(Math.cos(phi)), ss = Math.abs(Math.sin(phi));
+            let R;
+            if (ss < 1e-6) R = a2 + rho;
+            else { const r1 = rho / ss; R = (r1 * cc <= a2) ? r1 : a2 * cc + Math.sqrt(Math.max(0, a2 * a2 * cc * cc - a2 * a2 + rho * rho)); }
+            const lx = Math.cos(phi) * R, ly = Math.sin(phi) * R;
+            putPx(cx + lx * c2 - ly * s2, cy + lx * s2 + ly * c2,
+              ok ? 40 : 255, ok ? 220 : 176, ok ? 120 : 32);
+          }
+        };
+        for (const r of regions) {
+          const ok = r.confidence !== 'low';
+          if (r.pills && r.pills.length) {
+            for (const p2 of r.pills) stadium(p2.cx, p2.cy, p2.major, p2.minor, p2.theta, ok && p2.valid !== 0);
+          } else if (r.shape) {
+            stadium(r.cx, r.cy, r.shape.major, r.shape.minor, r.shape.theta, ok);
+          }
+        }
+        emit('geometry', { data: g8, width: w, height: h });
       }
     }
 
@@ -5052,24 +5106,39 @@ export function drawOverlay(ctx, result, displayScale, opts = {}) {
     ctx.stroke();
   }
 
-  let n = 1;
-  for (const r of ordered) {
-    const x = r.cx * displayScale, y = r.cy * displayScale;
-    const multi = r.units > 1;
-    const low = r.confidence === 'low'; // consensus panel could not agree here
-    const label = low ? (multi ? `${n}–${n + r.units - 1}?` : `${n}?`)
-      : (multi ? `${n}–${n + r.units - 1}` : String(n));
-    n += r.units;
-    const rad = multi || low ? 15 : 11;
+  // COMPACT BADGES. Field report on the old 15px white discs: "all this
+  // crap is taking up too much room... why can't we just show center dots,
+  // shrink the font." The photo is the product; badges annotate it without
+  // covering it:
+  //   - every INDIVIDUALLY PLACED pill gets its own small dot — a clump
+  //     with placements renders as N dots, not one fat "8–9" range badge;
+  //   - uncertainty lives in the ring colour (amber) alone. The old "20?"
+  //     text shouted doubt on top of the colour that already said it.
+  const drawDot = (x, y, label, warn) => {
+    const rad = label.length > 2 ? 11 : 8.5;
     ctx.beginPath();
     ctx.arc(x, y, rad, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
     ctx.fill();
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = multi || low ? '#ffb020' : '#18a06a';
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = warn ? '#ffb020' : '#18a06a';
     ctx.stroke();
     ctx.fillStyle = '#0a0f19';
-    ctx.font = `bold ${multi || low ? 10 : 12}px system-ui, sans-serif`;
+    ctx.font = `bold ${label.length > 2 ? 8.5 : 9.5}px system-ui, sans-serif`;
     ctx.fillText(label, x, y);
+  };
+  let n = 1;
+  for (const r of ordered) {
+    const low = r.confidence === 'low'; // consensus panel could not agree here
+    if (r.pills && r.pills.length === r.units && r.units > 1) {
+      for (const p of r.pills) {
+        drawDot(p.cx * displayScale, p.cy * displayScale, String(n++), low || p.valid === 0);
+      }
+    } else if (r.units > 1) {
+      drawDot(r.cx * displayScale, r.cy * displayScale, `${n}–${n + r.units - 1}`, true);
+      n += r.units;
+    } else {
+      drawDot(r.cx * displayScale, r.cy * displayScale, String(n++), low);
+    }
   }
 }
