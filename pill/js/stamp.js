@@ -121,7 +121,7 @@ function labelBlobs(fg, w, h) {
 //   { maskUsed, expl, retried, edgeNote, before, after, countDelta,
 //     remove: Set<region>, add: region[] }.
 export function stampArbitrate(cv, env) {
-  const { w, h, fgFinal, fgOtsu, cover, luma, sampleRGB, regions, count,
+  const { w, h, fgFinal, fgOtsu, fgChroma, cover, luma, sampleRGB, regions, count,
     contestedRegions, unownedSeeds, debug } = env;
   const SHRINK = env.shrink || 0.92;
   const TAUF = env.tauf || 0.6;
@@ -872,6 +872,83 @@ export function stampArbitrate(cv, env) {
     else maskNote = `otsuRejected(expl=${res2.expl.toFixed(2)},total=${total2})`;
   }
 
+  // ---- retry (d): CHROMA-MASK GLARE RESCUE. Glare/deep shadow erases pill
+  // material below every witness's floor; the peel then leaves the contested
+  // fragments unexplained because there is nothing to tile (measured on the
+  // shiny pair: expl 0.13-0.26 over 12-13 unowned shreds at cover ~0.98).
+  // The counter hands in the chromaticity-residual mask (measured to produce
+  // near-perfect bead bodies exactly where colour-distance fails, but
+  // destructive as a global segmenter — 1/7 white-caplet photos die) as
+  // env.fgChroma, RESCUE MATERIAL only. Splice it into the FINAL mask, but
+  // ONLY inside the neighbourhood of contested material: everywhere else the
+  // mask — and therefore the pipeline's verdict — is untouched by
+  // construction. Fires only when at least ~half a pill of contested
+  // material is still unexplained after the main peel and retries (a-c).
+  // Acceptance is per-blob, raise-only, dossier-verified (see the
+  // chroma-adds block after the main arbitration).
+  let chromaRes = null, chromaNote = '';
+  if (maskNote !== 'otsu' && fgChroma && arbitrable.size) {
+    const AREA0 = stadArea(res.MAJ / SHRINK, res.MIN / SHRINK);
+    let unexpl = 0;
+    for (let i = 0; i < w * h; i++) if (allow[i] && !res.claimed[i]) unexpl++;
+    if (unexpl > 0.6 * AREA0) {
+      // neighbourhood = within one template-major of contested material
+      // (chamfer 3-4 distance to the allow set)
+      const REACH = Math.max(8, res.MAJ / SHRINK);
+      const nb = new Float32Array(w * h);
+      const INF = 1e9;
+      for (let i = 0; i < w * h; i++) nb[i] = allow[i] ? 0 : INF;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = y * w + x; if (nb[i] === 0) continue;
+        let v = nb[i];
+        if (x > 0) v = Math.min(v, nb[i - 1] + 3);
+        if (y > 0) {
+          v = Math.min(v, nb[i - w] + 3);
+          if (x > 0) v = Math.min(v, nb[i - w - 1] + 4);
+          if (x < w - 1) v = Math.min(v, nb[i - w + 1] + 4);
+        }
+        nb[i] = v;
+      }
+      for (let y = h - 1; y >= 0; y--) for (let x = w - 1; x >= 0; x--) {
+        const i = y * w + x; if (nb[i] === 0) continue;
+        let v = nb[i];
+        if (x < w - 1) v = Math.min(v, nb[i + 1] + 3);
+        if (y < h - 1) {
+          v = Math.min(v, nb[i + w] + 3);
+          if (x < w - 1) v = Math.min(v, nb[i + w + 1] + 4);
+          if (x > 0) v = Math.min(v, nb[i + w - 1] + 4);
+        }
+        nb[i] = v;
+      }
+      const lim = REACH * 3; // chamfer units (3 per px)
+      const hybrid = new Uint8Array(fgFinal);
+      const allowC = new Uint8Array(w * h);
+      let addedPx = 0;
+      for (let i = 0; i < w * h; i++) {
+        const near = nb[i] <= lim;
+        if (near && fgChroma[i] && !hybrid[i]) { hybrid[i] = 1; addedPx++; }
+        if (near && hybrid[i]) allowC[i] = 1;
+      }
+      debug?.({ stage: 'chromagate', unexpl: +(unexpl / AREA0).toFixed(2),
+        added: +(addedPx / AREA0).toFixed(2) });
+      // enough new material to hide at least a third of a pill, else the
+      // chroma map agrees with the mask and there is nothing to rescue
+      if (addedPx > 0.35 * AREA0) {
+        const resC = analyze(hybrid, 'chroma', { allow: allowC, raftOK: false });
+        // Keep only if the retry explains ITS OWN material better — the
+        // hybrid is a superset of the final mask, so a higher fraction of a
+        // larger mask means the restored material really is tileable pill
+        // bodies, not chroma noise. The chroma result NEVER replaces the
+        // final-mask analysis (that forfeited the final arbitration's own
+        // wins, measured: cream 43 -> 42): it is held aside and its
+        // dossier-verified UNOWNED adds are applied on top, after the
+        // normal arbitration (see the chroma-adds block below).
+        if (resC.expl > res.expl) chromaRes = resC;
+        else chromaNote = ` chromaRejected(expl=${resC.expl.toFixed(2)})`;
+      }
+    }
+  }
+
   // STAMP PHYSICS. The owner's rigid-body law, third application: pills
   // cannot interpenetrate, so neither can placements. Measured (advil-3):
   // two stamps 47px apart with 82px stadiums — ~37px of impossible overlap
@@ -1059,6 +1136,129 @@ export function stampArbitrate(cv, env) {
       countDelta += sc - pc;
     }
   }
+
+  // ---- CHROMA ADDS (retry (d) acceptance). Applied ON TOP of the normal
+  // arbitration: pure raise-only additions of pills whose mask material
+  // glare erased. A hybrid-mask blob qualifies only if
+  //   (1) NO pipeline region owns it (pc = 0 — the pipeline never saw it),
+  //   (2) it is itself a thickness-vetted stadium candidate at full pill
+  //       size (the same independent template evidence the per-blob branch
+  //       demands of unowned adds; measured on both shiny photos, every
+  //       phantom placement was cand=false while every cand=true blob was
+  //       a real bead),
+  //   (3) its stamp read claims its material (claimedFrac >= 0.5 — a
+  //       perfect single placement claims ~0.69 of one pill, restored
+  //       blobs run to ~1.4x pill area, real beads measured 0.52-0.72),
+  //   (4) no already-counted region or already-added pill sits within a
+  //       pill of it (physics/dedup vs the normal arbitration's verdict).
+  if (chromaRes) {
+    const hl = labelBlobs(chromaRes.fg, w, h);
+    const hAt = (x, y) => {
+      const xi = Math.max(0, Math.min(w - 1, x | 0)), yi = Math.max(0, Math.min(h - 1, y | 0));
+      if (hl.blob[yi * w + xi] >= 0) return hl.blob[yi * w + xi];
+      for (let rr = 1; rr < 8; rr++) for (let dy = -rr; dy <= rr; dy++) for (let dx = -rr; dx <= rr; dx++) {
+        const X = xi + dx, Y = yi + dy;
+        if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+        if (hl.blob[Y * w + X] >= 0) return hl.blob[Y * w + X];
+      }
+      return -1;
+    };
+    const pipeByH = new Float64Array(hl.nBlobs);
+    for (const g of regions) {
+      const b = hAt(g.cx, g.cy);
+      if (b >= 0) pipeByH[b] += (g.units || 1);
+    }
+    const placedByH = new Map();
+    for (const p of chromaRes.placed) {
+      const b = hAt(p.x, p.y);
+      if (b < 0) continue;
+      if (!placedByH.has(b)) placedByH.set(b, []);
+      placedByH.get(b).push(p);
+    }
+    const clFgByH = new Float64Array(hl.nBlobs);
+    for (let i = 0; i < w * h; i++) if (chromaRes.fg[i] && chromaRes.claimed[i] && hl.blob[i] >= 0) clFgByH[hl.blob[i]]++;
+    const AREAH = stadArea(chromaRes.MAJ / SHRINK, chromaRes.MIN / SHRINK);
+    const candH = new Set();
+    for (const c of chromaRes.cands || []) {
+      const b = hAt(c.cx, c.cy);
+      if (b >= 0) candH.add(b);
+    }
+    // dedup/physics targets: every surviving region (centre reach) and
+    // every pill the normal arbitration just added (full rigid-body
+    // segment distance — chromaRes placements never went through the main
+    // physics block, so interpenetration is enforced here: measured, a
+    // fit-0.518 second stamp landed 25px down-spine inside an already
+    // stamped bead and only the segment check sees that)
+    const centers = [];
+    for (const g of regions) if (!remove.has(g)) centers.push([g.cx, g.cy]);
+    const stamps = [];
+    for (const r2 of add) {
+      if (r2.pills) for (const p2 of r2.pills) stamps.push({ x: p2.cx, y: p2.cy, th: p2.theta || 0, maj: p2.major || chromaRes.MAJ, min: p2.minor || chromaRes.MIN });
+      else centers.push([r2.cx, r2.cy]);
+    }
+    const segPts3 = (q) => {
+      const a2 = Math.max(0, (q.maj - q.min) / 2), pts2 = [];
+      for (let t = -1; t <= 1; t += 0.34)
+        pts2.push([q.x + Math.cos(q.th) * a2 * t, q.y + Math.sin(q.th) * a2 * t]);
+      return pts2;
+    };
+    const segDist3 = (A, B) => {
+      let dmin = 1e9;
+      for (const [xa, ya] of segPts3(A)) for (const [xb, yb] of segPts3(B)) {
+        const d3 = Math.hypot(xa - xb, ya - yb);
+        if (d3 < dmin) dmin = d3;
+      }
+      return dmin;
+    };
+    const NEAR = 0.72 * (chromaRes.MIN / SHRINK);
+    const clear = (p) => {
+      if (!centers.every(([bx, by]) => Math.hypot(bx - p.x, by - p.y) >= NEAR)) return false;
+      const P = { x: p.x, y: p.y, th: p.th, maj: p.maj, min: p.min };
+      return stamps.every((q) => segDist3(P, q) >= 0.72 * (P.min + q.min) / 2);
+    };
+    let nAdd = 0;
+    for (const [b, ps] of placedByH) {
+      const pc = pipeByH[b];
+      const visible = hl.blobArea[b] / AREAH;
+      const claimedFrac = hl.blobArea[b] > 0 ? clFgByH[b] / hl.blobArea[b] : 0;
+      const ok = !pc && candH.has(b) && visible >= 0.8 && claimedFrac >= 0.5;
+      // per-placement dossier floor: every real rescued bead measured fits
+      // 0.88-1.0; the one phantom read 0.518. Accepted placements join the
+      // physics set IMMEDIATELY so same-blob siblings are checked too.
+      const kept = [];
+      if (ok) {
+        for (const p of ps.slice().sort((a2, b2) => b2.s - a2.s)) {
+          if (p.s < 0.75 || !clear(p)) continue;
+          kept.push(p);
+          stamps.push({ x: p.x, y: p.y, th: p.th, maj: p.maj, min: p.min });
+        }
+      }
+      debug?.({ stage: 'chromablob', blob: b, sc: ps.length, pc,
+        visible: +visible.toFixed(2), cand: candH.has(b),
+        claimedFrac: +claimedFrac.toFixed(2),
+        win: kept.length ? 'chroma' : 'pipe' });
+      if (!kept.length) continue;
+      for (const p of kept) {
+        debug?.({ stage: 'stampplace', mask: 'chroma', blob: b,
+          x: Math.round(p.x), y: Math.round(p.y), th: +p.th.toFixed(3),
+          fit: +p.s.toFixed(3), photo: p.photo, edge: p.edge });
+      }
+      const pills = kept.map((p) => ({
+        cx: p.x, cy: p.y, theta: +p.th.toFixed(3),
+        major: +p.maj.toFixed(1), minor: +p.min.toFixed(1),
+        valid: +Math.max(0, Math.min(1, chromaRes.selfMed > 0 ? p.s / chromaRes.selfMed : 1)).toFixed(2),
+        fit: +p.s.toFixed(3), photo: p.photo, edge: p.edge,
+      }));
+      const cx = kept.reduce((a, p) => a + p.x, 0) / kept.length;
+      const cy = kept.reduce((a, p) => a + p.y, 0) / kept.length;
+      add.push({ cx, cy, area: hl.blobArea[b], units: kept.length,
+        confidence: 'high', arc: true, stamp: true, chroma: true, pills });
+      countDelta += kept.length;
+      nAdd += kept.length;
+    }
+    chromaNote = ` chroma(+${nAdd})`;
+  }
+  maskNote += chromaNote;
 
   if (!remove.size && !add.length && countDelta === 0) {
     return { maskUsed: res.tag, expl: res.expl, retried: res.retried, edgeNote: res.edgeNote,

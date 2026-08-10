@@ -3537,6 +3537,55 @@ export function countPills(cv, source, opts = {}) {
               r: +radiusEst.toFixed(1) });
           } catch { houghPts = null; }
         }
+        // IMAGE-LEVEL CENSUS STRENGTH — may the census VETO other witnesses?
+        // Same verification photometry as the top-up below (which recomputes
+        // it later with identical inputs; bl is never rewritten). A census
+        // is a trustworthy CONTRADICTOR only when it accounts for ~every
+        // pill already counted: measured, the two legitimate mass-raise
+        // undos run at 60/60 and 12/12 (1.00) while synthetic-noise-25 —
+        // where the census misses 8 of 25 pills and undoing lost a real one
+        // — runs at 17/24 (0.71). Bar 0.9: >=0.19 margin each way.
+        let censusStrong = false;
+        if (houghPts && houghGray && houghPts.length) {
+          const gd5 = houghGray.data;
+          const lum5 = (x, y) => {
+            const xi = x | 0, yi = y | 0;
+            return (xi < 0 || yi < 0 || xi >= w || yi >= h) ? 255 : gd5[yi * w + xi];
+          };
+          let vN = 0;
+          for (const [hx, hy] of houghPts) {
+            let ePos = 0, eNeg = 0, inS = 0, rimS = 0, freeSec = 0;
+            const ins = [];
+            for (let k3 = 0; k3 < 16; k3++) {
+              const a3 = k3 * Math.PI / 8, cA = Math.cos(a3), sA = Math.sin(a3);
+              const li = lum5(hx + cA * radiusEst * 0.78, hy + sA * radiusEst * 0.78);
+              const lo = lum5(hx + cA * radiusEst * 1.24, hy + sA * radiusEst * 1.24);
+              const oxi = (hx + cA * radiusEst * 1.24) | 0, oyi = (hy + sA * radiusEst * 1.24) | 0;
+              const contact = oxi >= 0 && oyi >= 0 && oxi < w && oyi < h && bl[oyi * w + oxi];
+              if (!contact) {
+                freeSec++;
+                if (li - lo >= 6) ePos++; else if (lo - li >= 6) eNeg++;
+              }
+              inS += lum5(hx + cA * radiusEst * 0.45, hy + sA * radiusEst * 0.45);
+              rimS += lum5(hx + cA * radiusEst, hy + sA * radiusEst);
+              if (k3 < 8) ins.push(lum5(hx + cA * radiusEst * 0.4, hy + sA * radiusEst * 0.4));
+            }
+            const edgeN = Math.max(ePos, eNeg);
+            ins.push(lum5(hx, hy));
+            const inM = ins.reduce((x2, y2) => x2 + y2, 0) / ins.length;
+            const inStd = Math.sqrt(ins.reduce((x2, y2) => x2 + (y2 - inM) ** 2, 0) / ins.length);
+            const needS = Math.max(5, Math.ceil(0.57 * freeSec));
+            const needD = Math.max(6, Math.ceil(0.75 * freeSec));
+            if ((inStd <= 16 && edgeN >= needS)
+              || ((inS - rimS) / 16 >= 8 && edgeN >= needD)) vN++;
+            else {
+              const cxi = hx | 0, cyi = hy | 0;
+              if (cxi >= 0 && cyi >= 0 && cxi < w && cyi < h && bl[cyi * w + cxi]) vN++;
+            }
+          }
+          censusStrong = vN >= 0.9 * count;
+          opts.debug?.({ stage: 'census-strength', vEff: vN, count, strong: censusStrong });
+        }
 
         for (const a of ambiguous) {
           const { l, regs } = a;
@@ -3577,8 +3626,20 @@ export function countPills(cv, source, opts = {}) {
           // had already found. Only rounds toward a count the baseline
           // independently reached, so it can never invent pills on its own.
           const massFrac = unitOk ? blobAreas[l] / unit : 0;
+          // "The baseline independently reached" must mean MARKER evidence,
+          // not the baseline's own area quotient: when unitsSum exceeds the
+          // watershed marker count, the extra unit came from area/unit — the
+          // SAME measurement massFrac is — so rounding toward it is mass
+          // corroborating itself. Measured on synth2-cc-light s298 blob 33:
+          // a shadow-bloated 2-capsule blob (regs 2, ws 2, ero 2, massFrac
+          // 2.31) had unitsSum 3 from the quotient; the round-up made mass
+          // vote 3, which then vetoed (distancePairVsMass) the ws+ero
+          // descent the pixels themselves corroborate. The motivating
+          // round-up case keeps firing: r-dbe1f2d8's 3-pill clump read 2.40
+          // units with the watershed itself at 3 markers (regs 3 >= ceil 3).
           const heavyFraction = massFrac - Math.floor(massFrac) >= 0.3
-            && Math.ceil(massFrac) === a.unitsSum;
+            && Math.ceil(massFrac) === a.unitsSum
+            && regs.length >= Math.ceil(massFrac);
           // Webbing discount. Rounding a fractional mass UP claims pill
           // material that was never measured. That extrapolation is exactly
           // wrong when the blob carries the side-by-side junction signature
@@ -3684,6 +3745,7 @@ export function countPills(cv, source, opts = {}) {
           // blob must be genuinely thick (a flat single pill can never be),
           // so a mis-calibrated unit alone can never trigger this.
           const massVoteRaw = votes.find((x) => x.m === 'mass');
+          let moFrom = -1; // pre-raise k of a sole-dissenter one-step massoverride
           if (massVoteRaw && massVoteRaw.v > k) {
             const mv = massVoteRaw.v;
             // Length arm must be STRICT. A lone caplet already measures ~1.1
@@ -3771,6 +3833,14 @@ export function countPills(cv, source, opts = {}) {
               : Infinity;
             if ((lenRoom || stacked) && mv <= capacity) {
               opts.debug?.({ stage: 'massoverride', blob: l, from: k, to: mv, lenRoom, stacked, capacity });
+              // Remember a ONE-STEP raise that mass forced against every
+              // other witness (all non-mass votes at the pre-raise k): the
+              // round-population census gets a chance to undo it below.
+              // Multi-step raises (deep piles, r-f5d11815 blob 1: ws 3,
+              // ero 1, mass 6) never qualify — there the witnesses disagree
+              // among themselves and mass is the only method that can see.
+              if (mv === k + 1
+                && votes.every((x) => x.m === 'mass' || x.v === k)) moFrom = k;
               k = mv;
               ks = ['mass', 'len'];
             } else if (lenRoom || stacked) {
@@ -4051,6 +4121,67 @@ export function countPills(cv, source, opts = {}) {
               arcTo = circOn;
               opts.debug?.({ stage: 'houghdesc', blob: l, from: kFinal0h,
                 to: circOn, massFrac: +massFrac.toFixed(2) });
+            }
+            // MASS-RAISE CENSUS UNDO — the `agreed` counterpart of the
+            // descent above, scoped to exactly one pathology: a soft
+            // contact-shadow bloats the mask, mass reads ~k+1, and
+            // massoverride's length arm raises a count that EVERY other
+            // witness contradicts. Fire only when:
+            //   - massoverride made a one-step raise with mass the sole
+            //     dissenter (all non-mass votes at the pre-raise k, recorded
+            //     as moFrom above; multi-step pile rescues never qualify),
+            //   - every circle standing on this blob verified AND their
+            //     number is exactly the pre-raise k (hV === circOn ===
+            //     moFrom): the census sees no material for the extra pill
+            //     anywhere on the blob. A census that under-covers (camo)
+            //     breaks hV === circOn or lands below moFrom and abstains.
+            // Measured: s231 blob 29 (ws 5, ero 5, arcLo=arcHi 5, hV=circOn
+            // 5, massFrac 6.23 -> raised to 6, one shadow-bloated unit; the
+            // blob's own seam spectrum holds exactly 4 strong events —
+            // 36.5-72.8 luma vs a 6.55 cliff — i.e. 5 pills) and s237 blob
+            // 11 (ws 1, crease 1, ero 1, hV=circOn 1, massFrac 2.07 -> a
+            // single pill plus its cast shadow raised to 2; seam top event
+            // 10.0 vs floorT 97.3 refuses the pair). Real-photo massoverride
+            // rescues are caplet populations with no hough census at all
+            // (r-f5d11815: houghPts null), and deep-clump interiors fail
+            // circle verification (contact sectors starve freeSec), so
+            // hV < circOn there and the undo abstains.
+            // ... and the blob's own seams must REFUSE the raised count.
+            // A census that under-covers a genuine clump makes the first
+            // two witnesses lie together (measured on synthetic-noise-25
+            // blob 6: a true 3-clump with massFrac exactly 3.00 where only
+            // 2 circles verified — undoing there lost a real pill). Real
+            // pill-pill contacts carry luma-relief merge events the shadow
+            // lobe cannot fake: the shadow's "seam" is a step into darkness,
+            // not a valley between two bright domes. Measured refusals on
+            // the true undos: s231 5th event 6.55 vs floorT 19.2, s237 top
+            // event 10.0 vs floorT 97.3; noise-25's real 3-clump certifies
+            // its 2nd event at full depth and keeps the raise.
+            // ... and only a COMPLETE census may contradict (censusStrong,
+            // measured above: the legit undos run 60/60 and 12/12 verified-
+            // to-counted; synthetic-noise-25, where the census misses 8 of
+            // 25 pills and the mass raise was RIGHT — massFrac exactly 3.00
+            // on a true 3-clump with 2 circles — runs 17/24 and abstains),
+            // and the blob's own seams must ALSO refuse the raised count
+            // (s231's 5th event 6.55 vs floorT 19.2; s237's top event 10.0
+            // vs 97.3 — a shadow lobe is a step into darkness, not a valley
+            // between two bright domes).
+            if (!arcTo && moFrom >= 1 && kFinal0h === moFrom + 1
+              && circOn === moFrom && hV === circOn && censusStrong) {
+              if (!seam && a.box) seam = seamSpectrum(src.data, w, h, bl, w, l, a.box);
+              const iqrU = seam ? Math.max(1, seam.p75 - seam.p25) : 0;
+              const seamCertifies = !!seam && seam.events.length >= kFinal0h - 1
+                && seam.events[kFinal0h - 2].v >= 0.67 * iqrU;
+              opts.debug?.({ stage: 'houghdesc-mo-eval', blob: l,
+                from: kFinal0h, to: moFrom, massFrac: +massFrac.toFixed(2),
+                seamCertifies,
+                ev: seam && seam.events[kFinal0h - 2] ? +seam.events[kFinal0h - 2].v.toFixed(2) : null,
+                floorT: seam ? +(0.67 * iqrU).toFixed(1) : null });
+              if (!seamCertifies) {
+                arcTo = moFrom;
+                opts.debug?.({ stage: 'houghdesc-mo', blob: l, from: kFinal0h,
+                  to: moFrom, massFrac: +massFrac.toFixed(2) });
+              }
             }
           }
 
@@ -4393,11 +4524,80 @@ export function countPills(cv, source, opts = {}) {
               return { hx, hy, dmin };
             }).sort((x2, y2) => y2.dmin - x2.dmin);
             const add = vEff - count;
+            // RESIDUAL-MATERIAL GATE for additions. An added pill must be
+            // MADE of something the surface model cannot explain: sample the
+            // distance-from-background map under the disc interior and on
+            // the free annulus just outside it. A real pill — even one so
+            // camouflaged the mask lost it entirely — still sits FARTHER
+            // from the surface model than the surface right beside it; a
+            // phantom ring on board texture has no such lift because the
+            // disc IS the board. Measured across every top-up candidate in
+            // the corpus (23 real, 3 phantom): real rescues lift dbIn-dbOut
+            // by +11..+39 (worst: s154 (870,194) at +12, s160 (433,101) at
+            // +11 — both fully mask-lost whites on light board) while the
+            // three phantoms measure -4, 0, -4 (s250 (303,94)/(104,345) on
+            // bare wood grain, s218 (816,245) on noise). Bar 6 = geometric
+            // midpoint, ~1.8x margin each way. Witnesses tried and REJECTED
+            // on the same measurements: interior smoothness inStd (round-2:
+            // true rescues 1.6-15.2 overlap phantoms 5.0-13.3), mask crumbs
+            // under the disc (real camo pills on light board measure 0.00
+            // exactly like phantoms — refusing them broke s150 120->114,
+            // s154 120->117, s160 30->29), interior-vs-annulus colour
+            // distance (gap 22.0 vs 24.1 — no real margin). Skip (not
+            // break) on refusal: ranking is by dmin and a real candidate
+            // can sit below a phantom (measured on s250: phantom, real,
+            // phantom in that order — the real one must still be placed).
+            const sd4 = src.data;
+            const dd8b = distBg.data;
+            const candProfile = (hx, hy) => {
+              let mOn = 0, mAll = 0;
+              const dbIn = [], dbOut = [];
+              const inC = [[], [], []], outC = [[], [], []];
+              for (let a4 = 0; a4 < 12; a4++) {
+                const cA = Math.cos(a4 * Math.PI / 6), sA = Math.sin(a4 * Math.PI / 6);
+                for (const rf of [0.25, 0.5, 0.72]) {
+                  const xi = Math.round(hx + cA * radiusEst * rf), yi = Math.round(hy + sA * radiusEst * rf);
+                  if (xi < 0 || yi < 0 || xi >= w || yi >= h) continue;
+                  mAll++;
+                  if (bl[yi * w + xi]) mOn++;
+                  const o4 = (yi * w + xi) * 4;
+                  dbIn.push(dd8b[yi * w + xi]);
+                  inC[0].push(sd4[o4]); inC[1].push(sd4[o4 + 1]); inC[2].push(sd4[o4 + 2]);
+                }
+                for (const rf of [1.4, 1.6]) {
+                  const xi = Math.round(hx + cA * radiusEst * rf), yi = Math.round(hy + sA * radiusEst * rf);
+                  if (xi < 0 || yi < 0 || xi >= w || yi >= h) continue;
+                  if (bl[yi * w + xi]) continue; // annulus: free surface only
+                  const o4 = (yi * w + xi) * 4;
+                  dbOut.push(dd8b[yi * w + xi]);
+                  outC[0].push(sd4[o4]); outC[1].push(sd4[o4 + 1]); outC[2].push(sd4[o4 + 2]);
+                }
+              }
+              const med4 = (arr) => { const s4 = arr.slice().sort((p, q) => p - q); return s4.length ? s4[s4.length >> 1] : 0; };
+              let annD = 0;
+              if (outC[0].length >= 6) {
+                for (let c4 = 0; c4 < 3; c4++) { const dd4 = med4(inC[c4]) - med4(outC[c4]); annD += dd4 * dd4; }
+                annD = Math.sqrt(annD);
+              } else annD = -1; // annulus starved (crowded): no reading
+              return { maskFrac: mAll ? mOn / mAll : 0, annD, nOut: outC[0].length,
+                dbIn: med4(dbIn), dbOut: outC[0].length >= 6 ? med4(dbOut) : -1 };
+            };
             let added = 0;
             for (let i2 = 0; i2 < ranked.length && added < add; i2++) {
               const { hx, hy, dmin } = ranked[i2];
               // a real uncounted pill does not sit on a counted center
               if (dmin < radiusEst * 1.3) { opts.debug?.({ stage: 'htopup-blocked', hx: +hx.toFixed(0), hy: +hy.toFixed(0), dmin: +dmin.toFixed(1) }); break; }   // ranked by dmin: rest are closer
+              const prof = candProfile(hx, hy);
+              // Starved annulus (crowded site, dbOut unreadable): fall back
+              // to mask backing — crowded sites have material to show.
+              const phantom = prof.dbOut >= 0
+                ? (prof.dbIn - prof.dbOut) < 6
+                : prof.maskFrac < 0.30;
+              opts.debug?.({ stage: 'htopup-cand', hx: +hx.toFixed(0), hy: +hy.toFixed(0),
+                dmin: +dmin.toFixed(1), maskFrac: +prof.maskFrac.toFixed(2),
+                annD: +prof.annD.toFixed(1), nOut: prof.nOut,
+                dbIn: prof.dbIn, dbOut: prof.dbOut, otsuThr: +otsuThr.toFixed(1), phantom });
+              if (phantom) continue;
               regions.push({ cx: hx, cy: hy, area: Math.PI * radiusEst * radiusEst,
                 units: 1, confidence: 'high', arc: true, hough: true });
               added++;
@@ -4757,8 +4957,38 @@ export function countPills(cv, source, opts = {}) {
             }
             return [cr / n, cg / n, cb / n];
           };
+          // CHROMATIC RESCUE INPUT (glare-mask rescue). Glare/deep shadow can
+          // erase a pill's mask material below every witness's floor — the
+          // shiny beads and the cream-caplet periphery both lose whole pills
+          // this way, and no amount of stamping the FINAL mask can recover
+          // material that is not there. The chromaticity-residual map
+          // (chromaticDistance) was measured to produce near-perfect bead
+          // masks exactly where colour-distance fails, but applied globally
+          // it destroys white-caplet photos — so it is never used to segment.
+          // It is handed to the stamp as RESCUE MATERIAL only: stamp.js
+          // splices it into the neighbourhood of contested blobs the peel
+          // could not explain, re-runs the peel there, and accepts only
+          // dossier-verified, raise-only, per-blob wins (retry (d)).
+          // Built only when the beige signature is absent (cover >= 0.5 —
+          // the purge retries own that side) and something is contested.
+          let fgChromaS = null;
+          if (cover >= 0.5 && (unownedBlobs > 0 || lowRegs.length > 0 || oversized.length > 0)) {
+            const chr = chromaticDistance(cv, src);
+            cv.GaussianBlur(chr, chr, new cv.Size(5, 5), 0);
+            const cbw = new cv.Mat();
+            cv.threshold(chr, cbw, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
+            // a chroma map that floods the frame is reading texture, not pills
+            const chrFrac = cv.countNonZero(cbw) / (w * h);
+            if (chrFrac > 0 && chrFrac < 0.5) {
+              fgChromaS = new Uint8Array(w * h);
+              const cd2 = cbw.data;
+              for (let i = 0; i < w * h; i++) fgChromaS[i] = cd2[i] ? 1 : 0;
+            }
+            opts.debug?.({ stage: 'chroma-input', frac: +chrFrac.toFixed(3), used: !!fgChromaS });
+            chr.delete(); cbw.delete();
+          }
           const verdict = stampArbitrate(cv, {
-            w, h, fgFinal: fgFinalS, fgOtsu: fgOtsuS, cover,
+            w, h, fgFinal: fgFinalS, fgOtsu: fgOtsuS, cover, fgChroma: fgChromaS,
             luma: lumaS, sampleRGB: sampleRGBS,
             regions, count,
             contestedRegions: lowRegs.concat(oversized, routedRegs),
