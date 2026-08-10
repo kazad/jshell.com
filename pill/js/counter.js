@@ -453,11 +453,138 @@ function refineOversizedBlobs(cv, src, bw, absFloor, debug) {
     debug?.({ stage: 'refine', blobArea, kept, keptRatio: +keptRatio.toFixed(3),
       pillLike: pillLike.length, pillRatio: +pillRatio.toFixed(3), score: +score.toFixed(3), thr,
       unitArea, pieceMed, scaleVeto, accept });
-    if (accept) {
+
+    // POLARITY CHECK. The accept-test above only ever examines the side the
+    // re-threshold KEPT; it never asks which side of the cut is the
+    // medication. When the oversized blob is a PILE of same-coloured pills
+    // fused to the surface texture between them (pills the MAJORITY of the
+    // blob), the blob's median colour IS the pill colour, so
+    // distance-from-surface keeps exactly the non-pill web — wood grain,
+    // crevice shadows, specular rims — and discards every pill. Measured on
+    // t3-cream-caplets-wood (134 counted for a dot-verified 48): the kept
+    // side scored 0.719 (20 web knots read pill-like, pillRatio 0.099,
+    // scaleVeto disarmed because no isolated pill existed pre-refine to set
+    // unitArea) while the DISCARDED side was 31 single caplets + 8 small
+    // clumps. Every calibration downstream (radiusEst 9.3 vs true 21, unit
+    // 1839 vs true ~6100, stamp template) then locked onto web fragments and
+    // certified the shatter-count.
+    //
+    // So measure the DISCARDED side too, and keep whichever side actually
+    // looks like a same-medication population. The discriminator is
+    // topological, not photometric: with the polarity inverted the KEPT side
+    // is one connected lattice (the material BETWEEN pills) while the
+    // complement decomposes into many same-scale pill-thick chunks; with the
+    // polarity correct the complement is one crevice-network sheet (the
+    // surface). Measured here, kept side: 75 pieces, dominant piece 50.0% of
+    // its mass, median DT peak 8.2; complement (hole-filled): 31 pieces,
+    // dominant 13.0%, median DT peak 26.0 — the two sides are not close on
+    // any axis, which is what lets the flip gate demand every clause at
+    // once. After the flip this photo calibrates unit 6598 (vs 1839 on the
+    // web), radiusEst 25.6 (vs 9.3) and counts 43 for a dot-verified 48
+    // (the 5 misses are glare/deep-shadow faces, the documented shiny-class
+    // limitation) instead of 134.
+    const compM = cv.Mat.zeros(bw.rows, bw.cols, cv.CV_8UC1);
+    const cmd = compM.data;
+    for (let i = 0; i < ll.length; i++) if (ll[i] === blob && !mask[i]) cmd[i] = 255;
+    // Hole-fill the complement before measuring it: dark speckles and
+    // imprint dots on a pill sit far from the blob's median colour, so they
+    // read "kept" and punch interior holes that flatten each piece's
+    // distance peak (measured on t3-cream-caplets-wood: single caplets read
+    // peak 14.6 with holes vs ~21 filled). BFS from the frame border over
+    // non-complement pixels; anything unreached is an enclosed hole.
+    {
+      const wq = bw.cols, hq = bw.rows;
+      const seen = new Uint8Array(wq * hq);
+      const qx = new Int32Array(wq * hq);
+      let qh = 0, qt = 0;
+      const push = (i) => { if (!seen[i] && !cmd[i]) { seen[i] = 1; qx[qt++] = i; } };
+      for (let x = 0; x < wq; x++) { push(x); push((hq - 1) * wq + x); }
+      for (let y = 0; y < hq; y++) { push(y * wq); push(y * wq + wq - 1); }
+      while (qh < qt) {
+        const i = qx[qh++];
+        const x = i % wq, y = (i / wq) | 0;
+        if (x > 0) push(i - 1);
+        if (x < wq - 1) push(i + 1);
+        if (y > 0) push(i - wq);
+        if (y < hq - 1) push(i + wq);
+      }
+      for (let i = 0; i < wq * hq; i++) if (!cmd[i] && !seen[i]) cmd[i] = 255;
+    }
+    const compLab = new cv.Mat();
+    cv.connectedComponents(compM, compLab);
+    const compDist = new cv.Mat();
+    cv.distanceTransform(compM, compDist, cv.DIST_L2, 5);
+    const cl2 = compLab.data32S, cd2 = compDist.data32F;
+    const pieces2 = new Map();
+    let kept2 = 0;
+    for (let i = 0; i < cl2.length; i++) {
+      if (!cl2[i]) continue;
+      kept2++;
+      let p = pieces2.get(cl2[i]);
+      if (!p) { p = { area: 0, peak: 0 }; pieces2.set(cl2[i], p); }
+      p.area++;
+      if (cd2[i] > p.peak) p.peak = cd2[i];
+    }
+    const sideStats = (list, total) => {
+      const arr = list.filter((p) => p.area >= absFloor).sort((a, b) => b.area - a.area);
+      const n = arr.length;
+      const dom = n ? arr[0].area / Math.max(1, total) : 0;
+      const medA2 = n ? median(arr.map((p) => p.area)) : 0;
+      const medPk = n ? median(arr.map((p) => p.peak)) : 0;
+      // modal (same-medication) cohort share of this side's mass
+      const cohort = arr.filter((p) => p.area >= 0.6 * medA2 && p.area <= 1.5 * medA2);
+      const cohShare = total ? cohort.reduce((a, p) => a + p.area, 0) / total : 0;
+      return { n, dom, medA: medA2, medPk, coh: cohort.length, cohShare,
+        top: arr.slice(0, 12).map((p) => `a${p.area | 0}p${p.peak.toFixed(1)}`) };
+    };
+    const sk = sideStats([...pieces.values()], kept);
+    const sc2 = sideStats([...pieces2.values()], kept2);
+    // The flip exists ONLY to stop an ACCEPT from adopting an inverted
+    // mask. When the kept side is being rejected anyway, the revert path
+    // (fused pile -> clump/mass machinery) is the measured-correct road —
+    // the advil trio reaches 30/30/30 exact through it, and flipping there
+    // instead read 30/24/31 (glare-heavy tablets shred under any
+    // photometric cut; the raft machinery does not care). So `accept` is a
+    // hard precondition, and the flip additionally demands the full
+    // inverted-polarity signature, every clause measured on both sides:
+    //   comp.n >= 6          a POPULATION of pieces — a surface-sheet
+    //                        complement is 1-4 (cream 31; beige-90 tray 4,
+    //                        lightblue 4)
+    //   comp.dom <= 0.35     no sheet dominance on the complement
+    //                        (cream 0.13; beige-90 0.97, lightblue 0.95)
+    //   kept.dom >= 0.40     the kept side IS a connected lattice — one
+    //                        piece holding >=40% of its mass (cream 0.50;
+    //                        a genuine pills-kept refine spreads its mass:
+    //                        beige-90 kept.dom 0.066)
+    //   comp.medPk >= 6 and >= 1.5x kept.medPk
+    //                        complement pieces carry pill thickness, kept
+    //                        pieces are web-thin (cream 26.0 vs 8.2 — the
+    //                        contact-independent DT half-width witness)
+    //   scale sanity         when isolated pills DID exist pre-refine
+    //                        (unitArea > 0), complement pieces must be on
+    //                        that scale, same rule as scaleVeto above.
+    const scaleVeto2 = unitArea > 0 && sc2.medA > 0 && sc2.medA < 0.25 * unitArea;
+    const flip = accept && sc2.n >= 6 && sc2.dom <= 0.35 && sk.dom >= 0.40
+      && sc2.medPk >= 6 && sc2.medPk >= 1.5 * sk.medPk && !scaleVeto2;
+    debug?.({ stage: 'refine2',
+      kept: { total: kept, n: sk.n, dom: +sk.dom.toFixed(3), medA: sk.medA,
+        medPk: +sk.medPk.toFixed(1), coh: sk.coh, cohShare: +sk.cohShare.toFixed(3) },
+      comp: { total: kept2, n: sc2.n, dom: +sc2.dom.toFixed(3), medA: sc2.medA,
+        medPk: +sc2.medPk.toFixed(1), coh: sc2.coh, cohShare: +sc2.cohShare.toFixed(3) },
+      scaleVeto2, flip });
+
+    if (flip) {
+      // Keep the discarded side: it, not the kept side, is the pill
+      // population. cmd is the hole-filled complement, so pill interiors
+      // come back whole (speckle holes sealed), rims and web stay out.
+      for (let i = 0; i < ll.length; i++) if (ll[i] === blob) mask[i] = cmd[i] ? 255 : 0;
+      refined++;
+    } else if (accept) {
       refined++;
     } else {
       for (let i = 0; i < ll.length; i++) if (ll[i] === blob) mask[i] = 255;
     }
+    compM.delete(); compLab.delete(); compDist.delete();
     subLab.delete(); subDist.delete();
   }
   lab.delete();
@@ -1932,6 +2059,10 @@ export function countPills(cv, source, opts = {}) {
     const dd = dist.data32F;
     let peaks = new Float32Array(64);
     let blobAreas = new Uint32Array(64);
+    // Per-blob boundary-arc reading, recorded by the panel for the stamp
+    // router's hidden-contact test (clusters <= 2*units - 2 on an elongated
+    // template = at least one flush contact hides a cap pair).
+    const arcInfoByBlob = new Map();
     for (let i = 0; i < bl.length; i++) {
       const l = bl[i];
       if (!l) continue;
@@ -3222,6 +3353,60 @@ export function countPills(cv, source, opts = {}) {
         }
       }
 
+      // QUOTIENT RECALIBRATION. The baseline's oversized-region fallback
+      // (units = round(area/med)) divides by the median WATERSHED-REGION
+      // area, which on soft-edged photos is systematically smaller than one
+      // pill's mask area: the watershed erodes a free-standing single's rim
+      // (the unknown band floods to background), while a clump interior
+      // keeps nearly full per-pill area (only thin seam lines are lost).
+      // Measured on t3-white-round-yellow-2: ws-region singles median 1474
+      // vs certified unit 2005.5 (mask singles 1930-2060) — a 1.36x quotient
+      // inflation that read the 40-pill raft as 48 (its 35719px core region:
+      // /1474 -> 24 units, /2005.5 -> 18; whole-blob re-quote 48 -> 40, the
+      // audited truth, with blob mass 39.22 corroborating).
+      //
+      // TWO GUARDS, both measured:
+      //   REDUCE-ONLY — raising is massoverride's job and stays behind its
+      //   capacity guard; a raise here could only come from a collapsed
+      //   unit (the unitfix failure family), exactly when this must stay
+      //   silent.
+      //   MASS-CORROBORATED, per blob — the re-quote is accepted only when
+      //   the blob's new units sum lands ON the blob's own pixel mass
+      //   (within rounding slack) AND strictly closer to it than the old
+      //   sum. Region areas are watershed-eroded, so on photos where the
+      //   erosion is heavy (or the unit itself is clump-corrupted) the
+      //   re-quote undershoots mass and must be refused: an unguarded
+      //   region-level re-quote measured salmon-pentagon 81 -> 17 (want
+      //   90) and lined-69204ff4 21 -> 17 (want 20) — the guard keeps
+      //   those at their current counts while yellow-2's raft (sumNew 40
+      //   vs mass 39.22, diff 0.78 within slack 1.18) passes.
+      if (unitOk) {
+        for (const [bq, regsQ] of regByBlob) {
+          if (!bq || !regsQ || !regsQ.length) continue;
+          if (!regsQ.some((r) => (r.units || 1) > 1 && r.area > 0)) continue;
+          const sumOld = regsQ.reduce((t, r) => t + (r.units || 1), 0);
+          const sumNew = regsQ.reduce((t, r) => t + ((r.units || 1) > 1 && r.area > 0
+            ? Math.min(r.units, Math.max(1, Math.round(r.area / unit)))
+            : (r.units || 1)), 0);
+          if (sumNew >= sumOld) continue; // reduce-only
+          const massQ = blobAreas[bq] / unit;
+          const slack = Math.max(0.75, 0.03 * massQ);
+          if (Math.abs(sumNew - massQ) > slack
+            || Math.abs(sumNew - massQ) >= Math.abs(sumOld - massQ)) continue;
+          for (const r of regsQ) {
+            if ((r.units || 1) <= 1 || !(r.area > 0)) continue;
+            const uCal = Math.min(r.units, Math.max(1, Math.round(r.area / unit)));
+            if (uCal < r.units) {
+              opts.debug?.({ stage: 'quotcal', blob: bq, label: r.label,
+                area: r.area, from: r.units, to: uCal, unit: +unit.toFixed(1),
+                mass: +massQ.toFixed(2) });
+              count += uCal - r.units;
+              r.units = uCal;
+            }
+          }
+        }
+      }
+
       // -- Ambiguity test per blob (cheap; most blobs are CLEAR). --
       const ambiguous = [];
       let eligible = 0;
@@ -3444,6 +3629,7 @@ export function countPills(cv, source, opts = {}) {
               const kJ = arcS.notches > 0 ? Math.floor(arcS.notches / 2) + 1 : 1;
               arcLo = Math.max(kJ, elong ? Math.ceil(arcS.clusters / 2) : arcS.clusters);
               arcHi = Math.max(kJ, arcS.clusters, arcLo);
+              arcInfoByBlob.set(l, { clusters: arcS.clusters, elong });
               opts.debug?.({ stage: 'arc', blob: l, caps: arcS.caps,
                 qcaps: arcS.qcaps, clusters: arcS.clusters, notches: arcS.notches,
                 capFrac: +arcS.capFrac.toFixed(2), elong, kJ, arcLo, arcHi });
@@ -3829,6 +4015,42 @@ export function countPills(cv, source, opts = {}) {
             if (hV > Math.max(kFinal0h, arcTo) && hV <= cap) {
               arcTo = hV;
               opts.debug?.({ stage: 'houghrec', blob: l, from: kFinal0h, to: hV, cap });
+            }
+            // HOUGH-CENSUS DESCENT — the mirror of houghrec, one unit only.
+            // A watershed marker split by a ring-shaped DT (unfilled shine
+            // bay in a low-contrast pill face) or a junction marker leaves
+            // the baseline one ABOVE what census + mass independently agree
+            // on. houghrec is raise-only by design, consolidation needs a
+            // smooth convex outline (the bay breaks it), and the panel's
+            // `k >= regs.length` floor pins every other path to the marker
+            // count — so nothing can take the baseline DOWN even when every
+            // other witness reads lower.
+            // Fire only when the evidence is unanimous and the step is 1:
+            //   - every circle standing on this blob verified (hV===circOn),
+            //   - pixel mass sits within 0.25 of exactly circOn. Measured
+            //     both sides: every true descent's |massFrac - circOn| is
+            //     <= 0.17 (s142 blobs 3/11/14/27/43 at 0.83-0.89 for circOn
+            //     1; s112 blob 10 at 8.11 for circOn 8); every descent that
+            //     must NOT fire misses by >= 0.39 (s140 blob 8, a shredded
+            //     camouflage cluster, massFrac 0.61 with the census under-
+            //     covering; s231 blob 29, shadow-bloated wood 5-clump,
+            //     massFrac 6.23 vs circOn 5). 0.25 is the geometric
+            //     midpoint, ~1.5x margin each way,
+            //   - the baseline is exactly circOn+1 (never a multi-step drop),
+            //   - the panel did NOT agree on the baseline (we only override
+            //     the un-corroborated fallback, never a certified answer),
+            //   - no arc/hough raise already claimed this blob.
+            // Measured: synth2 s142 blobs 3/14/27/43 (hV=circOn=1,
+            // kFinal0h=2, massFrac 0.83-0.89 — four split singles, +4) and
+            // s112 blob 10 (hV=circOn=8, kFinal0h=9, massFrac 8.11 — 9
+            // markers on 8 pills, +1); in both photos the image-level census
+            // equalled the true count exactly (120 circles for 120 pills).
+            if (!arcTo && !agreed && circOn >= 1 && hV === circOn
+              && kFinal0h === circOn + 1
+              && Math.abs(massFrac - circOn) < 0.25) {
+              arcTo = circOn;
+              opts.debug?.({ stage: 'houghdesc', blob: l, from: kFinal0h,
+                to: circOn, massFrac: +massFrac.toFixed(2) });
             }
           }
 
@@ -4479,7 +4701,39 @@ export function countPills(cv, source, opts = {}) {
         if (explainedFrac < 0.65) reasons.push(`explained(${explainedFrac.toFixed(2)})`);
         const fired = lowRegs.length > 0 || oversized.length > 0 || unownedBlobs > 0
           || explainedFrac < 0.65;
-        if (!fired) {
+        // PER-BLOB ROUTING (hidden-contact signature). A multi-unit blob of
+        // an ELONGATED template whose boundary sheds at most 2*units-2 cap
+        // clusters is hiding at least one cap pair in a flush contact —
+        // exactly the geometry where the watershed partition can absorb a
+        // whole pill while every per-cell audit stays green (r-7ff7fd99
+        // blob 11: 4 clusters for units=3, per-cell areas 0.87-0.90x
+        // implied, residuals 0.041-0.053 — truth 4; the correctly-counted
+        // neighbours read 6 clusters for 3 and 4 for 2). Those blobs are
+        // routed to the stamp with their regions DEMOTED from anchor
+        // (env.noAnchor) and their arbitration is RAISE-ONLY
+        // (env.raiseOnly): the routing hypothesis is under-count, so the
+        // stamp may only add, never lower.
+        const routedRegs = [];
+        if (arcInfoByBlob.size) {
+          const regsByLblR = new Map();
+          for (const g of regions) {
+            const l = lblAt(g.cx, g.cy);
+            if (!regsByLblR.has(l)) regsByLblR.set(l, []);
+            regsByLblR.get(l).push(g);
+          }
+          for (const [l, ai] of arcInfoByBlob) {
+            if (!ai.elong || ai.clusters <= 0) continue;
+            const u = l < pipeByLbl.length ? pipeByLbl[l] : 0;
+            if (u < 2) continue;
+            const regsL = regsByLblR.get(l) || [];
+            if (!regsL.length) continue;
+            // regions the pipeline actively certified stay out of this path
+            if (regsL.some((g) => witS(g) || g.confidence === 'low')) continue;
+            if (ai.clusters <= 2 * u - 2) routedRegs.push(...regsL);
+          }
+        }
+        if (routedRegs.length) reasons.push(`hidden-contact(${routedRegs.length})`);
+        if (!fired && !routedRegs.length) {
           opts.debug?.({ stage: 'stamp', fired: false, reason: 'strong-evidence',
             before: count, after: count,
             explained: { frac: +explainedFrac.toFixed(3), cover: +cover.toFixed(3) },
@@ -4507,7 +4761,9 @@ export function countPills(cv, source, opts = {}) {
             w, h, fgFinal: fgFinalS, fgOtsu: fgOtsuS, cover,
             luma: lumaS, sampleRGB: sampleRGBS,
             regions, count,
-            contestedRegions: lowRegs.concat(oversized),
+            contestedRegions: lowRegs.concat(oversized, routedRegs),
+            noAnchor: routedRegs.length ? new Set(routedRegs) : null,
+            raiseOnly: routedRegs.length ? new Set(routedRegs) : null,
             unownedSeeds,
             debug: opts.debug,
           });

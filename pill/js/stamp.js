@@ -314,15 +314,36 @@ export function stampArbitrate(cv, env) {
       ? stadArea(Math.max(2 * radiusEst, MAJ0 * (2 * radiusEst) / MIN0 || MAJ0), 2 * radiusEst)
       : stadArea(MAJ0, MIN0);
     const anchors = [], contested = [];
+    const noAnchor = env.noAnchor || null;
     for (const g of regions) {
       const rel = g.area / IMPLIED;
       const minRel = radiusEst > 0 && g.shape ? g.shape.minor / (2 * radiusEst) : 1;
       const ok = (g.units || 1) === 1 && g.shape && g.shape.residual <= 0.06
-        && rel <= 1.25 && minRel >= 0.7 && minRel <= 1.3;
+        && rel <= 1.25 && minRel >= 0.7 && minRel <= 1.3
+        && !(noAnchor && noAnchor.has(g));
       (ok ? anchors : contested).push(g);
     }
 
     // ---- scoring (graded bg penalty; claimed NEUTRAL)
+    // strictBg (per-blob routed peels only): the dt grading exists to
+    // forgive shallow mask erosion at a trusted pill's rim. Inside a ROUTED
+    // blob that forgiveness is exactly wrong — the seam between two flush
+    // pills survives only as a dotted line of interior holes (r-7ff7fd99
+    // pair: holes at (221,294),(222,294),(223,298), dtOut ~1px), and graded
+    // scoring lets a stamp laid diagonally ACROSS both pills read 0.976
+    // while the true per-pill pose reads 0.951. Flat penalty makes every
+    // hole under the stamp count, flipping that order.
+    // Routed-peel seam evidence (strictBg mode). Between flush pills the
+    // pill boundary survives only as a DOTTED line of 1-2px interior holes
+    // (r-7ff7fd99 A|B pair) or a dark contact-shadow crease (its B|g
+    // junction, luma 55 vs pill 188) — both far too thin for the sparse
+    // 2.66px point sample to hit reliably, and the dt-graded bg penalty
+    // forgives what it does hit. seamMask marks those px; a sample point
+    // that SEES one within 2px scores -1 instead of +1, so a stamp laid
+    // across two pills collects the whole line while a true per-pill pose
+    // (0.92-shrunk, seam at its boundary) collects almost none.
+    let strictBg = false;
+    let seamMask = null;
     function covScore(pts, cx, cy, th, claimed) {
       const c = Math.cos(th), s = Math.sin(th);
       let sum = 0;
@@ -331,8 +352,26 @@ export function stampArbitrate(cv, env) {
         if (x < 0 || y < 0 || x >= w || y >= h) { sum -= 1.4; continue; }
         const i = y * w + x;
         if (claimed[i]) continue;                       // neutral
-        if (fg[i]) sum += 1;
-        else sum -= 1.4 * Math.min(1, dtOut[i] / D0);
+        if (fg[i]) {
+          let seam = false;
+          // CORE points only (|v| <= pts.vCore): a seam under the stamp's
+          // spine means it straddles two pills; a seam at its long edge is
+          // just the neighbour's boundary. Radius symmetric variants fail
+          // both ways (r=2 blinds the true pose whose edge rides the seam
+          // at 1.3px; r=1 lets the cross pose slip between the seam dots —
+          // both measured on the r-7ff7fd99 pair).
+          if (strictBg && seamMask && pts.vCore !== undefined && Math.abs(v) <= pts.vCore) {
+            for (let dy = -2; dy <= 2 && !seam; dy++) {
+              const Y = y + dy;
+              if (Y < 0 || Y >= h) continue;
+              for (let dx = -2; dx <= 2; dx++) {
+                const X = x + dx;
+                if (X >= 0 && X < w && seamMask[Y * w + X]) { seam = true; break; }
+              }
+            }
+          }
+          sum += seam ? -1 : 1;
+        } else sum -= strictBg ? 1.4 : 1.4 * Math.min(1, dtOut[i] / D0);
       }
       return sum / pts.length;
     }
@@ -367,15 +406,21 @@ export function stampArbitrate(cv, env) {
       return { e: nFree ? sum / nFree : 0, applicable: nFree >= bd.length * 0.25 };
     }
     // coordinate-ascent refine to 1px / pi/48
-    function refine(pts, x0, y0, th0, claimed) {
+    // `barrier` (split-rescue re-peels): vetoed poses act as WALLS during
+    // the climb, not post-hoc rejections. Without it every start cell in a
+    // flush-pair slab funnels into the one (vetoed) cross-pill maximum and
+    // the whole re-peel returns empty (measured: got 0 from all 3 tries).
+    function refine(pts, x0, y0, th0, claimed, barrier) {
       let best = { s: covScore(pts, x0, y0, th0, claimed), x: x0, y: y0, th: th0 };
       for (let round = 0; round < 8; round++) {
         let improved = false;
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2]]) {
+          if (barrier && barrier(best.x + dx, best.y + dy, best.th)) continue;
           const sc = covScore(pts, best.x + dx, best.y + dy, best.th, claimed);
           if (sc > best.s) { best = { s: sc, x: best.x + dx, y: best.y + dy, th: best.th }; improved = true; }
         }
         for (const dth of [Math.PI / 48, -Math.PI / 48, Math.PI / 24, -Math.PI / 24]) {
+          if (barrier && barrier(best.x, best.y, best.th + dth)) continue;
           const sc = covScore(pts, best.x, best.y, best.th + dth, claimed);
           if (sc > best.s) { best = { ...best, s: sc, th: best.th + dth }; improved = true; }
         }
@@ -435,6 +480,40 @@ export function stampArbitrate(cv, env) {
     const colDist = (c) => Math.abs(c[0] - refCol[0]) + Math.abs(c[1] - refCol[1]) + Math.abs(c[2] - refCol[2]);
     const colThr = Math.max(75, 3 * med(colPool.map(colDist)));
 
+    // Crease threshold for routed peels, self-calibrated like the strategy
+    // doc's other knobs: pill level from the pool's own centres, bg level
+    // from the mask complement. A contact shadow between flush pills reads
+    // near (often below) bg; a stamp interior crossing one is riding two
+    // pills. Skipped (creaseT = -1) when pills are not clearly brighter
+    // than the board — the signal does not exist there.
+    if (o.slabTie) {
+      const poolC = cands.length ? cands : pipeSingles;
+      const cs = poolC.map((g) => {
+        const xi = Math.max(0, Math.min(w - 1, g.cx | 0)), yi = Math.max(0, Math.min(h - 1, g.cy | 0));
+        return luma[yi * w + xi];
+      });
+      const pillL = med(cs);
+      const bgs = [];
+      for (let i = 0; i < w * h; i += 17) if (!fg[i]) bgs.push(luma[i]);
+      const bgL = med(bgs);
+      const creaseT = poolC.length && pillL > bgL + 30
+        ? pillL - 0.6 * (pillL - bgL) : -1;
+      seamMask = new Uint8Array(w * h);
+      const inA = (i) => !o.allow || o.allow[i];
+      for (let y = 2; y < h - 2; y++) for (let x = 2; x < w - 2; x++) {
+        const i = y * w + x;
+        if (!inA(i)) continue;
+        if (fg[i]) {
+          // interior-only (>=3px deep): pill RIMS are also dark — without
+          // the depth guard the whole outline ring reads as seam and every
+          // true pose collapses (measured: sc=1 fit 0.714 on the target).
+          if (creaseT >= 0 && luma[i] < creaseT && dd[i] >= 3) seamMask[i] = 1;
+        } else if ((fg[i - 2] && fg[i + 2]) || (fg[i - 2 * w] && fg[i + 2 * w])) {
+          seamMask[i] = 1; // enclosed interior hole (seam remnant), not open bg
+        }
+      }
+    }
+
     // ---- claims: anchors pre-claim their own fitted stadium at 0.95 inset
     let claimed = new Uint8Array(w * h);
     const claimAnchors = (cl) => { for (const g of anchors) claimStadium(cl, g.cx, g.cy, g.shape.major, g.shape.minor, g.shape.theta, 0.95); };
@@ -442,8 +521,10 @@ export function stampArbitrate(cv, env) {
 
     // ---- generic peel pass with incremental score grid ----
     function peelPass(o2) {
-      const { maj, min, tau, claimed: cl, allow, useEdgeGate, src = 'main' } = o2;
+      const { maj, min, tau, claimed: cl, allow, useEdgeGate, slabTie, src = 'main' } = o2;
+      strictBg = !!slabTie;
       const pts = basePts(maj, min), bd = boundPts(maj, min);
+      if (slabTie) pts.vCore = 0.3 * min;
       const Kn = maj / min < 1.02 ? 1 : K;
       const stride = Math.max(2, (min / 3) | 0);
       const gw = Math.ceil(w / stride), gh = Math.ceil(h / stride);
@@ -464,7 +545,7 @@ export function stampArbitrate(cv, env) {
       const vetoed = (x, y, th) => {
         for (const v of vetoes) {
           const dx = v.x - x, dy = v.y - y;
-          if (dx * dx + dy * dy >= VETO2) continue;
+          if (dx * dx + dy * dy >= (v.r2 || VETO2)) continue;
           let dt2 = Math.abs(((th - v.th) % Math.PI + Math.PI) % Math.PI);
           if (dt2 > Math.PI / 2) dt2 = Math.PI - dt2;
           if (dt2 < Math.PI / 8) return true;
@@ -478,19 +559,53 @@ export function stampArbitrate(cv, env) {
           for (let gx = Math.max(0, cgx - R); gx <= Math.min(gw - 1, cgx + R); gx++) rescore(gx, gy);
       };
       let fails = 0;
+      if (o2.seedVetoes) vetoes.push(...o2.seedVetoes);
       for (let iter = 0; iter < 400; iter++) {
         let bi = -1, bs = tau;
         for (let i = 0; i < gs.length; i++) if (gs[i] > bs) { bs = gs[i]; bi = i; }
         if (bi < 0) break;
+        // SLAB TIE-BREAK (per-blob routed peels only). Inside a flush
+        // side-by-side pair the coverage score is FLAT at ~1.0 — a stamp
+        // laid diagonally across both pills scores exactly like one laid on
+        // a pill, and the greedy argmax picks by scan order (measured on
+        // r-7ff7fd99: diagonal at (209,296) fit 1.0 left two 9px strips no
+        // later stamp could claim, expl 0.63). Real pills hug the blob
+        // BOUNDARY, so among near-tied cells (within 0.04) prefer the pose
+        // whose boundary has the most bg contact.
+        if (slabTie) {
+          let bc = -1;
+          // 0.12 pool, floor tau: at grid resolution a true per-pill pose
+          // sits up to stride/2 off-centre and eats seam/rim penalties the
+          // cross-pill pose avoids (measured 0.90 vs 1.0); contact ranks
+          // within the pool, seam-aware refine keeps the basin.
+          for (let i = 0; i < gs.length; i++) {
+            if (gs[i] < Math.max(bs - 0.12, tau)) continue;
+            const x = (i % gw) * stride, y = ((i / gw) | 0) * stride;
+            const th = gk[i] * Math.PI / Kn;
+            const c = Math.cos(th), s = Math.sin(th);
+            let free = 0;
+            for (const [u, v, nu, nv] of bd) {
+              const bx = x + u * c - v * s, by = y + u * s + v * c;
+              const nx = nu * c - nv * s, ny = nu * s + nv * c;
+              const xo = (bx + EDGE_OFF * nx) | 0, yo = (by + EDGE_OFF * ny) | 0;
+              if (xo < 0 || yo < 0 || xo >= w || yo >= h || !fg[yo * w + xo]) free++;
+            }
+            const f = free / bd.length;
+            if (f > bc) { bc = f; bi = i; }
+          }
+          bs = gs[bi];
+        }
         let best = { s: gs[bi], x: (bi % gw) * stride, y: ((bi / gw) | 0) * stride, k: gk[bi] };
         const pts0 = best;
+        const barrier = o2.seedVetoes ? vetoed : null;
         for (let dy = -stride; dy <= stride; dy += 2) for (let dx = -stride; dx <= stride; dx += 2) {
           for (let k = 0; k < Kn; k++) {
+            if (barrier && barrier(pts0.x + dx, pts0.y + dy, k * Math.PI / Kn)) continue;
             const sc = covScore(pts, pts0.x + dx, pts0.y + dy, k * Math.PI / Kn, cl);
             if (sc > best.s) best = { s: sc, x: pts0.x + dx, y: pts0.y + dy, k };
           }
         }
-        const rf = refine(pts, best.x, best.y, best.k * Math.PI / Kn, cl);
+        const rf = refine(pts, best.x, best.y, best.k * Math.PI / Kn, cl, barrier);
         if (rf.s < tau) { gs[bi] = -9; continue; }
         if (vetoed(rf.x, rf.y, rf.th)) { gs[bi] = -9; continue; }
         // 0.5 overlap cap: mostly re-claiming an explained pill
@@ -533,6 +648,7 @@ export function stampArbitrate(cv, env) {
         placed.push({ x: rf.x, y: rf.y, th: rf.th, s: rf.s, maj, min, src,
           photo: Math.round(cdv), edge: eg.applicable ? +eg.e.toFixed(3) : null });
       }
+      strictBg = false;
       return placed;
     }
 
@@ -542,8 +658,45 @@ export function stampArbitrate(cv, env) {
       return n / Math.max(1, totalFg);
     };
 
-    let placed = peelPass({ maj: MAJ, min: MIN, tau: TAU, claimed, allow: o.allow, useEdgeGate: true });
+    let placed = peelPass({ maj: MAJ, min: MIN, tau: TAU, claimed, allow: o.allow, useEdgeGate: true, slabTie: o.slabTie });
     let expl = explained(claimed);
+
+    // SPLIT RESCUE (routed peels only). Between truly flush pills there can
+    // be ZERO local evidence — measured on the r-7ff7fd99 pair: raw luma at
+    // the contact reads 216 vs 218 at the pill centres, no mask holes on
+    // the spine — so a stamp laid across both pills scores 1.0 and greedy
+    // keeps it, stranding two half-pill strips (expl 0.63). The evidence
+    // for "two" is GLOBAL: a 2-tiling explains ~0.95 of the slab. One-step
+    // lookahead: for each placed stamp, re-peel its freed material with
+    // that pose vetoed (tight radius 0.35*min — the true pair poses sit
+    // only ~half a minor away and must stay reachable); accept only if at
+    // least 2 stamps place and newly explained material exceeds a third of
+    // a pill.
+    if (o.slabTie && placed.length) {
+      const R2 = (0.35 * MIN) * (0.35 * MIN);
+      const margin = 0.35 * stadArea(MAJ, MIN) / Math.max(1, totalFg);
+      let tries = 0;
+      for (const p of [...placed]) {
+        if (tries >= 4) break;
+        if (p.src !== 'main') continue;
+        tries++;
+        const claimedR = new Uint8Array(w * h);
+        claimAnchors(claimedR);
+        for (const q of placed) if (q !== p) claimStadium(claimedR, q.x, q.y, q.maj, q.min, q.th, 0.9);
+        const others = placed.filter((q) => q !== p);
+        const placedR = peelPass({ maj: MAJ, min: MIN, tau: TAU, claimed: claimedR,
+          allow: o.allow, useEdgeGate: true, slabTie: o.slabTie,
+          seedVetoes: [{ x: p.x, y: p.y, th: p.th, r2: R2 }] });
+        const explR = explained(claimedR);
+        if (placedR.length >= 2 && explR > expl + margin) {
+          debug?.({ stage: 'stampsplit', x: Math.round(p.x), y: Math.round(p.y),
+            was: 1, now: placedR.length, expl: +expl.toFixed(3), explR: +explR.toFixed(3) });
+          placed = others.concat(placedR);
+          claimed = claimedR;
+          expl = explR;
+        }
+      }
+    }
 
     // ---- retry (b): DT-maxima circle-template raft pass, gated by weak
     // evidence AND the beige signature (o.raftOK); accept only if it
@@ -668,9 +821,18 @@ export function stampArbitrate(cv, env) {
   // foreground no region owns (a blob with no region has no witness at all —
   // the counter picked those blobs by its own labeling; map by seed pixel).
   const arbitrable = new Set();
+  // Per-blob routed blobs (env.raiseOnly regions) arbitrate RAISE-ONLY: the
+  // routing hypothesis is a hidden flush contact (under-count), so a stamp
+  // read BELOW the pipeline is never actionable there. A blob is raise-only
+  // only when every contested region attributed to it came from routing.
+  const raiseOnly = env.raiseOnly || null;
+  const raiseBlobs = new Set(), nonRaiseBlobs = new Set();
   for (const g of contestedRegions) {
     const b = blobAt(g.cx, g.cy, attrR);
-    if (b >= 0) arbitrable.add(b);
+    if (b >= 0) {
+      arbitrable.add(b);
+      if (raiseOnly && raiseOnly.has(g)) raiseBlobs.add(b); else nonRaiseBlobs.add(b);
+    }
   }
   for (const [ux, uy] of unownedSeeds || []) {
     const b = blobAt(ux, uy, 4);
@@ -684,7 +846,8 @@ export function stampArbitrate(cv, env) {
   for (let i = 0; i < w * h; i++) if (fgFinal[i] && arbitrable.has(blob[i])) allow[i] = 1;
 
   const raftOK = cover < 0.65;
-  let res = analyze(fgFinal, 'final', { allow, raftOK });
+  const slabTie = raiseBlobs.size > 0;
+  let res = analyze(fgFinal, 'final', { allow, raftOK, slabTie });
   let maskNote = '';
   // retry (a): pre-purge otsu-mask rerun — weak evidence AND beige signature;
   // accept only if it explains its own material better.
@@ -869,8 +1032,15 @@ export function stampArbitrate(cv, env) {
       // outnumbering the pipeline while leaving the material unexplained is
       // the bad-tiling signature. Measured: the genuine raise (advil 23->25)
       // reads claimedFrac 0.85; the phantom raises (s302 1->2, s202 6->7,
-      // s138 5->6 — all on exact pipelines) read 0.61-0.63.
-      if (sc > pc && pc > 0 && claimedFrac < 0.75) stampWins = false;
+      // s138 5->6 — all on exact pipelines) read 0.61-0.63, and the
+      // t3-white-round-yellow-2 raft raise (40 -> 43 against an audited 40:
+      // stadArea of the circle-of-minor-axis template under-measures the
+      // tilted elliptical pills ~10%, so "visible" inflates to 43.49 and
+      // the peel tiles 3 extra discs) reads 0.79. The bar sits between the
+      // worst measured phantom (0.79) and the measured genuine raise (0.85).
+      if (sc > pc && pc > 0 && claimedFrac < 0.82) stampWins = false;
+      // Raise-only for per-blob routed blobs (see raiseBlobs above).
+      if (sc < pc && raiseBlobs.has(b) && !nonRaiseBlobs.has(b)) stampWins = false;
       debug?.({ stage: 'stampblob', blob: b, sc, pc,
         visible: +visible.toFixed(2), uv: +uv.toFixed(2),
         claimedFrac: +claimedFrac.toFixed(2), win: stampWins ? 'stamp' : 'pipe' });
