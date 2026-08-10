@@ -697,8 +697,62 @@ export function stampArbitrate(cv, env) {
     // wood+pill otsu mask corrupted the template — an inflated stamp
     // explains 0.69 of anything).
     const total2 = res2.anchors.length + res2.placed.length;
-    if (res2.expl > res.expl + 0.1 && total2 > count) { res = res2; maskNote = 'otsu'; }
+    // Direction rule, measured three ways. must-raise exists for template
+    // corruption (cream-caplets: fused wood+pill otsu mask -> 7-for-47,
+    // cover 0.404). But when the purge was CATASTROPHIC the pipeline's own
+    // count is untrustworthy in EITHER direction — shadow-crescent shatter
+    // OVERcounts (lightblue-1: cover 0.126, pipeline 150-for-70 while the
+    // rejected stamp answer was 80 explaining 0.73). Below cover 0.35 the
+    // better-explaining answer wins regardless of direction; above it the
+    // raise requirement stands.
+    if (res2.expl > res.expl + 0.1 && (total2 > count || cover < 0.35)) { res = res2; maskNote = 'otsu'; }
     else maskNote = `otsuRejected(expl=${res2.expl.toFixed(2)},total=${total2})`;
+  }
+
+  // STAMP PHYSICS. The owner's rigid-body law, third application: pills
+  // cannot interpenetrate, so neither can placements. Measured (advil-3):
+  // two stamps 47px apart with 82px stadiums — ~37px of impossible overlap
+  // — slipped the 0.5 overlap cap AND the 0.7 fit floor (0.75) and drew a
+  // second ring inside one pill. Pairwise core check; the LOWER-fit
+  // placement of a violating pair dies. Anchors are never dropped (their
+  // own blob is the evidence for where they are).
+  {
+    const segPts2 = (q) => {
+      const a2 = Math.max(0, (q.maj - q.min) / 2), pts2 = [];
+      for (let t = -1; t <= 1; t += 0.34)
+        pts2.push([q.x + Math.cos(q.th) * a2 * t, q.y + Math.sin(q.th) * a2 * t]);
+      return pts2;
+    };
+    const segDist = (A, B) => {
+      let dmin = 1e9;
+      for (const [xa, ya] of segPts2(A)) for (const [xb, yb] of segPts2(B)) {
+        const d3 = Math.hypot(xa - xb, ya - yb);
+        if (d3 < dmin) dmin = d3;
+      }
+      return dmin;
+    };
+    const anchorsGeo = res.anchors.map((g) => ({
+      x: g.cx, y: g.cy, th: (g.shape && g.shape.theta) || 0,
+      maj: (g.shape && g.shape.major) || res.MAJ, min: (g.shape && g.shape.minor) || res.MIN,
+      s: 9, anchor: true }));
+    const all = anchorsGeo.concat(res.placed);
+    const dead = new Set();
+    for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+      const A = all[i], B = all[j];
+      if (dead.has(A) || dead.has(B)) continue;
+      // 0.72, not 0.9: the template is q25-shrunk and real pills vary, so
+      // true hex-raft tangents measure down to ~0.85x nominal (0.9 culled 5
+      // real beige pills); the advil double-ring sits at 0.63x. The band
+      // between is empty on every measured photo.
+      const need = 0.72 * (A.min + B.min) / 2;
+      if (segDist(A, B) >= need) continue;
+      const loser = A.anchor ? B : B.anchor ? A : (A.s <= B.s ? A : B);
+      if (loser.anchor) continue;   // two anchors never fight
+      dead.add(loser);
+      debug?.({ stage: 'stampveto', kind: 'physics',
+        x: Math.round(loser.x), y: Math.round(loser.y), fit: +(+loser.s).toFixed(3) });
+    }
+    if (dead.size) res.placed = res.placed.filter((p2) => !dead.has(p2));
   }
 
   const mkPill = (p) => ({
