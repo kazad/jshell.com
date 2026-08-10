@@ -3972,6 +3972,19 @@ export function countPills(cv, source, opts = {}) {
                       if (usedColorDist && cl.photo < otsuThr) photoOk = false;
                     }
                   }
+                  // TEMPLATE-ASPECT CONSISTENCY. One medication means the
+                  // cells of a re-partition must look like THAT medication.
+                  // Measured (advil-2 recount): a seam raise 2 -> 3 shipped
+                  // cells of aspect 1.7 and 1.54 for ROUND tablets (template
+                  // aspect ~1.05) — pill fragments, and the extra unit drew
+                  // a second ring inside one pill. Round templates only:
+                  // capsule medications legitimately produce elongated cells
+                  // (the r-cc7a2ada / c-2448027d wins live there).
+                  if (ok && cells && template && template.aspect <= 1.25) {
+                    for (const cl of cells) {
+                      if (cl.aspect > template.aspect * 1.35) { photoOk = false; break; }
+                    }
+                  }
                   opts.debug?.({ stage: 'seamcells', blob: l, k: kAcc,
                     valid: ok, photoOk,
                     cells: cells ? cells.map((cl) => ({ n: cl.n,
@@ -4499,7 +4512,17 @@ export function countPills(cv, source, opts = {}) {
             debug: opts.debug,
           });
           const before = count;
-          if (verdict && verdict.changed) {
+          // FABRICATION GUARD. Stress battery: on ruled paper the otsu
+          // retry can tile the RULING and fabricate 400 pills for 14. Every
+          // legitimate rescue measured to date multiplies the count by at
+          // most ~2.2x (beige 41 -> 90); a verdict beyond 3x + 8 is the
+          // stamp counting the board, and the whole arbitration is refused.
+          const fab = verdict && verdict.changed
+            && (before + verdict.countDelta) > 3 * Math.max(1, before) + 8;
+          if (fab) {
+            opts.debug?.({ stage: 'stamp-reject', kind: 'fabrication',
+              before, proposed: before + verdict.countDelta });
+          } else if (verdict && verdict.changed) {
             regions = regions.filter((g) => !verdict.remove.has(g)).concat(verdict.add);
             count += verdict.countDelta;
             lowConfidence = regions.reduce((n2, g2) => n2 + (g2.confidence === 'low' ? 1 : 0), 0);

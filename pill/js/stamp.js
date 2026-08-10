@@ -506,11 +506,26 @@ export function stampArbitrate(cv, env) {
           }
         }
         fails = 0;
+        // FIT FLOOR. Measured on the beige-2 gap phantom: the one false
+        // placement in 91 scored fit 0.637 while all 90 real pills scored
+        // 1.0 — a stamp that fits its own template this poorly is riding a
+        // seam or an interstice, not a pill.
+        const sMed = med(selfScores);
+        if (sMed > 0 && rf.s < 0.7 * sMed) {
+          debug?.({ stage: 'stampveto', kind: 'fit-floor', x: rf.x, y: rf.y,
+            fit: +rf.s.toFixed(3) });
+          claimStadium(cl, rf.x, rf.y, maj, min, rf.th, 0.9);
+          localRescore(rf.x, rf.y);
+          continue;
+        }
         // interior photometry: claim-but-don't-count on obvious non-pill
         const cdv = colDist(sampleRGB(rf.x, rf.y));
         claimStadium(cl, rf.x, rf.y, maj, min, rf.th, 0.9);
         localRescore(rf.x, rf.y);
-        if (cdv > Math.max(200, 2.5 * colThr)) {
+        // Allowance clamped: self-calibration ballooned past 516 on the
+        // pentagon photo (varied faces inflate colThr) and the veto never
+        // fired; 320 keeps every measured real pill (max 137 + margin).
+        if (cdv > Math.max(200, Math.min(2.5 * colThr, 320))) {
           debug?.({ stage: 'stampveto', kind: 'photometry', x: rf.x, y: rf.y,
             fit: +rf.s.toFixed(3), photo: Math.round(cdv) });
           continue;
