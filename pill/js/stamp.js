@@ -856,9 +856,35 @@ export function stampArbitrate(cv, env) {
         // pentagon photo (varied faces inflate colThr) and the veto never
         // fired; 320 keeps every measured real pill (max 137 + margin).
         if (cdv > Math.max(200, Math.min(2.5 * colThr, 320))) {
-          debug?.({ stage: 'stampveto', kind: 'photometry', x: rf.x, y: rf.y,
-            fit: +rf.s.toFixed(3), photo: Math.round(cdv) });
-          continue;
+          // CHROMA VOUCH (pile re-tile only, o.chromaVouch set). Material
+          // the chroma rescue restored fails colour-distance BY
+          // CONSTRUCTION — that is why it needed rescuing (measured on the
+          // cream piles: 10 vetoes at fit 0.7-1.0, photo 203-464, all on
+          // shadowed periphery caplets). For those peels the chromaticity
+          // map IS the photometric evidence: an interior >= 0.6 covered by
+          // chroma material passes the dossier bit (the leather phantom
+          // reads 0.00 there and still dies).
+          let chrOK = false, chrF = -1;
+          if (o.chromaVouch) {
+            let nT = 0, nC = 0;
+            const R3 = Math.max(4, Math.round(min / 2 * 0.8));
+            for (let dy = -R3; dy <= R3; dy++) for (let dx = -R3; dx <= R3; dx++) {
+              if (dx * dx + dy * dy > R3 * R3) continue;
+              const X = (rf.x + dx) | 0, Y = (rf.y + dy) | 0;
+              if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+              nT++; if (o.chromaVouch[X + Y * w]) nC++;
+            }
+            chrF = nT ? nC / nT : 0;
+            chrOK = chrF >= 0.6;
+          }
+          if (!chrOK) {
+            debug?.({ stage: 'stampveto', kind: 'photometry', x: rf.x, y: rf.y,
+              fit: +rf.s.toFixed(3), photo: Math.round(cdv),
+              ...(chrF >= 0 ? { chr: +chrF.toFixed(2) } : {}) });
+            continue;
+          }
+          debug?.({ stage: 'stampnote', kind: 'photometry-chroma-vouched',
+            x: rf.x, y: rf.y, photo: Math.round(cdv) });
         }
         placed.push({ x: rf.x, y: rf.y, th: rf.th, s: rf.s, maj, min, src,
           photo: Math.round(cdv), edge: eg.applicable ? +eg.e.toFixed(3) : null });
@@ -1015,6 +1041,7 @@ export function stampArbitrate(cv, env) {
     // has no freed material — its pill stays claimed by the winner — so it
     // re-scores near zero and stays dead.
     const reseat = !kernel ? null : (loser, kept) => {
+      reseat._why = null;
       const clR = new Uint8Array(w * h);
       claimAnchors(clR);
       for (const q of kept) if (!q.anchor) {
@@ -1085,10 +1112,10 @@ export function stampArbitrate(cv, env) {
         }
       }
       const sMed = med(selfScores);
-      const why = (k2) => debug?.({ stage: 'reseatfail', why: k2,
+      const why = (k2) => (reseat._why = k2, debug?.({ stage: 'reseatfail', why: k2,
         from: [Math.round(loser.x), Math.round(loser.y)],
         to: [Math.round(rf.x), Math.round(rf.y)], s: +rf.s.toFixed(3),
-        free: +(+rf.free).toFixed(2) });
+        free: +(+rf.free).toFixed(2) }));
       if (rf.free < 0.35) return why('free'), null;
       if (rf.s < Math.max(TAU, sMed > 0 ? 0.7 * sMed : 0)) return why('floor'), null;
       const P = { x: rf.x, y: rf.y, th: rf.th, maj: loser.maj, min: loser.min };
@@ -1102,7 +1129,8 @@ export function stampArbitrate(cv, env) {
 
     fgMat.delete(); labMat.delete(); distMat.delete();
     return { placed, anchors, claimed, expl, fg, MAJ, MIN, TAU, tplSrc, clusterFrac,
-      cands, radiusEst, selfMed: med(selfScores), retried, edgeNote, tag, kernel, reseat };
+      cands, radiusEst, selfMed: med(selfScores), retried, edgeNote, tag, kernel, reseat,
+      colDist, colThr };
   }
 
   // one-pill area under the shape model a given analysis actually used
@@ -1314,12 +1342,51 @@ export function stampArbitrate(cv, env) {
         d: +dAB.toFixed(1), need: +need.toFixed(1) });
     }
     if (dead.size) {
-      const kept = all.filter((p2) => !dead.has(p2));
+      let kept = all.filter((p2) => !dead.has(p2));
       const rescued = [];
+      // CHAIN RE-SEAT bookkeeping (depth 2, once per loser, no recursion):
+      // maps an original kept placement to its re-seated pose so res.placed
+      // can be rewritten; a moved neighbour is never moved again.
+      const movedFrom = new Map();
       if (res.reseat) {
         for (const loser of dead) {
           if (loser.src !== 'main') continue;
-          const r2 = res.reseat(loser, kept.concat(rescued));
+          let r2 = res.reseat(loser, kept.concat(rescued));
+          // CHAIN RE-SEAT. Measured residual (salmon pentagon honeycomb):
+          // a physics loser is a REAL pill, but its re-seat window has
+          // free=0 because TWO neighbours are mutually off-centre — every
+          // pose is barrier-blocked or claimed. Second link of the owner's
+          // recipe: free the strongest-overlap NEIGHBOUR first (re-seat it
+          // within its own window under the full guard set), then retry the
+          // loser against the recentred claims. Both moves must pass every
+          // re-seat guard or the whole chain is reverted; a phantom still
+          // dies because its neighbour recentres onto the same single pill
+          // body and the retry finds free ~0 again. Bounded: one neighbour,
+          // one retry, a moved neighbour is never chained again.
+          if (!r2 && res.reseat._why === 'free') {
+            let N = null, dN = 1e9;
+            for (const q of kept) {
+              if (q.anchor || q.src !== 'main' || movedFrom.has(q)) continue;
+              const d3 = segDist(loser, q);
+              if (d3 < dN) { dN = d3; N = q; }
+            }
+            if (N && dN < (loser.min + N.min) / 2) {
+              const keptSansN = kept.filter((q) => q !== N);
+              const rN = res.reseat(N, keptSansN.concat(rescued));
+              if (rN) {
+                const r2b = res.reseat(loser, keptSansN.concat([rN], rescued));
+                if (r2b) {
+                  kept = keptSansN.concat([rN]);
+                  movedFrom.set(N, rN);
+                  movedFrom.set(rN, rN); // a chain product is not chained again
+                  r2 = r2b;
+                  debug?.({ stage: 'stampchain',
+                    nFrom: [Math.round(N.x), Math.round(N.y)],
+                    nTo: [Math.round(rN.x), Math.round(rN.y)], nFit: +rN.s.toFixed(3) });
+                }
+              }
+            }
+          }
           if (r2) {
             rescued.push(r2);
             debug?.({ stage: 'stampreseat', from: [Math.round(loser.x), Math.round(loser.y)],
@@ -1327,7 +1394,8 @@ export function stampArbitrate(cv, env) {
           }
         }
       }
-      res.placed = res.placed.filter((p2) => !dead.has(p2)).concat(rescued);
+      res.placed = res.placed.filter((p2) => !dead.has(p2))
+        .map((p2) => movedFrom.get(p2) || p2).concat(rescued);
     }
   }
 
@@ -1519,6 +1587,195 @@ export function stampArbitrate(cv, env) {
       const b = hAt(c.cx, c.cy);
       if (b >= 0) candH.add(b);
     }
+    // BIDIRECTIONAL ARBITRATION — bounded phantom REMOVAL, chroma-rescue
+    // images only (the narrowest safe scope: retry (d) fired and was
+    // accepted, so the chroma map is measured-good on this photo). The
+    // honest finding on the shiny leather photo: a units=2 region sits on
+    // bare leather — its footprint holds ZERO chroma material (measured
+    // 0.00 against 0.88-1.00 for every real region on both shiny photos, a
+    // 0.88 margin) — while the pipeline's count carries it. Dossier per
+    // removed unit, all bits required:
+    //   (1) no witness at all (no census circle, no arc, no seam, no geo),
+    //   (2) no chroma material under the region's own footprint (<= 0.10),
+    //   (3) the chroma+stamp read of its hybrid blob CONTRADICTS the
+    //       pipeline: chroma-evidenced reads (anchors + placements whose
+    //       interior holds >= 0.5 chroma material — the blob-65 phantom
+    //       placement reads 0.00 there and does not vouch) < pipeline units,
+    //   (4) photometry corroboration (photo >= 80: the centre does not read
+    //       as the pill reference; measured weak on glare faces — the
+    //       chroma bit is the separator, this bit only blocks removals of
+    //       photometrically-perfect pills).
+    // Guards: the chroma channel must be MEANINGFUL on this photo (median
+    // region chromaFrac >= 0.7 — on white-pill photos where chroma reads
+    // nothing everywhere, absence proves nothing and no removal fires);
+    // total decrease capped at 25% of the pipeline count.
+    {
+      const chrUnder = (cx2, cy2, R2) => {
+        let nT = 0, nC = 0;
+        const R3 = Math.max(4, Math.round(R2));
+        for (let dy = -R3; dy <= R3; dy++) for (let dx = -R3; dx <= R3; dx++) {
+          if (dx * dx + dy * dy > R3 * R3) continue;
+          const X = (cx2 + dx) | 0, Y = (cy2 + dy) | 0;
+          if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+          nT++; if (fgChroma[X + Y * w]) nC++;
+        }
+        return nT ? nC / nT : 0;
+      };
+      const regChr = (g) => chrUnder(g.cx, g.cy, Math.sqrt((g.area || 1) / Math.PI / (g.units || 1)));
+      const allChr = regions.map(regChr).sort((a, b) => a - b);
+      const medChrAll = allChr.length ? allChr[allChr.length >> 1] : 0;
+      if (fgChroma && medChrAll >= 0.7) {
+        // chroma-evidenced stamp reads per hybrid blob
+        const evidByH = new Map();
+        for (const g of chromaRes.anchors) {
+          const b = hAt(g.cx, g.cy);
+          if (b >= 0) evidByH.set(b, (evidByH.get(b) || 0) + 1);
+        }
+        for (const [b, ps] of placedByH) {
+          let n2 = 0;
+          for (const p of ps) if (chrUnder(p.x, p.y, chromaRes.MIN / SHRINK / 2 * 0.8) >= 0.5) n2++;
+          evidByH.set(b, (evidByH.get(b) || 0) + n2);
+        }
+        let budget = Math.floor(0.25 * count);
+        for (const g of regions) {
+          if (budget <= 0) break;
+          if (anchorSet.has(g) || remove.has(g)) continue;
+          if (g.arc || g.seam || g.hough || g.geoCorroborated) continue;
+          const b = hAt(g.cx, g.cy);
+          if (b < 0) continue;
+          const cf = regChr(g);
+          if (cf > 0.10) continue;
+          const kEvid = evidByH.get(b) || 0;
+          const pcH2 = pipeByH[b];
+          if (kEvid >= pcH2) continue;
+          const photo2 = Math.round(chromaRes.colDist(sampleRGB(g.cx, g.cy)));
+          if (photo2 < 80) continue;
+          const m2 = Math.min(g.units || 1, Math.round(pcH2 - kEvid), budget);
+          if (m2 <= 0) continue;
+          remove.add(g);
+          if ((g.units || 1) > m2) add.push({ ...g, units: (g.units || 1) - m2 });
+          pipeByH[b] -= m2;
+          budget -= m2;
+          countDelta -= m2;
+          debug?.({ stage: 'phantomremove', cx: Math.round(g.cx), cy: Math.round(g.cy),
+            units: g.units || 1, removed: m2, blobH: b,
+            chromaFrac: +cf.toFixed(2), kEvid, pcH: pcH2, photo: photo2 });
+        }
+      }
+    }
+
+    // PER-PILE RE-TILE (chroma-rescue images only). The cream failure mode:
+    // chroma-restored periphery pills merge INTO the big pile blobs, so no
+    // pipeline-unowned blob exists for the raise-only adds path — the pile
+    // itself must be re-tiled on the hybrid mask. Full peel of the pile
+    // with the learned template, chroma-vouched photometry (restored
+    // material fails colour-distance by construction), rigid-body physics
+    // across the result. Acceptance, all bits measured:
+    //   (1) the pile really was fed by the rescue (>= 1 pill-area of
+    //       chroma-restored material inside it; measured 3.09/8.34 on the
+    //       cream piles vs 0.03 on the s-eb90778f clump the lever must not
+    //       touch),
+    //   (2) RAISE-ONLY (pile > pc): the re-tile hypothesis is that the
+    //       pipeline counted the pile before its periphery material
+    //       existed — an under-count premise, same discipline as the
+    //       routed-blob and chroma-adds paths. Measured, the peel under-
+    //       reads dense piles it cannot fully explain (cream bottom pile
+    //       25 v pc 26 with 8.4 pill-areas unclaimed; shiny blob64 16 v 17
+    //       with physDrop 8) — those reads must never lower the count.
+    //   (3) the tiling is physics-consistent as placed (physDrop <=
+    //       0.15 x pile; measured 1/11 on the accepted cream pile vs 8/21
+    //       on the shiny glare blob),
+    //   (4) the tiling explains the pile's material (claimedFrac >= 0.75;
+    //       measured 0.793 accepted vs 0.462 on the s-eb clump),
+    //   (5) fabrication cap: the raise is bounded (pile <= 1.5 x pc).
+    {
+      const chromaAddByH = new Float64Array(hl.nBlobs);
+      for (let i = 0; i < w * h; i++)
+        if (chromaRes.fg[i] && !fgFinal[i] && hl.blob[i] >= 0) chromaAddByH[hl.blob[i]]++;
+      const regsByH = new Map();
+      for (const g of regions) {
+        const b = hAt(g.cx, g.cy);
+        if (!regsByH.has(b)) regsByH.set(b, []);
+        regsByH.get(b).push(g);
+      }
+      for (let b = 0; b < hl.nBlobs; b++) {
+        if (pipeByH[b] < 6) continue;
+        if (chromaAddByH[b] < 1.0 * AREAH) continue;
+        const allowP = new Uint8Array(w * h);
+        for (let i = 0; i < w * h; i++) if (hl.blob[i] === b) allowP[i] = 1;
+        const resP = analyze(chromaRes.fg, 'pile' + b, { allow: allowP, raftOK: false,
+          chromaVouch: fgChroma });
+        // count on this pile: anchors attributed to it + placements inside it
+        const aOn = resP.anchors.filter((g) => hAt(g.cx, g.cy) === b);
+        const pOn = resP.placed.filter((p) => hAt(p.x, p.y) === b);
+        // physics among them (same law as the main block)
+        const segPts4 = (q) => {
+          const a2 = Math.max(0, (q.maj - q.min) / 2), pts2 = [];
+          for (let t = -1; t <= 1; t += 0.34)
+            pts2.push([q.x + Math.cos(q.th) * a2 * t, q.y + Math.sin(q.th) * a2 * t]);
+          return pts2;
+        };
+        const sd4 = (A, B) => {
+          let dmin = 1e9;
+          for (const [xa, ya] of segPts4(A)) for (const [xb, yb] of segPts4(B)) {
+            const d3 = Math.hypot(xa - xb, ya - yb);
+            if (d3 < dmin) dmin = d3;
+          }
+          return dmin;
+        };
+        const geoA = aOn.map((g) => ({ x: g.cx, y: g.cy, th: (g.shape && g.shape.theta) || 0,
+          maj: (g.shape && g.shape.major) || resP.MAJ, min: (g.shape && g.shape.minor) || resP.MIN,
+          s: 9, anchor: true }));
+        const allP = geoA.concat(pOn);
+        const deadP = new Set();
+        for (let i = 0; i < allP.length; i++) for (let j = i + 1; j < allP.length; j++) {
+          const A = allP[i], B = allP[j];
+          if (deadP.has(A) || deadP.has(B)) continue;
+          if (sd4(A, B) >= 0.72 * (A.min + B.min) / 2) continue;
+          const L = A.anchor ? B : B.anchor ? A : (A.s <= B.s ? A : B);
+          if (!L.anchor) deadP.add(L);
+        }
+        let clP = 0, pileA = 0;
+        for (let i = 0; i < w * h; i++) if (hl.blob[i] === b) { pileA++; if (resP.claimed[i]) clP++; }
+        debug?.({ stage: 'piletile', blob: b, pc: pipeByH[b],
+          pile: allP.length - deadP.size, anchors: aOn.length, placed: pOn.length,
+          physDrop: deadP.size, expl: +resP.expl.toFixed(3),
+          claimedFrac: pileA ? +(clP / pileA).toFixed(3) : 0,
+          visible: +(pileA / AREAH).toFixed(2),
+          chromaAdded: +(chromaAddByH[b] / AREAH).toFixed(2),
+          poses: allP.filter((p) => !deadP.has(p)).map((p) => [Math.round(p.x), Math.round(p.y),
+            +(+p.th || 0).toFixed(2), p.anchor ? 1 : 0]) });
+        const pile = allP.length - deadP.size;
+        const pcH2 = pipeByH[b];
+        const clFrac = pileA ? clP / pileA : 0;
+        if (pile <= pcH2) continue;                      // (2) raise-only
+        if (pile > 1.5 * pcH2) continue;                 // (5) fabrication cap
+        if (deadP.size > 0.15 * pile) continue;          // (3) physics-consistent
+        if (clFrac < 0.75) continue;                     // (4) explains the pile
+        const keptP = pOn.filter((p) => !deadP.has(p));
+        const regsB = regsByH.get(b) || [];
+        const aSet = new Set(aOn);
+        for (const g of regsB) if (!aSet.has(g)) remove.add(g);
+        const pills = keptP.map((p) => ({
+          cx: p.x, cy: p.y, theta: +p.th.toFixed(3),
+          major: +p.maj.toFixed(1), minor: +p.min.toFixed(1),
+          valid: +Math.max(0, Math.min(1, resP.selfMed > 0 ? p.s / resP.selfMed : 1)).toFixed(2),
+          fit: +p.s.toFixed(3), photo: p.photo, edge: p.edge,
+        }));
+        const cxP = keptP.reduce((a, p) => a + p.x, 0) / Math.max(1, keptP.length);
+        const cyP = keptP.reduce((a, p) => a + p.y, 0) / Math.max(1, keptP.length);
+        add.push({ cx: cxP, cy: cyP,
+          area: Math.max(1, pileA - aOn.reduce((a, g) => a + (g.area || 0), 0)),
+          units: pile - aOn.length, confidence: 'high', arc: true, stamp: true, pills });
+        countDelta += pile - pcH2;
+        for (const p of keptP) debug?.({ stage: 'stampplace', mask: 'pile', blob: b,
+          x: Math.round(p.x), y: Math.round(p.y), th: +p.th.toFixed(3),
+          fit: +p.s.toFixed(3), photo: p.photo, edge: p.edge });
+        debug?.({ stage: 'piletile-accept', blob: b, pc: pcH2, pile,
+          physDrop: deadP.size, claimedFrac: +clFrac.toFixed(3) });
+      }
+    }
+
     // dedup/physics targets: every surviving region (centre reach) and
     // every pill the normal arbitration just added (full rigid-body
     // segment distance — chromaRes placements never went through the main
@@ -1593,6 +1850,57 @@ export function stampArbitrate(cv, env) {
       nAdd += kept.length;
     }
     chromaNote = ` chroma(+${nAdd})`;
+
+    if (debug) for (const p of chromaRes.placed) {
+      const b = hAt(p.x, p.y);
+      let nC = 0, nT = 0;
+      const R2 = Math.round(Math.max(4, chromaRes.MIN / SHRINK / 2 * 0.8));
+      for (let dy = -R2; dy <= R2; dy++) for (let dx = -R2; dx <= R2; dx++) {
+        if (dx * dx + dy * dy > R2 * R2) continue;
+        const X = (p.x + dx) | 0, Y = (p.y + dy) | 0;
+        if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+        nT++; if (fgChroma && fgChroma[X + Y * w]) nC++;
+      }
+      debug({ stage: 'chromaplaceaudit', x: Math.round(p.x), y: Math.round(p.y),
+        blobH: b, fit: +p.s.toFixed(3), chr: nT ? +(nC / nT).toFixed(2) : 0 });
+    }
+    // PHANTOM AUDIT (measurement pass for bidirectional arbitration —
+    // chroma-rescue images only). For every pipeline region: what does the
+    // chroma+stamp read of its material say? Emitted for every region so
+    // thresholds are set from measured values, not guessed.
+    if (debug) {
+      const anchorsByH = new Map();
+      for (const g of chromaRes.anchors) {
+        const b = hAt(g.cx, g.cy);
+        if (!anchorsByH.has(b)) anchorsByH.set(b, 0);
+        anchorsByH.set(b, anchorsByH.get(b) + 1);
+      }
+      for (const g of regions) {
+        const b = hAt(g.cx, g.cy);
+        const scH = (b >= 0 ? (placedByH.get(b) || []).length + (anchorsByH.get(b) || 0) : 0);
+        const rad = Math.max(4, Math.sqrt((g.area || 1) / Math.PI / (g.units || 1)));
+        let nPx = 0, nChr = 0, nFg = 0;
+        const R = Math.round(rad);
+        for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+          if (dx * dx + dy * dy > R * R) continue;
+          const X = (g.cx + dx) | 0, Y = (g.cy + dy) | 0;
+          if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+          nPx++;
+          if (fgChroma && fgChroma[X + Y * w]) nChr++;
+          if (fgFinal[X + Y * w]) nFg++;
+        }
+        debug({ stage: 'phantomaudit', cx: Math.round(g.cx), cy: Math.round(g.cy),
+          units: g.units || 1, conf: g.confidence,
+          anchor: anchorSet.has(g), removed: remove.has(g),
+          wit: !!(g.arc || g.seam || g.hough || g.geoCorroborated),
+          hough: !!g.hough,
+          blobH: b, scH, pcH: b >= 0 ? pipeByH[b] : -1,
+          chromaFrac: nPx ? +(nChr / nPx).toFixed(2) : 0,
+          fgFrac: nPx ? +(nFg / nPx).toFixed(2) : 0,
+          photo: Math.round(chromaRes.colDist(sampleRGB(g.cx, g.cy))),
+          colThr: Math.round(chromaRes.colThr) });
+      }
+    }
   }
   maskNote += chromaNote;
 
@@ -1605,9 +1913,9 @@ export function stampArbitrate(cv, env) {
     medAlign: res.kernel.medAlign, iouStad: res.kernel.iouStad,
   } : null;
   if (!remove.size && !add.length && countDelta === 0) {
-    return { maskUsed: res.tag, expl: res.expl, retried: res.retried, edgeNote: res.edgeNote,
+    return { fgUsed: res.fg, maskUsed: res.tag, expl: res.expl, retried: res.retried, edgeNote: res.edgeNote,
       maskNote, remove, add, countDelta: 0, changed: false, kernel: kernelOut };
   }
-  return { maskUsed: res.tag, expl: res.expl, retried: res.retried, edgeNote: res.edgeNote,
+  return { fgUsed: res.fg, maskUsed: res.tag, expl: res.expl, retried: res.retried, edgeNote: res.edgeNote,
     maskNote, remove, add, countDelta, changed: true, kernel: kernelOut };
 }

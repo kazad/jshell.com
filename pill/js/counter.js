@@ -5019,6 +5019,19 @@ export function countPills(cv, source, opts = {}) {
             count += verdict.countDelta;
             lowConfidence = regions.reduce((n2, g2) => n2 + (g2.confidence === 'low' ? 1 : 0), 0);
           }
+          // DEBUG HONESTY (owner: stage 5 "wipes away a ton of data" — true,
+          // and the count no longer flows through that wreckage when the
+          // stamp arbitrates. Show the mask the count ACTUALLY used, so the
+          // strip stops implying the crumbs did the counting.)
+          if (emit && verdict && verdict.fgUsed && verdict.maskUsed && verdict.maskUsed !== 'final') {
+            const mu = new Uint8ClampedArray(w * h * 4);
+            for (let i2 = 0; i2 < w * h; i2++) {
+              const on = verdict.fgUsed[i2];
+              mu[i2 * 4] = on ? 60 : 0; mu[i2 * 4 + 1] = on ? 200 : 0;
+              mu[i2 * 4 + 2] = on ? 255 : 0; mu[i2 * 4 + 3] = 255;
+            }
+            emit('mask-used', { data: mu, width: w, height: h });
+          }
           opts.debug?.({ stage: 'stamp', fired: true, reason: reasons.join('+'),
             before, after: count,
             explained: { frac: +explainedFrac.toFixed(3), cover: +cover.toFixed(3),

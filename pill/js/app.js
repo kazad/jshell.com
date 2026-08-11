@@ -1240,6 +1240,7 @@ const STAGE_NOTES = {
   disttransform: ['6 · Distance transform', 'Bright = deep inside a blob. Peaks mark pill centres.'],
   markers: ['7 · Seeds', 'One dot per pill. Two touching pills MUST show two dots here.'],
   geometry: ['8 · Fitted shapes', 'Every counted pill drawn as its fitted outline. Green = confident, amber = flagged. The outline should hug the pill.'],
+  'mask-used': ['5b · Mask the count USED', 'Blue = the surface the stamp arbiter actually counted on (pre-purge or chroma-hybrid). Only appears when it differs from the cleaned mask — when you see it, stage 5\'s losses did not decide the count.'],
   template: ['0 · The pill, as learned', 'Left: real pills cut from THIS photo with their fitted outlines. Right: the stamp silhouette used for placement. If the silhouette does not look like the cutouts, the template is wrong and the count inherits it.'],
 };
 
