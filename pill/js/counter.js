@@ -259,6 +259,102 @@ function cueScore(cv, distMat, minArea) {
   return { score: (1 - cv2) * 0.6 + share * 0.4, thr, frac, n: singles.length };
 }
 
+// HIGH-CONTRAST MASK RESCUE (self-calibrating two-gate segmentation).
+//
+// The failure this addresses, measured on t3-cream-caplets-wood.jpg (48
+// caplets, pipeline read 45): the adaptive path fuses the whole pile into one
+// 430k-px blob, and refineOversizedBlobs then re-thresholds that blob against
+// its OWN median colour. But the pills are the MAJORITY of the blob, so the
+// "surface colour" it measures IS the pill colour — the refine keeps the wood
+// web between the caplets and sheds the caplets themselves (measured:
+// keptRatio 0.45 but pillRatio 0.099, the inverted signature). Downstream then
+// fits capsules to wood fragments.
+//
+// Yet the photo is trivially separable: pills and board differ hugely in BOTH
+// luma and one chroma channel. Two gates recover it essentially perfectly (49
+// clean components, median 5021 px, every capsule its own blob). The point of
+// this function is to derive those two gates PER PHOTO rather than fix them at
+// the measured 150/90 constants:
+//
+//   gate 1 (luma)   Otsu on luma, oriented AWAY from the border background —
+//                   whichever side of the cut the background is not on.
+//   gate 2 (chroma) the channel that best separates the luma-proposed
+//                   foreground from the border background, measured in units
+//                   of the BACKGROUND'S OWN spread (a noisy channel is
+//                   discounted), cut at that background's 98th/2nd percentile
+//                   in the direction of the separation. On the cream photo
+//                   this learns B with z=3.5 and a cut of 64 — no constant is
+//                   spelled anywhere, and the same code learns G on the
+//                   r-* countertop photos and R on the advil ones.
+//
+// This is RESCUE MATERIAL only, never a segmenter: it is handed to the stamp
+// arbiter, which must show it explains more material than the pipeline's own
+// mask before it may change the count (see retry (e) in stamp.js).
+function highContrastMask(cv, src, debug) {
+  const w = src.cols, h = src.rows, d = src.data, n = w * h;
+  // Border strip = background population (same 3% strip borderColor samples).
+  const t = Math.max(2, Math.round(Math.min(w, h) * 0.03));
+  const bR = [], bG = [], bB = [];
+  const pushB = (x, y) => { const o = (y * w + x) * 4; bR.push(d[o]); bG.push(d[o + 1]); bB.push(d[o + 2]); };
+  for (let y = 0; y < t; y++) for (let x = 0; x < w; x += 3) { pushB(x, y); pushB(x, h - 1 - y); }
+  for (let x = 0; x < t; x++) for (let y = t; y < h - t; y += 3) { pushB(x, y); pushB(w - 1 - x, y); }
+  if (bR.length < 50) return null;
+  const bg = [median(bR), median(bG), median(bB)];
+  const bgL = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2];
+
+  // ---- gate 1: Otsu on luma ----
+  const luma = new Uint8Array(n);
+  const hist = new Uint32Array(256);
+  for (let i = 0, p = 0; i < n; i++, p += 4) {
+    const v = (0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2]) | 0;
+    luma[i] = v; hist[v]++;
+  }
+  const thr = otsuFromHist(hist, n);
+  const bright = bgL <= thr;   // pills on the far side of the cut from the bg
+
+  // ---- gate 2: chroma channel learned against the border background ----
+  // Proposed foreground median per channel (subsampled).
+  const fR = [], fG = [], fB = [];
+  for (let i = 0; i < n; i += 7) {
+    const on = bright ? luma[i] > thr : luma[i] < thr;
+    if (!on) continue;
+    const p = i * 4; fR.push(d[p]); fG.push(d[p + 1]); fB.push(d[p + 2]);
+  }
+  if (fR.length < 30) return null;
+  const fg = [median(fR), median(fG), median(fB)];
+  const bgCh = [bR, bG, bB];
+  const pct = (arr, q) => {
+    const s = arr.slice().sort((a, b) => a - b);
+    return s[Math.max(0, Math.min(s.length - 1, Math.round(q * (s.length - 1))))];
+  };
+  let ch = -1, bestZ = 0, gap = 0, spread = 1;
+  for (let c = 0; c < 3; c++) {
+    const sp = Math.max(1, pct(bgCh[c], 0.9) - pct(bgCh[c], 0.1));
+    const g = fg[c] - bg[c];
+    const z = g / sp;
+    if (ch < 0 || Math.abs(z) > Math.abs(bestZ)) { ch = c; bestZ = z; gap = g; spread = sp; }
+  }
+  const cut = gap > 0 ? pct(bgCh[ch], 0.98) : pct(bgCh[ch], 0.02);
+
+  const m = new cv.Mat(h, w, cv.CV_8UC1);
+  const md = m.data;
+  for (let i = 0, p = 0; i < n; i++, p += 4) {
+    const lOK = bright ? luma[i] > thr : luma[i] < thr;
+    if (!lOK) { md[i] = 0; continue; }
+    const cv2 = d[p + ch];
+    md[i] = (gap > 0 ? cv2 > cut : cv2 < cut) ? 255 : 0;
+  }
+  // Clean at pill scale: opening removes grain speckle, fill seals engravings.
+  const k5 = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(5, 5));
+  cv.morphologyEx(m, m, cv.MORPH_OPEN, k5, new cv.Point(-1, -1), 1);
+  k5.delete();
+  fillHoles(cv, m);
+  debug?.({ stage: 'hcmask', thr, bright, ch, cut, z: +bestZ.toFixed(2),
+    gap: +gap.toFixed(1), spread, bg: bg.map((v) => Math.round(v)),
+    fg: fg.map((v) => Math.round(v)), frac: +(cv.countNonZero(m) / n).toFixed(3) });
+  return m;
+}
+
 // Visualize a CV_8UC1 mat as a green-tinted ImageData-like object (for the
 // stage-by-stage demos on the about page).
 function grayToStage(mat8) {
@@ -1824,6 +1920,16 @@ export function countPills(cv, source, opts = {}) {
     const emit = typeof opts.stages === 'function' ? opts.stages : null;
     if (emit) emit('input', { data: new Uint8ClampedArray(src.data), width: src.cols, height: src.rows });
 
+    // Working-scale snapshot BEFORE illumination flattening. The high-contrast
+    // rescue must reason about the photo's true luma/chroma separation, and
+    // flattening deliberately destroys exactly that: on the cream-caplet photo
+    // it lifts the shaded wood and compresses the caplets until the border
+    // background reads BRIGHTER than the Otsu cut, which inverts the rescue's
+    // foreground (measured: bg [157,99,52] thr 97 flattened, versus the true
+    // bg [128,80,43] thr 132). Cheap — one working-scale copy, and only the
+    // rescue reads it.
+    const srcPreFlat = track(src.clone());
+
     // Level out vignettes and lighting gradients before any color reasoning.
     flattenIllumination(cv, src);
 
@@ -1913,7 +2019,22 @@ export function countPills(cv, source, opts = {}) {
 
     // Plates/trays segment as one huge blob; re-segment those against their
     // own surface color (twice, for nested surfaces like table -> plate).
-    if (refineOversizedBlobs(cv, src, bw, absFloor, opts.debug)) refineOversizedBlobs(cv, src, bw, absFloor, opts.debug);
+    // The refine's MAJORITY-PILL failure mode (it re-thresholds a pill pile
+    // against the pill colour and keeps the board web instead) is recorded
+    // here for the high-contrast rescue's trigger — see highContrastMask.
+    const refineSig = [];
+    const refDbg = (e) => {
+      if (e && e.stage === 'refine') refineSig.push(e);
+      opts.debug?.(e);
+    };
+    if (refineOversizedBlobs(cv, src, bw, absFloor, refDbg)) refineOversizedBlobs(cv, src, bw, absFloor, refDbg);
+    // Inverted signature: the refine ACCEPTED, kept a large share of the blob,
+    // yet almost none of what it kept is pill-shaped. That is the fingerprint
+    // of having thresholded pills-as-background (cream: kept 0.45 of a 430k
+    // blob, only 0.10 of it pill-like). Healthy refines on real trays read the
+    // other way round (beige 0.11/0.90, salmon 0.17/0.45).
+    const refineInverted = refineSig.some(
+      (e) => e.accept && e.keptRatio > 0.3 && e.pillRatio < 0.35);
 
     // Faint pills hidden below a bimodal Otsu split (white pills next to
     // colored ones on a light tray) get a second chance.
@@ -4895,6 +5016,34 @@ export function countPills(cv, source, opts = {}) {
       if (opts.variant === 'consensus' && stampOtsu && regions.length) {
         const tS0 = Date.now();
         const bwd = bw.data;
+        // ---- HIGH-CONTRAST SEPARATION PROBE (measurement only) ----
+        if (opts.hcProbe) {
+          const sdp2 = src.data;
+          const bgc = dfb.color;
+          const bgLuma2 = 0.299 * bgc[0] + 0.587 * bgc[1] + 0.114 * bgc[2];
+          // foreground population = current mask pixels
+          const fgL = [], fgB = [], fgR = [], fgG = [];
+          for (let i = 0; i < w * h; i++) {
+            if (!bwd[i]) continue;
+            if ((i % 3) !== 0) continue;
+            const q = i * 4;
+            fgR.push(sdp2[q]); fgG.push(sdp2[q + 1]); fgB.push(sdp2[q + 2]);
+            fgL.push(0.299 * sdp2[q] + 0.587 * sdp2[q + 1] + 0.114 * sdp2[q + 2]);
+          }
+          const mL = median(fgL) || 0, mB = median(fgB) || 0;
+          const mR = median(fgR) || 0, mG = median(fgG) || 0;
+          // per-channel separation, normalised
+          const sepL = (mL - bgLuma2);
+          const sepB = (mB - bgc[2]);
+          const sepR = (mR - bgc[0]);
+          const sepG = (mG - bgc[1]);
+          opts.debug?.({ stage: 'hcprobe',
+            bg: bgc.map((v) => Math.round(v)),
+            fg: [Math.round(mR), Math.round(mG), Math.round(mB)],
+            bgLuma: +bgLuma2.toFixed(1), fgLuma: +mL.toFixed(1),
+            sepL: +sepL.toFixed(1), sepR: +sepR.toFixed(1),
+            sepG: +sepG.toFixed(1), sepB: +sepB.toFixed(1) });
+        }
         let totalFgS = 0;
         for (let i = 0; i < bwd.length; i++) if (bwd[i]) totalFgS++;
         let nO = 0, nI = 0;
@@ -5036,8 +5185,32 @@ export function countPills(cv, source, opts = {}) {
             opts.debug?.({ stage: 'chroma-input', frac: +chrFrac.toFixed(3), used: !!fgChromaS });
             chr.delete(); cbw.delete();
           }
+          // HIGH-CONTRAST RESCUE INPUT. Built only when the pipeline shows the
+          // majority-pill refine signature (the refine kept the board and shed
+          // the pills) AND the stamp router already judged the evidence weak.
+          // Both conditions are pipeline-distress signals measured upstream —
+          // this never fires on a photo the pipeline handled cleanly. The mask
+          // itself is self-calibrating (see highContrastMask); it is passed as
+          // RESCUE MATERIAL and must out-explain the final mask to be adopted.
+          let fgHCS = null;
+          if (refineInverted) {
+            const hcm = highContrastMask(cv, srcPreFlat, opts.debug);
+            if (hcm) {
+              const hcFrac = cv.countNonZero(hcm) / (w * h);
+              // A mask that floods or empties the frame is reading the surface,
+              // not the pills — same guard the chroma input uses.
+              if (hcFrac > 0.005 && hcFrac < 0.5) {
+                fgHCS = new Uint8Array(w * h);
+                const hd = hcm.data;
+                for (let i = 0; i < w * h; i++) fgHCS[i] = hd[i] ? 1 : 0;
+              }
+              opts.debug?.({ stage: 'hc-input', frac: +hcFrac.toFixed(3), used: !!fgHCS });
+              hcm.delete();
+            }
+          }
           const verdict = stampArbitrate(cv, {
             w, h, fgFinal: fgFinalS, fgOtsu: fgOtsuS, cover, fgChroma: fgChromaS,
+            fgHC: fgHCS,
             luma: lumaS, sampleRGB: sampleRGBS,
             regions, count,
             contestedRegions: lowRegs.concat(oversized, routedRegs),

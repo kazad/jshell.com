@@ -1,10 +1,6 @@
 {
  "standard": "every image EXACT or listed here with mechanism+status; an unlisted miss is a triage bug",
  "issues": {
-  "approx/t3-cream-caplets-wood.jpg": {
-   "status": "measured-limit",
-   "note": "45v48: the 3 missing are EDGE capsules whose mask material is fully present (verified: mask-final shows them solid) \u2014 they are lost at PHOTOMETRIC ARBITRATION, not segmentation. Six fit=1.0 stamps on real capsules read colour-distance 209-464 against a measured pill-to-board separation of only 308 (photocal), so the centre-pixel sample lands on speckle/imprint/seam and the veto cannot distinguish them from board; the chroma-vouch escape is empty here (no chroma map on this photo). TRIED AND REVERTED (measured): interior-median sampling halved the vetoes 17->9 but BROKE lightblue-1 70->15 and s301 20->15 (sample ring falls outside small pills). Correct fix is a scale-safe interior statistic \u2014 sample within the KERNEL footprint, not a fixed radius \u2014 queued."
-  },
   "shiny/s-0bfc44d8.jpg": {
    "status": "deliberate",
    "note": "33v36 honest-over-lucky: phantom removal shipped (bare-leather units=2 deleted, chroma 0.00); 3 real glare-wrecked beads stay behind the gate that blocked +8 phantoms"
@@ -72,6 +68,11 @@
   "synth2-rc-kraft-large-n12-t65-s279.png": {
    "status": "awaiting-ruling",
    "note": "camo class-C"
+  }
+ },
+ "guards": {
+  "high-contrast-mask-rescue": {
+   "note": "Trigger has exactly ONE positive example in 251 images (cream). Force-running the rescue with the trigger bypassed: 35 adoptions, 2 BREAKS including cornerstone s301 20->40. The explain-margin cannot separate them (cream +0.204 sits between harmful +0.165 and +0.489), so the UPSTREAM TRIGGER is load-bearing for safety, not arbitration. Do not loosen the trigger without re-running that force-test."
   }
  }
 }

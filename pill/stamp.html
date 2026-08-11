@@ -174,9 +174,24 @@ function snapAngle(x, y) {
   const th = 0.5 * Math.atan2(2 * sxy, sxx - syy) + Math.PI / 2;
   return ((th % Math.PI) + Math.PI) % Math.PI;
 }
-const nearestPlacement = (x, y) => {
+// AGREEMENT, not proximity. A placement only covers your stamp if it is
+// close AND roughly parallel: on a dense pile a neighbour's diagonal
+// outline passes within a pill-width of a vertical capsule, and the old
+// distance-only test called that "counted" (reported: mark #3, 100%
+// overlap at 108 deg, nearest 12.9px — but the nearby outline belonged to
+// the diagonal pill, and #3's capsule was genuinely unclaimed).
+const nearestPlacement = (x, y, th) => {
   let dm = 1e9;
-  for (const [px, py] of probe.placements) dm = Math.min(dm, Math.hypot(px - x, py - y));
+  for (const [px, py, pth] of probe.placements) {
+    const d = Math.hypot(px - x, py - y);
+    if (th !== undefined && pth !== undefined) {
+      let da = Math.abs(((pth - th) % Math.PI + Math.PI) % Math.PI);
+      if (da > Math.PI / 2) da = Math.PI - da;          // axis, not direction
+      // elongated pills: a placement 30+ degrees off is a DIFFERENT pill
+      if (probe.maj / Math.max(1, probe.min) > 1.4 && da > Math.PI / 6) continue;
+    }
+    dm = Math.min(dm, d);
+  }
   return dm;
 };
 
@@ -280,7 +295,7 @@ $('#stage').addEventListener('pointermove', (e) => {
     if (drag.mode === 'move') { m.x = +(x - drag.ox).toFixed(1); m.y = +(y - drag.oy).toFixed(1); }
     else { m.th = +Math.atan2(y - m.y, x - m.x).toFixed(3); m.thDeg = +(m.th * 180 / Math.PI).toFixed(1); }
     m.overlap = +scoreAt(m.x, m.y, m.th).toFixed(3);
-    m.nearestCounted = +nearestPlacement(m.x, m.y).toFixed(1);
+    m.nearestCounted = +nearestPlacement(m.x, m.y, m.th).toFixed(1);
     m.verdict = m.overlap < 0.75 ? 'no-pill' : (m.nearestCounted < probe.min * 0.9 ? 'counted' : 'MISSED');
     renderMarks(); draw(last);
     return;
@@ -292,7 +307,7 @@ $('#stage').addEventListener('pointermove', (e) => {
   draw(last);
 });
 function report({ x, y, th, s }) {
-  const near = nearestPlacement(x, y), counted = near < probe.min * 0.9;
+  const near = nearestPlacement(x, y, th), counted = near < probe.min * 0.9;
   $('#score').textContent = (s * 100).toFixed(0) + '%';
   $('#score').className = 'big ' + (s >= 0.9 ? 'ok' : s >= 0.75 ? 'warn' : 'bad');
   $('#ang').textContent = (th * 180 / Math.PI).toFixed(0) + '°' + (autoRot ? '' : ' (manual)');
@@ -329,7 +344,7 @@ addEventListener('keydown', (e) => {
   if (e.key === ']') setAng((freeAng ?? last.th) + Math.PI / 90);
 });
 function addMarkAt(x, y, th) {
-  const near = nearestPlacement(x, y), ov = scoreAt(x, y, th);
+  const near = nearestPlacement(x, y, th), ov = scoreAt(x, y, th);
   marks.push({ file: $('#img').value, x: +x.toFixed(1), y: +y.toFixed(1),
     thDeg: +(th * 180 / Math.PI).toFixed(1), th: +th.toFixed(3),
     overlap: +ov.toFixed(3), manual: !autoRot,
@@ -344,7 +359,7 @@ function addMark() {
     thDeg: +(last.th * 180 / Math.PI).toFixed(1), th: +last.th.toFixed(3),
     overlap: +last.s.toFixed(3), manual: !autoRot,
     stamp: [ +probe.maj.toFixed(1), +probe.min.toFixed(1) ],
-    nearestCounted: +nearestPlacement(last.x, last.y).toFixed(1),
+    nearestCounted: +nearestPlacement(last.x, last.y, last.th).toFixed(1),
     verdict: last.s < 0.75 ? 'no-pill' : (nearestPlacement(last.x, last.y) < probe.min * 0.9 ? 'counted' : 'MISSED') });
   renderMarks(); draw(last);
 }

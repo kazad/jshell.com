@@ -290,13 +290,15 @@ function labelBlobs(fg, w, h) {
 //   regions         the pipeline's counted regions (shape where known)
 //   count           the pipeline's count
 //   contestedRegions regions the counter distrusts (low-conf / oversized)
+//   fgHC            Uint8Array(w*h) 0/1 — self-calibrated high-contrast mask,
+//                   supplied only on the majority-pill refine signature
 //   unownedSeeds    [x,y] per pill-scale foreground blob no region owns
 //   debug           optional event sink
 // Returns null (nothing to change) or
 //   { maskUsed, expl, retried, edgeNote, before, after, countDelta,
 //     remove: Set<region>, add: region[] }.
 export function stampArbitrate(cv, env) {
-  const { w, h, fgFinal, fgOtsu, fgChroma, cover, luma, sampleRGB, regions, count,
+  const { w, h, fgFinal, fgOtsu, fgChroma, fgHC, cover, luma, sampleRGB, regions, count,
     contestedRegions, unownedSeeds, debug } = env;
   const SHRINK = env.shrink || 0.92;
   const TAUF = env.tauf || 0.6;
@@ -1217,6 +1219,33 @@ export function stampArbitrate(cv, env) {
     else maskNote = `otsuRejected(expl=${res2.expl.toFixed(2)},total=${total2})`;
   }
 
+  // ---- retry (e): HIGH-CONTRAST MASK RESCUE. The counter supplies fgHC only
+  // when refineOversizedBlobs showed its MAJORITY-PILL failure (it kept the
+  // board web and shed the pills — cream-caplets-on-wood, kept 0.45 of a 430k
+  // blob with only 0.10 of it pill-like). On that photo the final mask is not
+  // merely incomplete, it is describing the WRONG POPULATION, so unlike the
+  // chroma rescue there is nothing worth splicing: the whole mask is replaced
+  // for the purpose of this retry.
+  //
+  // It must still WIN on evidence. Two independent conditions, both measured
+  // against the pipeline's own analysis:
+  //   1. it explains more of its own material than the final mask does, and
+  //   2. it does not shrink the answer — this rescue's premise is that pills
+  //      were LOST to the board, so a lower total falsifies the premise (the
+  //      same direction rule retry (a) uses, and the reason a mis-fire on a
+  //      healthy photo cannot quietly delete pills).
+  // Failing either, the pipeline's own analysis stands untouched.
+  if (maskNote !== 'otsu' && fgHC) {
+    const resH = analyze(fgHC, 'hc', { allow: null, raftOK: false });
+    const totalH = resH.anchors.length + resH.placed.length;
+    const baseExpl = res.expl;                 // captured BEFORE any swap
+    const adopt = resH.expl > baseExpl + 0.05 && totalH >= count;
+    if (adopt) { res = resH; maskNote = 'hc'; }
+    else maskNote += ` hcRejected(expl=${resH.expl.toFixed(2)},total=${totalH})`;
+    debug?.({ stage: 'hcretry', expl: +resH.expl.toFixed(3),
+      baseExpl: +baseExpl.toFixed(3), total: totalH, count, adopted: adopt });
+  }
+
   // ---- retry (d): CHROMA-MASK GLARE RESCUE. Glare/deep shadow erases pill
   // material below every witness's floor; the peel then leaves the contested
   // fragments unexplained because there is nothing to tile (measured on the
@@ -1232,7 +1261,7 @@ export function stampArbitrate(cv, env) {
   // Acceptance is per-blob, raise-only, dossier-verified (see the
   // chroma-adds block after the main arbitration).
   let chromaRes = null, chromaNote = '';
-  if (maskNote !== 'otsu' && fgChroma && arbitrable.size) {
+  if (maskNote !== 'otsu' && maskNote !== 'hc' && fgChroma && arbitrable.size) {
     const AREA0 = resArea(res, res.MAJ / SHRINK, res.MIN / SHRINK);
     let unexpl = 0;
     for (let i = 0; i < w * h; i++) if (allow[i] && !res.claimed[i]) unexpl++;
@@ -1414,11 +1443,14 @@ export function stampArbitrate(cv, env) {
   const add = [];
   let countDelta = 0;
 
-  if (maskNote === 'otsu') {
-    // The pipeline's mask purged real material; its per-blob units are
-    // corrupt by construction. Keep only the trust-tested anchors, replace
-    // everything else with the stamp's placements (grouped by otsu blob).
-    const ol = labelBlobs(fgOtsu, w, h);
+  if (maskNote === 'otsu' || maskNote === 'hc') {
+    // The pipeline's mask describes the WRONG POPULATION — purged real
+    // material (otsu) or kept the board and shed the pills (hc). Either way
+    // its per-blob units are corrupt by construction, so per-blob arbitration
+    // against those labels is meaningless: keep only the trust-tested anchors
+    // and replace everything else with the stamp's placements, grouped by the
+    // blobs of the mask that actually won.
+    const ol = labelBlobs(maskNote === 'hc' ? fgHC : fgOtsu, w, h);
     const oAt = (x, y) => {
       const xi = Math.max(0, Math.min(w - 1, x | 0)), yi = Math.max(0, Math.min(h - 1, y | 0));
       if (ol.blob[yi * w + xi] >= 0) return ol.blob[yi * w + xi];
