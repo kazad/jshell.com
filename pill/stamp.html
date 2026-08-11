@@ -43,6 +43,8 @@
   </label>
   <button id="snap" title="fit the angle to the pill edges under the cursor">snap to pill (S)</button>
   <button id="mark">mark a miss here (M)</button>
+  <button id="truthmode" title="Annotate EVERY pill to produce ground truth">truth mode: OFF</button>
+  <button id="loadtruth" title="Load existing centers for this image">load truth</button>
   <span id="status" style="color:var(--dim)"></span>
 </header>
 
@@ -64,6 +66,20 @@
     <h2 style="margin-top:12px">Marked misses</h2>
     <div id="log"><div style="color:var(--dim);border:0">none yet — hover a pill the counter skipped and press M</div></div>
     <button id="copy" style="margin-top:9px;width:100%">copy marks as JSON</button>
+    <div id="truthbox" hidden style="margin-top:12px;padding:10px;background:#10202a;border-radius:9px">
+      <h2 style="margin:0 0 6px">Truth annotation</h2>
+      <p style="margin:0 0 8px">Click every pill (drag to adjust, Delete to remove). When the tally
+      matches what you count by eye, export — the file drops straight into
+      <code>testdata/centers/</code> and the per-pill gate starts scoring this image.</p>
+      <div class="row"><span>marked</span><span class="big" id="truthn">0</span>
+        <span id="truthexp" style="color:var(--dim)"></span></div>
+      <button id="savetruth" style="width:100%;margin-top:6px;background:#1d6b4f">✓ Save to backend (no copy/paste)</button>
+      <button id="exporttruth" style="width:100%;margin-top:6px">download centers JSON</button>
+      <div id="savemsg" style="margin-top:6px;font-size:12px;color:var(--dim)"></div>
+      <p style="margin-top:8px;font-size:12px">Wrong labels have cost more time today than any
+      algorithm bug — two of them were mine. A verified dot map is the most useful thing you can
+      hand me.</p>
+    </div>
   </aside>
 </div>
 
@@ -297,7 +313,7 @@ $('#stage').addEventListener('pointermove', (e) => {
     m.overlap = +scoreAt(m.x, m.y, m.th).toFixed(3);
     m.nearestCounted = +nearestPlacement(m.x, m.y, m.th).toFixed(1);
     m.verdict = m.overlap < 0.75 ? 'no-pill' : (m.nearestCounted < probe.min * 0.9 ? 'counted' : 'MISSED');
-    renderMarks(); draw(last);
+    renderMarks(); updateTruth(); draw(last);
     return;
   }
   const { x, y } = toImg(e);
@@ -336,7 +352,7 @@ addEventListener('keydown', (e) => {
   if (e.key === 's' || e.key === 'S') setAng(snapAngle(last.x, last.y));
   if (e.key === 'r' || e.key === 'R') { autoRot = true; freeAng = null; $('#auto').textContent = 'rotate: AUTO'; }
   if ((e.key === 'Backspace' || e.key === 'Delete') && sel >= 0) {
-    marks.splice(sel, 1); sel = Math.min(sel, marks.length - 1); renderMarks(); draw(last); e.preventDefault();
+    marks.splice(sel, 1); sel = Math.min(sel, marks.length - 1); renderMarks(); updateTruth(); draw(last); e.preventDefault();
   }
   if (sel >= 0 && (e.key === '<' || e.key === ',')) { marks[sel].th -= Math.PI / 90; marks[sel].thDeg = +(marks[sel].th * 180 / Math.PI).toFixed(1); renderMarks(); draw(last); }
   if (sel >= 0 && (e.key === '>' || e.key === '.')) { marks[sel].th += Math.PI / 90; marks[sel].thDeg = +(marks[sel].th * 180 / Math.PI).toFixed(1); renderMarks(); draw(last); }
@@ -351,7 +367,7 @@ function addMarkAt(x, y, th) {
     stamp: [ +probe.maj.toFixed(1), +probe.min.toFixed(1) ],
     nearestCounted: +near.toFixed(1),
     verdict: ov < 0.75 ? 'no-pill' : (near < probe.min * 0.9 ? 'counted' : 'MISSED') });
-  renderMarks();
+  renderMarks(); updateTruth();
 }
 function addMark() {
   if (!last) return;
@@ -373,6 +389,71 @@ $('#copy').onclick = () => {
   navigator.clipboard.writeText(JSON.stringify(marks, null, 1));
   $('#copy').textContent = 'copied ✓'; setTimeout(() => $('#copy').textContent = 'copy marks as JSON', 1200);
 };
+let truthMode = false;
+$('#truthmode').onclick = () => {
+  truthMode = !truthMode;
+  $('#truthmode').textContent = 'truth mode: ' + (truthMode ? 'ON' : 'OFF');
+  $('#truthbox').hidden = !truthMode;
+  updateTruth(); draw(last);
+};
+function updateTruth() {
+  $('#truthn').textContent = marks.length;
+  const exp = expectedFor($('#img').value);
+  $('#truthexp').textContent = exp != null ? `label says ${exp}` : '';
+  $('#truthn').className = 'big ' + (exp == null ? '' : marks.length === exp ? 'ok' : 'warn');
+}
+let EXPECTED = {};
+function expectedFor(file) {
+  const base = file.includes('/') ? file.split('/').pop() : file;
+  return EXPECTED[file] ?? EXPECTED[base] ?? null;
+}
+$('#loadtruth').onclick = async () => {
+  const base = $('#img').value.split('/').pop().replace(/\.\w+$/, '');
+  try {
+    const doc = await (await fetch(`testdata/centers/${base}.json`, { cache: 'no-store' })).json();
+    const sc = doc.size && doc.size[0] ? probe.w / doc.size[0] : 1;  // native -> working
+    marks = doc.centers.map(([x, y]) => ({ file: $('#img').value, x: +(x * sc).toFixed(1), y: +(y * sc).toFixed(1),
+      th: 0, thDeg: 0, overlap: 0, stamp: [probe.maj, probe.min], verdict: 'truth', nearestCounted: 0 }));
+    renderMarks(); updateTruth(); draw(last);
+    $('#loadtruth').textContent = `loaded ${marks.length}`;
+    setTimeout(() => { $('#loadtruth').textContent = 'load truth'; }, 1500);
+  } catch { $('#loadtruth').textContent = 'none on file'; setTimeout(() => { $('#loadtruth').textContent = 'load truth'; }, 1500); }
+};
+$('#savetruth').onclick = async () => {
+  const file = $('#img').value;
+  const sc = probe.scale > 0 ? 1 / probe.scale : 1;
+  const body = {
+    file,
+    size: [Math.round(probe.w * sc), Math.round(probe.h * sc)],
+    expected: expectedFor(file),
+    centers: marks.map((m) => [+(m.x * sc).toFixed(1), +(m.y * sc).toFixed(1)]),
+    note: `annotated in truth mode; label said ${expectedFor(file)}`,
+  };
+  $('#savemsg').textContent = 'saving…';
+  try {
+    const r = await (await fetch('api/truth', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
+    $('#savemsg').innerHTML = r.ok
+      ? `<span style="color:var(--ok)">saved ${r.count} centers${r.agrees === false ? ' — DISAGREES with the label, which is the useful part' : ''}</span>`
+      : `<span style="color:var(--bad)">${r.error}</span>`;
+  } catch (e) { $('#savemsg').innerHTML = `<span style="color:var(--bad)">${e.message}</span>`; }
+};
+$('#exporttruth').onclick = () => {
+  const file = $('#img').value;
+  const base = file.split('/').pop().replace(/\.\w+$/, '');
+  // export in NATIVE image pixels, the schema testdata/centers/*.json uses
+  const sc = probe.scale > 0 ? 1 / probe.scale : 1;   // working px -> native px
+  const doc = {
+    image: 'testdata/' + file,
+    size: [Math.round(probe.w * sc), Math.round(probe.h * sc)],
+    method: 'hand-annotated in /pill/stamp truth mode, one dot per pill, verified by eye at zoom',
+    count: marks.length,
+    centers: marks.map((m) => [+(m.x * sc).toFixed(1), +(m.y * sc).toFixed(1)]),
+  };
+  const blob = new Blob([JSON.stringify(doc, null, 1)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = base + '.json'; a.click();
+};
 $('#auto').onclick = () => {
   autoRot = !autoRot;
   if (autoRot) freeAng = null; else if (last) freeAng = last.th;
@@ -384,10 +465,21 @@ $('#img').onchange = async () => { marks = []; renderMarks(); await load($('#img
 
 (async () => {
   $('#status').textContent = 'loading engine…';
+  const qs = new URLSearchParams(location.search);
   cvlib = await loadCV('vendor/opencv.js');
   const files = await manifest();
+  for (const [pfx, u] of [['', 'testdata/expected.json'], ['real/', 'testdata/real/expected.json'],
+                          ['lined/', 'testdata/lined/expected.json'], ['shiny/', 'testdata/shiny/expected.json'],
+                          ['approx/', 'testdata/approx/expected.json']]) {
+    try { const e = await (await fetch(u, { cache: 'no-store' })).json();
+      for (const [k, v] of Object.entries(e)) EXPECTED[pfx + k] = typeof v === 'object' ? v.count : v;
+    } catch { /* set not deployed */ }
+  }
   $('#img').innerHTML = files.map((f) => `<option ${f.includes('cream-caplets') ? 'selected' : ''}>${f}</option>`).join('');
+  const want = qs.get('img');
+  if (want && files.includes(want)) $('#img').value = want;
   await load($('#img').value);
+  if (qs.get('truth') === '1') $('#truthmode').click();
 })();
 </script>
 </body>

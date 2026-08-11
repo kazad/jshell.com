@@ -306,6 +306,7 @@
             <div style="margin-top:6px;display:flex;gap:10px">
               <a href="#" class="dbg-link" data-file="${file}" style="font-size:11px;color:#7ac">debug trace</a>
               <a href="?auto=0&img=${encodeURIComponent(file)}" style="font-size:11px;color:#7ac">run live</a>
+              <a href="stamp.html?img=${encodeURIComponent(file)}&truth=1" style="font-size:11px;color:#3ddc97;font-weight:700">review / annotate →</a>
               ${r.stages ? `<a href="#" class="stg-link" data-file="${file}" style="font-size:11px;color:#e9a13b">stages</a>` : ''}
             </div>
           </div>`;

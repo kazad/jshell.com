@@ -3155,15 +3155,85 @@ export function countPills(cv, source, opts = {}) {
       // what distinguishes the two cases: on the paper-towel photo the short
       // blobs are weave nubs at ~5% of a pill's area, while on the dense
       // synthetic they are real tablets at full area.
+      //
+      // THE ON-EDGE HOLE IN BOTH GUARDS. As written above, the two thresholds
+      // (1.4x disagreement, displaced blobs under 0.35x area) describe only
+      // ONE way unitLen collapses: sub-pill DEBRIS in the short half. There is
+      // a second way, and the corpus contains it. When a specular photo shreds
+      // the mask, a large share of real beads read as ON-EDGE — full length,
+      // but only ~2/3 the flat area, the ratio this file already documents in
+      // five other places (lines 2599, 2978, 3215: "an on-edge pill keeps ~2/3
+      // of the flat area"). Those beads are real pills, so the area guard
+      // rightly refuses to call them debris — but they still drag unitLen down,
+      // and nothing else catches it.
+      //
+      // Measured on s-0bfc44d8 (34 beads, one medication). The template pool is
+      // HEALTHY here — 31 of 43 blobs vouched, tplMajor 69.9 against a true
+      // bead major of ~83 — so the premise that the pool collapses on ragged
+      // boundaries does not hold; solidity survives the shredding (31 blobs
+      // score >=0.90, eleven of them at 1.000). What fails is downstream:
+      //   unitLen  53.0   tplMajor 69.9   ratio 1.32  -> under the 1.4 trigger
+      //   displaced blobs: median area 1080 vs tplArea 1624 = 0.665x
+      // The ratio misses the trigger by 6%, and 0.665 is nowhere near 0.35, so
+      // BOTH guards refuse and unitLen stays collapsed. That collapse is what
+      // over-splits in lloyd: 39 counted for 34 true, all 8 spurious from it.
+      //
+      // So the area guard needs a SECOND arm, not a looser bar. 0.35 keeps its
+      // original meaning (sub-pill debris); the new arm admits the on-edge
+      // band, which is bounded ABOVE as well as below — an on-edge pill loses
+      // area, a full-size tablet does not. The upper bound is what preserves
+      // the dense-synthetic case the original guard was written for:
+      //   s-0bfc44d8 (fix wanted)          0.665x  -> inside  [0.50, 0.80]
+      //   s-eb90778f (fix must not fire)   0.983x  -> outside, full-size pills
+      // Verified by forcing the override unconditionally: it corrects
+      // s-0bfc44d8 (39->33, spurious 8->2) and breaks the dense synthetic
+      // (60->50), which is exactly the pair this band must separate.
+      //
+      // TWO MORE CONDITIONS, both measured over the whole 251-image corpus by
+      // logging this decision on every image. The area band ALONE is not
+      // enough: five images fall inside it, and two are the touching-tablet
+      // synthetics the original guard exists to protect.
+      //
+      //   synth2-rc-gradient-small-n60-t65-s171  R 0.508  lenR 1.951  shortN 7
+      //   synth2-rc-kraft-small-n12-t65-s259     R 0.739  lenR 1.529  shortN 4
+      //   synth2-rc-kraft-small-n60-t65-s261     R 0.665  lenR 0.997  shortN 4
+      //   t2-beige-round-cluster-black-1         R 0.570  lenR 1.249  shortN 19
+      //   t2-beige-round-cluster-black-2         R 0.613  lenR 1.293  shortN 27
+      //   s-0bfc44d8 (the target)                R 0.665  lenR 1.320  shortN 20
+      //
+      // lenR < 1.4 — the collapse must be MILD. A 1.95x disagreement is the
+      // clump signature the 1.4 bar was built to catch: the pool itself holds
+      // touching pairs and tplMajor is measuring two tablets, not one. An
+      // on-edge collapse cannot be that large, because on-edge pills KEEP
+      // their length; only the short half of the distribution sags.
+      //
+      // shortN >= 10 — the displaced set must be a POPULATION, not a handful.
+      // This is the same "one medication per photo" invariant the splotch
+      // population guard rests on: 20 of 43 blobs reading on-edge is a real
+      // subpopulation; 4 of them is a coincidence of a few touching tablets.
+      //
+      // Together these admit only the two t2-beige images besides the target,
+      // and neither moves (verified: both gates clean).
+      //
+      // The trigger widens to 1.25 for the same reason — 1.4 was calibrated on
+      // the debris case, where the collapse is 2-3x. An on-edge collapse is
+      // milder by construction, so it lands just under the old bar at 1.32.
+      const shortAreasAll = blobList
+        .filter((l) => ((blobAxis.get(l) || {}).major || 0) > 0
+          && (blobAxis.get(l).major) <= 1.35 * unitLen)
+        .map((l) => blobAreas[l]);
+      const displacedR = shortAreasAll.length >= 3 && tplArea > 0
+        ? median(shortAreasAll) / tplArea : null;
+      const onEdgeBand = displacedR !== null
+        && displacedR >= 0.50 && displacedR <= 0.80
+        && shortAreasAll.length >= 10
+        && unitLen > 0 && tplMajor < 1.4 * unitLen;
       if (tplMajor > 0 && tplPool.length >= 5
-        && (unitLen <= 0 || tplMajor > 1.4 * unitLen)) {
-        const shortAreas = blobList
-          .filter((l) => ((blobAxis.get(l) || {}).major || 0) > 0
-            && (blobAxis.get(l).major) <= 1.35 * unitLen)
-          .map((l) => blobAreas[l]);
+        && (unitLen <= 0 || tplMajor > (onEdgeBand ? 1.25 : 1.4) * unitLen)) {
+        const shortAreas = shortAreasAll;
         const shortAreMinor = shortAreas.length >= 3
           && tplArea > 0 && median(shortAreas) < 0.35 * tplArea;
-        if (unitLen <= 0 || shortAreMinor) {
+        if (unitLen <= 0 || shortAreMinor || onEdgeBand) {
           opts.debug?.({ stage: 'shapelen', from: +unitLen.toFixed(1), to: +tplMajor.toFixed(1), vouched: tplPool.length });
           unitLen = tplMajor;
         }
