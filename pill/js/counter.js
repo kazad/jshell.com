@@ -4844,6 +4844,10 @@ export function countPills(cv, source, opts = {}) {
       // signature — cleaned mask explains <0.65 of the otsu mask. The shiny
       // signature (glare-shredded blobs, HIGH otsu coverage) must not reach
       // them: measured, that path was a +4 overcount on the shiny pair.
+      // learned stamp kernel (data-driven silhouette), surfaced by the
+      // arbiter when the photo's pills are not stadiums — the template card
+      // must show it instead of the parametric silhouette
+      let stampKernelCard = null;
       if (opts.variant === 'consensus' && stampOtsu && regions.length) {
         const tS0 = Date.now();
         const bwd = bw.data;
@@ -4998,6 +5002,7 @@ export function countPills(cv, source, opts = {}) {
             unownedSeeds,
             debug: opts.debug,
           });
+          if (verdict && verdict.kernel) stampKernelCard = verdict.kernel;
           const before = count;
           // FABRICATION GUARD. Stress battery: on ruled paper the otsu
           // retry can tile the RULING and fabricate 400 pills for 14. Every
@@ -5112,14 +5117,28 @@ export function countPills(cv, source, opts = {}) {
               putC(ox + cell / 2 + lx * c2 - ly * s2, oy + cell / 2 + lx * s2 + ly * c2, 40, 220, 120);
             }
           });
-          // the stamp silhouette, solid, at true scale
+          // the stamp silhouette, solid, at true scale. When the arbiter
+          // learned a data-driven kernel (pentagons, scored tablets...),
+          // show THAT shape — the parametric stadium would be a lie about
+          // what was actually stamped.
           {
             const ox = 4 + singles2.length * cell, oy = 4;
-            const a2 = Math.max(0, (tMaj - tMin) / 2), rho = tMin / 2;
-            for (let dy = 0; dy < cell; dy++) for (let dx = 0; dx < cell; dx++) {
-              const u = dx - cell / 2, v = dy - cell / 2;
-              const du = Math.max(0, Math.abs(u) - a2);
-              if (du * du + v * v <= rho * rho) putC(ox + dx, oy + dy, 255, 176, 32);
+            const kk = stampKernelCard;
+            if (kk && kk.grid) {
+              for (let dy = 0; dy < cell; dy++) for (let dx = 0; dx < cell; dx++) {
+                const u = dx - cell / 2, v = dy - cell / 2;
+                const gx2 = Math.floor((u / (kk.KSPAN * kk.maj) + 0.5) * kk.KG);
+                const gy2 = Math.floor((v / (kk.KSPAN * kk.min) + 0.5) * kk.KG);
+                if (gx2 < 0 || gy2 < 0 || gx2 >= kk.KG || gy2 >= kk.KG) continue;
+                if (kk.grid[gy2 * kk.KG + gx2]) putC(ox + dx, oy + dy, 255, 176, 32);
+              }
+            } else {
+              const a2 = Math.max(0, (tMaj - tMin) / 2), rho = tMin / 2;
+              for (let dy = 0; dy < cell; dy++) for (let dx = 0; dx < cell; dx++) {
+                const u = dx - cell / 2, v = dy - cell / 2;
+                const du = Math.max(0, Math.abs(u) - a2);
+                if (du * du + v * v <= rho * rho) putC(ox + dx, oy + dy, 255, 176, 32);
+              }
             }
           }
           emit('template', { data: card, width: cardW, height: cardH });

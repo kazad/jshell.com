@@ -80,6 +80,181 @@ function boundPts(maj, min) {
   return bd;
 }
 
+// ===================== DATA-DRIVEN STAMP KERNEL =====================
+// The parametric stadium family cannot represent pentagons, scored tablets
+// or hearts: measured on t2-salmon-pentagon-tablets-teal, the fitted circle
+// template clips every corner, explains only 0.736 of the mask and reads 81
+// for an audited 90. The kernel is the MEDIAN SILHOUETTE learned from the
+// photo itself: each thickness-vetted single candidate's binary mask is
+// rotation-normalized (principal axis to 0, plus an IoU alignment search —
+// valid because only near-isotropic shapes need it), resampled onto a
+// common KG x KG grid in units of its own fitted major/minor, averaged, and
+// thresholded at 0.5. The stadium remains the fallback when evidence is
+// thin (cands < 4), the silhouette is unstable across candidates (median
+// aligned IoU < KERNEL_ALIGN_MIN), or the silhouette IS a stadium (IoU vs
+// the parametric stadium >= KERNEL_STAD_MAX — then the kernel would only
+// add numeric drift, never information).
+const KG = 64;          // kernel grid resolution
+const KSPAN = 1.3;      // grid covers KSPAN*maj x KSPAN*min about the centre
+// Measured separation on the corpus: a REAL consistent non-stadium shape
+// aligns tightly (pentagon otsu 0.955, s301 rounds 0.936, stable beige
+// rounds 0.98+); glare-shredded or eroded masks align at 0.86-0.905
+// (s-eb90778f final 0.862 / chroma 0.905 — activating there cost a real
+// bead, 36-for-37). 0.92 sits in the measured gap.
+const KERNEL_ALIGN_MIN = 0.92;
+const KERNEL_STAD_MAX = 0.93;
+
+function kernAt(kern, u, v, maj, min) {
+  const gx = Math.floor((u / (KSPAN * maj) + 0.5) * KG);
+  const gy = Math.floor((v / (KSPAN * min) + 0.5) * KG);
+  if (gx < 0 || gy < 0 || gx >= KG || gy >= KG) return 0;
+  return kern.g[gy * KG + gx];
+}
+
+// interior sample points of the kernel silhouette (same density as basePts)
+function basePtsK(maj, min, kern) {
+  const pts = [], step = Math.max(1.2, min / 7);
+  const HU = KSPAN * maj / 2, HV = KSPAN * min / 2;
+  for (let u = -HU; u <= HU; u += step) for (let v = -HV; v <= HV; v += step) {
+    if (kernAt(kern, u, v, maj, min)) pts.push([u, v]);
+  }
+  return pts.length >= 8 ? pts : basePts(maj, min);
+}
+
+// boundary points + outward normals from the silhouette's own contour.
+// Normals transform with the inverse scale (surface-normal law); at the
+// learned aspect the scale is ~uniform so this is exact where it matters.
+function boundPtsK(maj, min, kern) {
+  const raw = [];
+  for (const [pu, pv, gu, gv] of kern.bnd) {
+    const u = pu * maj, v = pv * min;
+    let nx = gu / Math.max(1e-6, maj), ny = gv / Math.max(1e-6, min);
+    const L = Math.hypot(nx, ny) || 1; nx /= L; ny /= L;
+    raw.push([u, v, nx, ny, Math.atan2(v, u)]);
+  }
+  raw.sort((A, B) => A[4] - B[4]);
+  const bd = [], stepLen = 2.5;
+  let last = null;
+  for (const p of raw) {
+    if (last && Math.hypot(p[0] - last[0], p[1] - last[1]) < stepLen) continue;
+    bd.push([p[0], p[1], p[2], p[3]]); last = p;
+  }
+  return bd.length >= 6 ? bd : boundPts(maj, min);
+}
+
+const gridIoU = (A, B) => {
+  let i = 0, u = 0;
+  for (let k = 0; k < KG * KG; k++) { if (A[k] && B[k]) i++; if (A[k] || B[k]) u++; }
+  return u ? i / u : 0;
+};
+
+// resample one candidate blob's mask into its normalized frame; rot is an
+// extra in-plane alignment rotation applied in that frame.
+function sampleCandGrid(b, rot, lab, w, h) {
+  const g = new Uint8Array(KG * KG);
+  const ct = Math.cos(b.theta), st = Math.sin(b.theta);
+  const cr = Math.cos(rot), sr = Math.sin(rot);
+  for (let gy = 0; gy < KG; gy++) for (let gx = 0; gx < KG; gx++) {
+    const nu = ((gx + 0.5) / KG - 0.5) * KSPAN, nv = ((gy + 0.5) / KG - 0.5) * KSPAN;
+    const ru = nu * cr - nv * sr, rv = nu * sr + nv * cr;
+    const u = ru * b.major, v = rv * b.minor;
+    const x = Math.round(b.cx + u * ct - v * st), y = Math.round(b.cy + u * st + v * ct);
+    if (x < 0 || y < 0 || x >= w || y >= h) continue;
+    if (lab[y * w + x] === b.l) g[gy * KG + gx] = 1;
+  }
+  return g;
+}
+
+// Learn the median silhouette from the vetted single candidates. Returns
+// { kernel|null, medAlign, iouStad, note } — the caller applies the gates.
+function learnKernel(cands, lab, w, h) {
+  const grids = cands.map((b) => sampleCandGrid(b, 0, lab, w, h));
+  // medoid reference: the candidate whose unrotated grid agrees most with
+  // the rest (a mis-fit candidate must not define the frame)
+  let ref = 0, refSum = -1;
+  for (let i = 0; i < grids.length; i++) {
+    let s = 0;
+    for (let j = 0; j < grids.length; j++) if (j !== i) s += gridIoU(grids[i], grids[j]);
+    if (s > refSum) { refSum = s; ref = i; }
+  }
+  const mean = new Float32Array(KG * KG);
+  const aligns = [];
+  for (let i = 0; i < grids.length; i++) {
+    let bestG = grids[i], bestI = gridIoU(grids[i], grids[ref]);
+    if (i !== ref) {
+      // alignment search mod the shape's own symmetry (10-degree steps);
+      // principal-axis theta is noise for near-isotropic shapes (a regular
+      // pentagon's covariance is ~isotropic), so averaging without this
+      // would round the corners right back off
+      for (let k = 1; k < 36; k++) {
+        const g2 = sampleCandGrid(cands[i], k * Math.PI / 18, lab, w, h);
+        const io = gridIoU(g2, grids[ref]);
+        if (io > bestI) { bestI = io; bestG = g2; }
+      }
+    }
+    aligns.push(bestI);
+    for (let k = 0; k < KG * KG; k++) mean[k] += bestG[k];
+  }
+  for (let k = 0; k < KG * KG; k++) mean[k] /= grids.length;
+  const kg = new Uint8Array(KG * KG);
+  for (let k = 0; k < KG * KG; k++) kg[k] = mean[k] >= 0.5 ? 1 : 0;
+  // fill interior holes (imprints/score lines carve the mask): flood the
+  // outside from the border, everything unreached becomes silhouette
+  {
+    const out = new Uint8Array(KG * KG), st = [];
+    for (let k = 0; k < KG; k++) {
+      for (const i2 of [k, (KG - 1) * KG + k, k * KG, k * KG + KG - 1]) {
+        if (!kg[i2] && !out[i2]) { out[i2] = 1; st.push(i2); }
+      }
+    }
+    while (st.length) {
+      const i2 = st.pop(), x2 = i2 % KG, y2 = (i2 / KG) | 0;
+      if (x2 > 0 && !kg[i2 - 1] && !out[i2 - 1]) { out[i2 - 1] = 1; st.push(i2 - 1); }
+      if (x2 < KG - 1 && !kg[i2 + 1] && !out[i2 + 1]) { out[i2 + 1] = 1; st.push(i2 + 1); }
+      if (y2 > 0 && !kg[i2 - KG] && !out[i2 - KG]) { out[i2 - KG] = 1; st.push(i2 - KG); }
+      if (y2 < KG - 1 && !kg[i2 + KG] && !out[i2 + KG]) { out[i2 + KG] = 1; st.push(i2 + KG); }
+    }
+    for (let k = 0; k < KG * KG; k++) if (!kg[k] && !out[k]) kg[k] = 1;
+  }
+  const medAlign = med(aligns);
+  // parametric stadium at the candidates' own median fit, same grid
+  const cMaj = med(cands.map((c) => c.major)), cMin = med(cands.map((c) => c.minor));
+  const sg = new Uint8Array(KG * KG);
+  {
+    const a = (cMaj - cMin) / 2, rho = cMin / 2, rho2 = rho * rho;
+    for (let gy = 0; gy < KG; gy++) for (let gx = 0; gx < KG; gx++) {
+      const u = (((gx + 0.5) / KG - 0.5) * KSPAN) * cMaj;
+      const v = (((gy + 0.5) / KG - 0.5) * KSPAN) * cMin;
+      const du = Math.max(0, Math.abs(u) - a);
+      if (du * du + v * v <= rho2) sg[gy * KG + gx] = 1;
+    }
+  }
+  const iouStad = gridIoU(kg, sg);
+  let nFg = 0;
+  for (let k = 0; k < KG * KG; k++) if (kg[k]) nFg++;
+  const areaFrac = (nFg / (KG * KG)) * KSPAN * KSPAN; // area in maj*min units
+  // boundary cells + normals from the mean-field gradient (radial fallback)
+  const bnd = [];
+  for (let gy = 1; gy < KG - 1; gy++) for (let gx = 1; gx < KG - 1; gx++) {
+    const i2 = gy * KG + gx;
+    if (!kg[i2]) continue;
+    if (kg[i2 - 1] && kg[i2 + 1] && kg[i2 - KG] && kg[i2 + KG]) continue;
+    let gxv = 0, gyv = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const m = mean[(gy + dy) * KG + gx + dx];
+      gxv += dx * m; gyv += dy * m;
+    }
+    let nx = -gxv, ny = -gyv;
+    const L = Math.hypot(nx, ny);
+    const pu = ((gx + 0.5) / KG - 0.5) * KSPAN, pv = ((gy + 0.5) / KG - 0.5) * KSPAN;
+    if (L < 1e-6) { const r = Math.hypot(pu, pv) || 1; nx = pu / r; ny = pv / r; }
+    else { nx /= L; ny /= L; }
+    bnd.push([pu, pv, nx, ny]);
+  }
+  return { kernel: { g: kg, mean, bnd, areaFrac, medAlign, iouStad },
+    medAlign, iouStad, cMaj, cMin };
+}
+
 // 4-connected labeling of a 0/1 foreground map (no cv Mats needed here).
 function labelBlobs(fg, w, h) {
   const blob = new Int32Array(w * h).fill(-1);
@@ -128,8 +303,20 @@ export function stampArbitrate(cv, env) {
 
   const pipeSingles = regions.filter((g) => (g.units || 1) === 1 && g.shape);
 
-  function claimStadium(claimed, cx, cy, maj, min, th, inset) {
+  function claimStadium(claimed, cx, cy, maj, min, th, inset, kern) {
     const c = Math.cos(th), s = Math.sin(th);
+    if (kern) {
+      // rasterize the learned silhouette instead of the stadium
+      const R = KSPAN * Math.max(maj, min) / 2 + 1;
+      for (let y = Math.max(0, (cy - R) | 0); y <= Math.min(h - 1, (cy + R) | 0); y++) {
+        for (let x = Math.max(0, (cx - R) | 0); x <= Math.min(w - 1, (cx + R) | 0); x++) {
+          const rx = x - cx, ry = y - cy;
+          const u = (rx * c + ry * s) / inset, v = (-rx * s + ry * c) / inset;
+          if (kernAt(kern, u, v, maj, min)) claimed[y * w + x] = 1;
+        }
+      }
+      return;
+    }
     const a = inset * (maj - min) / 2, rho = inset * min / 2, R = maj / 2 + 1;
     for (let y = Math.max(0, (cy - R) | 0); y <= Math.min(h - 1, (cy + R) | 0); y++) {
       for (let x = Math.max(0, (cx - R) | 0); x <= Math.min(w - 1, (cx + R) | 0); x++) {
@@ -308,11 +495,30 @@ export function stampArbitrate(cv, env) {
     MAJ *= SHRINK; MIN *= SHRINK;
     const D0 = Math.max(2, MIN / 4);
 
+    // ---- DATA-DRIVEN STAMP KERNEL: learn the median silhouette from the
+    // vetted candidates; keep the stadium unless the evidence is strong
+    // (>= 4 candidates), stable (median aligned IoU), and genuinely
+    // non-stadium (IoU vs the parametric stadium below KERNEL_STAD_MAX).
+    let kernel = null;
+    if (cands.length >= 4) {
+      const lk = learnKernel(cands, lab, w, h);
+      const active = lk.medAlign >= KERNEL_ALIGN_MIN && lk.iouStad < KERNEL_STAD_MAX;
+      if (active) kernel = lk.kernel;
+      debug?.({ stage: 'stampkernel', tag, cands: cands.length,
+        medAlign: +lk.medAlign.toFixed(3), iouStad: +lk.iouStad.toFixed(3),
+        active, areaFrac: +lk.kernel.areaFrac.toFixed(3),
+        grid: Array.from(lk.kernel.g).join('') });
+    } else {
+      debug?.({ stage: 'stampkernel', tag, cands: cands.length, active: false });
+    }
+    // area of one template pill under the active shape model
+    const shapeArea = (maj, min) => kernel ? kernel.areaFrac * maj * min : stadArea(maj, min);
+
     // ---- ANCHORS (trust test, ASYMMETRIC area band: only area ABOVE implied
     // disqualifies — below-implied is mask erosion on a real single).
     const IMPLIED = radiusEst > 0
-      ? stadArea(Math.max(2 * radiusEst, MAJ0 * (2 * radiusEst) / MIN0 || MAJ0), 2 * radiusEst)
-      : stadArea(MAJ0, MIN0);
+      ? shapeArea(Math.max(2 * radiusEst, MAJ0 * (2 * radiusEst) / MIN0 || MAJ0), 2 * radiusEst)
+      : shapeArea(MAJ0, MIN0);
     const anchors = [], contested = [];
     const noAnchor = env.noAnchor || null;
     for (const g of regions) {
@@ -429,7 +635,8 @@ export function stampArbitrate(cv, env) {
       return best;
     }
 
-    const mainPts = basePts(MAJ, MIN), mainBd = boundPts(MAJ, MIN);
+    const mainPts = kernel ? basePtsK(MAJ, MIN, kernel) : basePts(MAJ, MIN);
+    const mainBd = kernel ? boundPtsK(MAJ, MIN, kernel) : boundPts(MAJ, MIN);
 
     // edge-gate calibration: G0 = 0.6 x median boundary |luma step| of the
     // pool at their own poses.
@@ -455,10 +662,13 @@ export function stampArbitrate(cv, env) {
     // ---- SELF-CALIBRATION on candidates at their own poses incl. EXACT theta
     const none = new Uint8Array(w * h);
     const selfScores = [], selfEdges = [];
+    // kernel shapes need the full 2*pi (a pentagon has no 180-degree
+    // symmetry); same angular resolution as K over pi
+    const selfN = kernel ? 2 * K : K, selfSpan = kernel ? 2 * Math.PI : Math.PI;
     for (const g of pool) {
       let best = -9, bth = 0;
-      for (let k = 0; k < K; k++) {
-        const th = k * Math.PI / K;
+      for (let k = 0; k < selfN; k++) {
+        const th = k * selfSpan / selfN;
         const sc = covScore(mainPts, g.cx, g.cy, th, none);
         if (sc > best) { best = sc; bth = th; }
       }
@@ -523,9 +733,14 @@ export function stampArbitrate(cv, env) {
     function peelPass(o2) {
       const { maj, min, tau, claimed: cl, allow, useEdgeGate, slabTie, src = 'main' } = o2;
       strictBg = !!slabTie;
-      const pts = basePts(maj, min), bd = boundPts(maj, min);
+      // the learned kernel drives the MAIN peel only; the circle-raft and
+      // on-edge retries carry their own (parametric) template hypotheses
+      const useK = !!(kernel && src === 'main');
+      const pts = useK ? basePtsK(maj, min, kernel) : basePts(maj, min);
+      const bd = useK ? boundPtsK(maj, min, kernel) : boundPts(maj, min);
       if (slabTie) pts.vCore = 0.3 * min;
-      const Kn = maj / min < 1.02 ? 1 : K;
+      const Kn = useK ? 2 * K : (maj / min < 1.02 ? 1 : K);
+      const thSpan = useK ? 2 * Math.PI : Math.PI;
       const stride = Math.max(2, (min / 3) | 0);
       const gw = Math.ceil(w / stride), gh = Math.ceil(h / stride);
       const gs = new Float32Array(gw * gh).fill(-9);
@@ -536,7 +751,7 @@ export function stampArbitrate(cv, env) {
         // flush pill's centre; the score itself polices over-claims
         if (x >= w || y >= h || !fg[y * w + x] || (allow && !allow[y * w + x])) { gs[gi] = -9; return; }
         let bs = -9, bk = 0;
-        for (let k = 0; k < Kn; k++) { const sc = covScore(pts, x, y, k * Math.PI / Kn, cl); if (sc > bs) { bs = sc; bk = k; } }
+        for (let k = 0; k < Kn; k++) { const sc = covScore(pts, x, y, k * thSpan / Kn, cl); if (sc > bs) { bs = sc; bk = k; } }
         gs[gi] = bs; gk[gi] = bk;
       };
       for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) rescore(gx, gy);
@@ -581,7 +796,7 @@ export function stampArbitrate(cv, env) {
           for (let i = 0; i < gs.length; i++) {
             if (gs[i] < Math.max(bs - 0.12, tau)) continue;
             const x = (i % gw) * stride, y = ((i / gw) | 0) * stride;
-            const th = gk[i] * Math.PI / Kn;
+            const th = gk[i] * thSpan / Kn;
             const c = Math.cos(th), s = Math.sin(th);
             let free = 0;
             for (const [u, v, nu, nv] of bd) {
@@ -600,12 +815,12 @@ export function stampArbitrate(cv, env) {
         const barrier = o2.seedVetoes ? vetoed : null;
         for (let dy = -stride; dy <= stride; dy += 2) for (let dx = -stride; dx <= stride; dx += 2) {
           for (let k = 0; k < Kn; k++) {
-            if (barrier && barrier(pts0.x + dx, pts0.y + dy, k * Math.PI / Kn)) continue;
-            const sc = covScore(pts, pts0.x + dx, pts0.y + dy, k * Math.PI / Kn, cl);
+            if (barrier && barrier(pts0.x + dx, pts0.y + dy, k * thSpan / Kn)) continue;
+            const sc = covScore(pts, pts0.x + dx, pts0.y + dy, k * thSpan / Kn, cl);
             if (sc > best.s) best = { s: sc, x: pts0.x + dx, y: pts0.y + dy, k };
           }
         }
-        const rf = refine(pts, best.x, best.y, best.k * Math.PI / Kn, cl, barrier);
+        const rf = refine(pts, best.x, best.y, best.k * thSpan / Kn, cl, barrier);
         if (rf.s < tau) { gs[bi] = -9; continue; }
         if (vetoed(rf.x, rf.y, rf.th)) { gs[bi] = -9; continue; }
         // 0.5 overlap cap: mostly re-claiming an explained pill
@@ -629,13 +844,13 @@ export function stampArbitrate(cv, env) {
         if (sMed > 0 && rf.s < 0.7 * sMed) {
           debug?.({ stage: 'stampveto', kind: 'fit-floor', x: rf.x, y: rf.y,
             fit: +rf.s.toFixed(3) });
-          claimStadium(cl, rf.x, rf.y, maj, min, rf.th, 0.9);
+          claimStadium(cl, rf.x, rf.y, maj, min, rf.th, 0.9, useK ? kernel : null);
           localRescore(rf.x, rf.y);
           continue;
         }
         // interior photometry: claim-but-don't-count on obvious non-pill
         const cdv = colDist(sampleRGB(rf.x, rf.y));
-        claimStadium(cl, rf.x, rf.y, maj, min, rf.th, 0.9);
+        claimStadium(cl, rf.x, rf.y, maj, min, rf.th, 0.9, useK ? kernel : null);
         localRescore(rf.x, rf.y);
         // Allowance clamped: self-calibration ballooned past 516 on the
         // pentagon photo (varied faces inflate colThr) and the veto never
@@ -674,7 +889,7 @@ export function stampArbitrate(cv, env) {
     // a pill.
     if (o.slabTie && placed.length) {
       const R2 = (0.35 * MIN) * (0.35 * MIN);
-      const margin = 0.35 * stadArea(MAJ, MIN) / Math.max(1, totalFg);
+      const margin = 0.35 * shapeArea(MAJ, MIN) / Math.max(1, totalFg);
       let tries = 0;
       for (const p of [...placed]) {
         if (tries >= 4) break;
@@ -682,7 +897,7 @@ export function stampArbitrate(cv, env) {
         tries++;
         const claimedR = new Uint8Array(w * h);
         claimAnchors(claimedR);
-        for (const q of placed) if (q !== p) claimStadium(claimedR, q.x, q.y, q.maj, q.min, q.th, 0.9);
+        for (const q of placed) if (q !== p) claimStadium(claimedR, q.x, q.y, q.maj, q.min, q.th, 0.9, q.src === 'main' ? kernel : null);
         const others = placed.filter((q) => q !== p);
         const placedR = peelPass({ maj: MAJ, min: MIN, tau: TAU, claimed: claimedR,
           allow: o.allow, useEdgeGate: true, slabTie: o.slabTie,
@@ -703,7 +918,7 @@ export function stampArbitrate(cv, env) {
     // explains more.
     let retried = '';
     if (o.raftOK && expl < 0.65 && clusterFrac < 0.7) {
-      const bigArea = 3 * stadArea(MAJ, MIN);
+      const bigArea = 3 * shapeArea(MAJ, MIN);
       const bigLabels = new Set(blobs.filter((b) => b.area > bigArea).map((b) => b.l));
       const findMaxima = (RAD) => {
         const out = [];
@@ -786,10 +1001,112 @@ export function stampArbitrate(cv, env) {
       }
     }
 
+    // PHYSICS RE-SEAT (kernel analyses only). On the pentagon honeycomb the
+    // coverage score is a plateau inside every pill, so a placement can sit
+    // up to ~stride/2 off-centre; the physics check then reads a REAL
+    // neighbour pair as interpenetration and kills it (measured: 7 vetoes,
+    // d 38-53 vs need 53.9, all seven on true pills — the whole remaining
+    // undercount). Second chance, the owner's own recipe ("try the stamp at
+    // various positions"): rebuild the claim map WITHOUT the loser, let the
+    // stamp re-refine into the freed material (the claims themselves form
+    // the gradient that pushes it off the winner), then accept only if the
+    // new pose clears physics against every kept placement AND scores past
+    // the fit floor on the freed material. A phantom (advil double-ring)
+    // has no freed material — its pill stays claimed by the winner — so it
+    // re-scores near zero and stays dead.
+    const reseat = !kernel ? null : (loser, kept) => {
+      const clR = new Uint8Array(w * h);
+      claimAnchors(clR);
+      for (const q of kept) if (!q.anchor) {
+        claimStadium(clR, q.x, q.y, q.maj, q.min, q.th, 0.9, q.src === 'main' ? kernel : null);
+      }
+      const segP = (q) => {
+        const a2 = Math.max(0, (q.maj - q.min) / 2), pts2 = [];
+        for (let t = -1; t <= 1; t += 0.34)
+          pts2.push([q.x + Math.cos(q.th) * a2 * t, q.y + Math.sin(q.th) * a2 * t]);
+        return pts2;
+      };
+      const clearOf = (P) => kept.every((q) => {
+        let dmin = 1e9;
+        for (const [xa, ya] of segP(P)) for (const [xb, yb] of segP(q)) {
+          const d3 = Math.hypot(xa - xb, ya - yb);
+          if (d3 < dmin) dmin = d3;
+        }
+        return dmin >= 0.72 * (P.min + q.min) / 2;
+      });
+      // greedy refine cannot escape the coverage plateau (measured: all 7
+      // losers re-refined to their own vetoed pose). Explicit position
+      // search instead — every pose in a template-radius window that
+      // ALREADY clears physics — then a 1px barrier-guarded polish.
+      // Scoring is over UNCLAIMED points only: in a honeycomb a true pill's
+      // rim points sit under its neighbours' 0.9-inset claims and dilute
+      // plain coverage below the fit floor (measured 0.683/0.624 on real
+      // pills); what matters is whether the FREED material reads as pill.
+      // The free-fraction guard is what keeps phantoms dead: a double-ring
+      // sits on material its winner still claims (free ~0), a real pill's
+      // own body is free (measured 0.55-0.9).
+      const scoreFree = (cx2, cy2, th2) => {
+        const c2 = Math.cos(th2), s2 = Math.sin(th2);
+        let sum = 0, nf = 0;
+        for (const [u, v] of mainPts) {
+          const x2 = (cx2 + u * c2 - v * s2) | 0, y2 = (cy2 + u * s2 + v * c2) | 0;
+          if (x2 < 0 || y2 < 0 || x2 >= w || y2 >= h) { sum -= 1.4; nf++; continue; }
+          const i2 = y2 * w + x2;
+          if (clR[i2]) continue;
+          nf++;
+          if (fg[i2]) sum += 1; else sum -= 1.4 * Math.min(1, dtOut[i2] / D0);
+        }
+        return { s: nf ? sum / nf : -9, free: nf / mainPts.length };
+      };
+      const RW = Math.max(6, (0.55 * loser.min) | 0);
+      const barrier = (x2, y2, th2) => !clearOf({ x: x2, y: y2, th: th2, maj: loser.maj, min: loser.min });
+      let seed = null;
+      for (let dy = -RW; dy <= RW; dy += 3) for (let dx = -RW; dx <= RW; dx += 3) {
+        const x2 = loser.x + dx, y2 = loser.y + dy;
+        for (let dk = -2; dk <= 2; dk++) {
+          const th2 = loser.th + dk * Math.PI / 12;
+          if (barrier(x2, y2, th2)) continue;
+          const sc = scoreFree(x2, y2, th2);
+          if (!seed || sc.s > seed.s) seed = { s: sc.s, free: sc.free, x: x2, y: y2, th: th2 };
+        }
+      }
+      let rf = seed || { s: -9, free: 0, x: loser.x, y: loser.y, th: loser.th };
+      if (seed) {
+        for (let round = 0; round < 8; round++) {
+          let improved = false;
+          for (const [dx, dy, dth] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0],
+            [0, 0, Math.PI / 48], [0, 0, -Math.PI / 48]]) {
+            const x2 = rf.x + dx, y2 = rf.y + dy, th2 = rf.th + dth;
+            if (barrier(x2, y2, th2)) continue;
+            const sc = scoreFree(x2, y2, th2);
+            if (sc.s > rf.s) { rf = { s: sc.s, free: sc.free, x: x2, y: y2, th: th2 }; improved = true; }
+          }
+          if (!improved) break;
+        }
+      }
+      const sMed = med(selfScores);
+      const why = (k2) => debug?.({ stage: 'reseatfail', why: k2,
+        from: [Math.round(loser.x), Math.round(loser.y)],
+        to: [Math.round(rf.x), Math.round(rf.y)], s: +rf.s.toFixed(3),
+        free: +(+rf.free).toFixed(2) });
+      if (rf.free < 0.35) return why('free'), null;
+      if (rf.s < Math.max(TAU, sMed > 0 ? 0.7 * sMed : 0)) return why('floor'), null;
+      const P = { x: rf.x, y: rf.y, th: rf.th, maj: loser.maj, min: loser.min };
+      if (!clearOf(P)) return why('physics'), null;
+      if (overlapFrac(mainPts, rf.x, rf.y, rf.th, clR) > 0.5) return why('overlap'), null;
+      const cdv = colDist(sampleRGB(rf.x, rf.y));
+      if (cdv > Math.max(200, Math.min(2.5 * colThr, 320))) return why('photo'), null;
+      return { x: rf.x, y: rf.y, th: rf.th, s: rf.s, maj: loser.maj, min: loser.min,
+        src: 'main', photo: Math.round(cdv), edge: null };
+    };
+
     fgMat.delete(); labMat.delete(); distMat.delete();
     return { placed, anchors, claimed, expl, fg, MAJ, MIN, TAU, tplSrc, clusterFrac,
-      cands, radiusEst, selfMed: med(selfScores), retried, edgeNote, tag };
+      cands, radiusEst, selfMed: med(selfScores), retried, edgeNote, tag, kernel, reseat };
   }
+
+  // one-pill area under the shape model a given analysis actually used
+  const resArea = (r, maj, min) => r.kernel ? r.kernel.areaFrac * maj * min : stadArea(maj, min);
 
   // ======================= main flow =======================
   // Label the FINAL mask once: attribution, allow mask, and arbitration all
@@ -888,7 +1205,7 @@ export function stampArbitrate(cv, env) {
   // chroma-adds block after the main arbitration).
   let chromaRes = null, chromaNote = '';
   if (maskNote !== 'otsu' && fgChroma && arbitrable.size) {
-    const AREA0 = stadArea(res.MAJ / SHRINK, res.MIN / SHRINK);
+    const AREA0 = resArea(res, res.MAJ / SHRINK, res.MIN / SHRINK);
     let unexpl = 0;
     for (let i = 0; i < w * h; i++) if (allow[i] && !res.claimed[i]) unexpl++;
     if (unexpl > 0.6 * AREA0) {
@@ -985,14 +1302,33 @@ export function stampArbitrate(cv, env) {
       // real beige pills); the advil double-ring sits at 0.63x. The band
       // between is empty on every measured photo.
       const need = 0.72 * (A.min + B.min) / 2;
-      if (segDist(A, B) >= need) continue;
+      const dAB = segDist(A, B);
+      if (dAB >= need) continue;
       const loser = A.anchor ? B : B.anchor ? A : (A.s <= B.s ? A : B);
       if (loser.anchor) continue;   // two anchors never fight
       dead.add(loser);
+      const winner = loser === A ? B : A;
       debug?.({ stage: 'stampveto', kind: 'physics',
-        x: Math.round(loser.x), y: Math.round(loser.y), fit: +(+loser.s).toFixed(3) });
+        x: Math.round(loser.x), y: Math.round(loser.y), fit: +(+loser.s).toFixed(3),
+        wx: Math.round(winner.x), wy: Math.round(winner.y), wfit: +(+winner.s).toFixed(3),
+        d: +dAB.toFixed(1), need: +need.toFixed(1) });
     }
-    if (dead.size) res.placed = res.placed.filter((p2) => !dead.has(p2));
+    if (dead.size) {
+      const kept = all.filter((p2) => !dead.has(p2));
+      const rescued = [];
+      if (res.reseat) {
+        for (const loser of dead) {
+          if (loser.src !== 'main') continue;
+          const r2 = res.reseat(loser, kept.concat(rescued));
+          if (r2) {
+            rescued.push(r2);
+            debug?.({ stage: 'stampreseat', from: [Math.round(loser.x), Math.round(loser.y)],
+              to: [Math.round(r2.x), Math.round(r2.y)], fit: +r2.s.toFixed(3) });
+          }
+        }
+      }
+      res.placed = res.placed.filter((p2) => !dead.has(p2)).concat(rescued);
+    }
   }
 
   const mkPill = (p) => ({
@@ -1037,7 +1373,7 @@ export function stampArbitrate(cv, env) {
       const pills = ps.map(mkPill);
       const cx = ps.reduce((a, p) => a + p.x, 0) / ps.length;
       const cy = ps.reduce((a, p) => a + p.y, 0) / ps.length;
-      add.push({ cx, cy, area: b >= 0 ? ol.blobArea[b] : ps.length * stadArea(res.MAJ, res.MIN),
+      add.push({ cx, cy, area: b >= 0 ? ol.blobArea[b] : ps.length * resArea(res, res.MAJ, res.MIN),
         units: ps.length, confidence: 'high', arc: true, stamp: true, pills });
     }
     const total = res.anchors.length + res.placed.length;
@@ -1064,7 +1400,7 @@ export function stampArbitrate(cv, env) {
     }
     const claimedFgPerBlob = new Float64Array(nBlobs);
     for (let i = 0; i < w * h; i++) if (fgFinal[i] && res.claimed[i]) claimedFgPerBlob[blob[i]]++;
-    const AREA = stadArea(res.MAJ / SHRINK, res.MIN / SHRINK);
+    const AREA = resArea(res, res.MAJ / SHRINK, res.MIN / SHRINK);
     // Blobs that are THEMSELVES thickness-vetted stadium candidates (IoU >=
     // 0.8, waist-vetted): an unowned blob may only be added as a pill on
     // that evidence, or on an edge/raft-pass placement (those passes carry
@@ -1177,7 +1513,7 @@ export function stampArbitrate(cv, env) {
     }
     const clFgByH = new Float64Array(hl.nBlobs);
     for (let i = 0; i < w * h; i++) if (chromaRes.fg[i] && chromaRes.claimed[i] && hl.blob[i] >= 0) clFgByH[hl.blob[i]]++;
-    const AREAH = stadArea(chromaRes.MAJ / SHRINK, chromaRes.MIN / SHRINK);
+    const AREAH = resArea(chromaRes, chromaRes.MAJ / SHRINK, chromaRes.MIN / SHRINK);
     const candH = new Set();
     for (const c of chromaRes.cands || []) {
       const b = hAt(c.cx, c.cy);
@@ -1260,10 +1596,18 @@ export function stampArbitrate(cv, env) {
   }
   maskNote += chromaNote;
 
+  // learned-silhouette handoff for the counter's template card: the card
+  // must show the shape the stamp ACTUALLY used, not the assumed stadium
+  const kernelOut = res.kernel ? {
+    grid: res.kernel.g, KG, KSPAN,
+    maj: res.MAJ / SHRINK, min: res.MIN / SHRINK,
+    areaFrac: res.kernel.areaFrac,
+    medAlign: res.kernel.medAlign, iouStad: res.kernel.iouStad,
+  } : null;
   if (!remove.size && !add.length && countDelta === 0) {
     return { maskUsed: res.tag, expl: res.expl, retried: res.retried, edgeNote: res.edgeNote,
-      maskNote, remove, add, countDelta: 0, changed: false };
+      maskNote, remove, add, countDelta: 0, changed: false, kernel: kernelOut };
   }
   return { maskUsed: res.tag, expl: res.expl, retried: res.retried, edgeNote: res.edgeNote,
-    maskNote, remove, add, countDelta, changed: true };
+    maskNote, remove, add, countDelta, changed: true, kernel: kernelOut };
 }
