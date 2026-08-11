@@ -3,7 +3,7 @@
  "issues": {
   "shiny/s-0bfc44d8.jpg": {
    "status": "root-cause-found",
-   "note": "MECHANISM CORRECTED (33v36). NOT split-by-glare: 13/13 vetted beads have the bright specular stripe INSIDE the mask. The mask loses the SHADOWED side \u2014 measured twice independently: 36% of magenta bead material (37855 px, 32 components median 1082px) falls OUTSIDE the mask, because shadowed bead surface is luminance-dark with modest chroma and trips colorDist shadow-damping. Ellipse reunification was built and honestly fired ZERO times: every measured inter-fragment gap is DARK (-0.30..-0.70), so there is no bright specular gap to merge across and merging would cross real contact seams. Fix belongs at segmentation (recover the dark half), in flight."
+   "note": "MECHANISM CORRECTED (33v36). NOT split-by-glare: 13/13 vetted beads have the bright specular stripe INSIDE the mask. The mask loses the SHADOWED side \u2014 measured twice independently: 36% of magenta bead material (37855 px, 32 components median 1082px) falls OUTSIDE the mask, because shadowed bead surface is luminance-dark with modest chroma and trips colorDist shadow-damping. Ellipse reunification was built and honestly fired ZERO times: every measured inter-fragment gap is DARK (-0.30..-0.70), so there is no bright specular gap to merge across and merging would cross real contact seams. Fix belongs at segmentation (recover the dark half), in flight. | ATTEMPTED AND DISQUALIFIED (measured, not shipped): global hueAware fixes the mask (36.5%->2.3% lost) but costs counts everywhere \u2014 s-0bfc 33->28, s-eb 37->34, r-7ff7fd99 19->12, r-295482c1 19->28. Shadow-gate hue variants: same corpus damage. Adjacency rescue: BROKE advil-2/3 (30->31). ROOT OF THE IMPASSE: the mask loss is LOAD-BEARING \u2014 s-eb90778f's perfect 37 comes entirely from the stamp arbiter keying on the shredded mask (stamp:false gives 31), and ONE dilation step drops it 37->31, chaotically not monotonically. UPPER BOUND: even a perfect magenta mask implies only 34 beads (truth 36) \u2014 fixing segmentation alone cannot deliver the count. Any real fix must re-derive the arbiter's shiny-path signature in the same change."
   },
   "lined/lined-503b3041.jpg": {
    "status": "detection-improved-count-open",
@@ -76,6 +76,9 @@
   },
   "gate-blindspot": {
    "note": "CLOSED 2026-08-11 by tools/perpill.mjs (baseline tools/baselines/perpill.json, 407/444 matched, 37 missed, 24 spurious over 24 annotated images). The count gate is blind to detection quality \u2014 proven when two agent patches that would have silently reverted shipped per-pill fixes both gated GREEN on counts. Run BOTH gates before any counter commit."
+  },
+  "perpill-blind-on-shiny": {
+   "note": "testdata/centers/ has NO annotations for the two shiny photos, so tools/perpill.mjs cannot see mask/detection quality there \u2014 exactly the images where counts are least trustworthy. Hand-annotate them before the next shiny attempt."
   }
  }
 }
