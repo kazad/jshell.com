@@ -2078,7 +2078,21 @@ export function countPills(cv, source, opts = {}) {
     if (emit) {
       const dn = new cv.Mat(src.rows, src.cols, cv.CV_8UC1);
       const dnd = dn.data;
-      for (let i = 0; i < dd.length; i++) dnd[i] = Math.min(255, (dd[i] / mm.maxVal) * 255) | 0;
+      // Normalize to PILL scale (2x half-width), not the global max: one
+      // fused mega-blob's deep interior made every individual pill render
+      // near-black (field report: "it became really faint").
+      // Self-contained pill-scale estimate (everything else here is TDZ):
+      // the 95th percentile of nonzero DT values. Pills dominate the
+      // foreground area, so p95 sits at pill half-width even when one fused
+      // mega-blob's core runs far deeper.
+      let dtScale = 4;
+      {
+        const nz = [];
+        for (let i = 0; i < dd.length; i += 7) if (dd[i] > 0) nz.push(dd[i]);
+        if (nz.length > 50) { nz.sort((a2, b2) => a2 - b2); dtScale = Math.max(4, nz[(nz.length * 0.95) | 0] * 1.3); }
+        else dtScale = Math.max(4, mm.maxVal);
+      }
+      for (let i = 0; i < dd.length; i++) dnd[i] = Math.min(255, (dd[i] / dtScale) * 255) | 0;
       emit('disttransform', grayToStage(dn));
       dn.delete();
     }
@@ -2341,6 +2355,7 @@ export function countPills(cv, source, opts = {}) {
 
     let activeMd = md;
     let out2Template = null;   // template card info, filled by the debug emit
+    let stampKernelUsed = null, stampFgUsed = null;   // for the match-map stage
     let unitArea = 0;
 
     // 'geometry' variant: classify every mask region by shape before counting.
@@ -5009,6 +5024,8 @@ export function countPills(cv, source, opts = {}) {
           // legitimate rescue measured to date multiplies the count by at
           // most ~2.2x (beige 41 -> 90); a verdict beyond 3x + 8 is the
           // stamp counting the board, and the whole arbitration is refused.
+          if (verdict && verdict.kernel) stampKernelUsed = verdict.kernel;
+          if (verdict && verdict.fgUsed && verdict.maskUsed !== 'final') stampFgUsed = verdict.fgUsed;
           const fab = verdict && verdict.changed
             && (before + verdict.countDelta) > 3 * Math.max(1, before) + 8;
           if (fab) {
@@ -5155,6 +5172,120 @@ export function countPills(cv, source, opts = {}) {
             }
           }
           emit('template', { data: card, width: cardW, height: cardH });
+
+          // MATCH MAP (owner: "try to overlay [the expected shape] on the
+          // images to see where it is matched"). The learned kernel — or
+          // the stadium template when no kernel was learned — scored at
+          // every position over the surface the count actually used.
+          // Bright green = the expected pill fits here. Peaks should sit on
+          // pills and nowhere else; a peak on board is a phantom-in-waiting,
+          // a pill with no peak is a miss-in-waiting.
+          {
+            // Fallback surface = the colour-distance cut, NOT activeMd>0:
+            // watershed gives the BACKGROUND a label too, so activeMd>0 is
+            // ~the whole frame (first render: solid green everywhere).
+            const surf = stampFgUsed
+              || (() => { const f2 = new Uint8Array(w * h); const db2 = distBg.data;
+                   for (let i2 = 0; i2 < w * h; i2++) f2[i2] = db2[i2] > otsuThr ? 1 : 0;
+                   return f2; })();
+            // sample points: kernel grid if learned, else stadium
+            const pts2 = [];
+            if (stampKernelUsed && stampKernelUsed.grid) {
+              const kg = stampKernelUsed.grid, KG = stampKernelUsed.KG, SPAN = stampKernelUsed.KSPAN;
+              const step2 = Math.max(1, (KG / 9) | 0);
+              for (let gy = 0; gy < KG; gy += step2) for (let gx = 0; gx < KG; gx += step2) {
+                if (kg[gy * KG + gx]) pts2.push([(gx / KG - 0.5) * SPAN, (gy / KG - 0.5) * SPAN]);
+              }
+            } else {
+              const a3 = Math.max(0, (tMaj - tMin) / 2), rho3 = tMin / 2;
+              const st3 = Math.max(2, tMin / 6);
+              for (let u = -tMaj / 2; u <= tMaj / 2; u += st3) for (let v = -tMin / 2; v <= tMin / 2; v += st3) {
+                const du = Math.max(0, Math.abs(u) - a3);
+                if (du * du + v * v <= rho3 * rho3) pts2.push([u, v]);
+              }
+            }
+            const rots = (tMaj / Math.max(1, tMin)) < 1.15 ? [0, Math.PI / 5] : [0, 1, 2, 3, 4, 5].map((k3) => k3 * Math.PI / 6);
+            const stride3 = Math.max(3, (tMin / 5) | 0);
+            const heat = new Float32Array(w * h);
+            const thMap = new Float32Array(w * h);
+            let hMax = 0;
+            for (let y = 0; y < h; y += stride3) for (let x = 0; x < w; x += stride3) {
+              if (!surf[y * w + x]) continue;
+              let best3 = 0, bth3 = 0;
+              for (const th3 of rots) {
+                const c3 = Math.cos(th3), s3 = Math.sin(th3);
+                let inF = 0;
+                for (const [u, v] of pts2) {
+                  const xi = (x + u * c3 - v * s3) | 0, yi = (y + u * s3 + v * c3) | 0;
+                  if (xi >= 0 && yi >= 0 && xi < w && yi < h && surf[yi * w + xi]) inF++;
+                }
+                const sc3 = inF / pts2.length;
+                if (sc3 > best3) { best3 = sc3; bth3 = th3; }
+              }
+              heat[y * w + x] = best3;
+              thMap[y * w + x] = bth3;
+              if (best3 > hMax) hMax = best3;
+            }
+            const mmap = new Uint8ClampedArray(w * h * 4);
+            for (let i2 = 0; i2 < w * h; i2++) {
+              const p2 = i2 * 4;
+              mmap[p2] = src.data[p2] * 0.30; mmap[p2 + 1] = src.data[p2 + 1] * 0.30;
+              mmap[p2 + 2] = src.data[p2 + 2] * 0.30; mmap[p2 + 3] = 255;
+            }
+            // Raw coverage saturates inside piles (everything "fits" when
+            // fully surrounded) — the diagnostic form is PEAKS: local maxima
+            // at pill spacing, each drawn as the expected outline. Expect
+            // one outline per pill; an outline on board = phantom risk, a
+            // pill without one = miss risk.
+            if (hMax > 0) {
+              // width-only separation over-suggests along a capsule's axis;
+              // geometric mean respects elongation (round: ~= tMin anyway)
+              const sep = Math.max(4, (Math.sqrt(tMaj * tMin) * 0.8) | 0);
+              const peaks2 = [];
+              for (let y = 0; y < h; y += stride3) for (let x = 0; x < w; x += stride3) {
+                const v3 = heat[y * w + x];
+                if (v3 < 0.8 * hMax) continue;
+                let isMax = true;
+                for (let dy = -sep; dy <= sep && isMax; dy += stride3) for (let dx = -sep; dx <= sep; dx += stride3) {
+                  const xi = x + dx, yi = y + dy;
+                  if (xi < 0 || yi < 0 || xi >= w || yi >= h || (dx === 0 && dy === 0)) continue;
+                  if (heat[yi * w + xi] > v3) { isMax = false; break; }
+                }
+                if (isMax) peaks2.push([x, y]);
+              }
+              // greedy min-separation cull (grid maxima can tie in plateaus)
+              const kept2 = [];
+              for (const [x, y] of peaks2) {
+                let ok2 = true;
+                for (const [kx, ky] of kept2) if (Math.hypot(x - kx, y - ky) < sep) { ok2 = false; break; }
+                if (ok2) kept2.push([x, y]);
+              }
+              const putM = (x, y) => {
+                const xi = x | 0, yi = y | 0;
+                if (xi < 1 || yi < 1 || xi >= w - 1 || yi >= h - 1) return;
+                for (let a2 = -1; a2 <= 0; a2++) for (let b2 = -1; b2 <= 0; b2++) {
+                  const p3 = ((yi + a2) * w + (xi + b2)) * 4;
+                  mmap[p3] = 60; mmap[p3 + 1] = 255; mmap[p3 + 2] = 140;
+                }
+              };
+              for (const [x, y] of kept2) {
+                // expected outline at the peak, AT ITS WINNING ROTATION
+                const a3 = Math.max(0, (tMaj - tMin) / 2), rho3 = tMin / 2;
+                const th4 = thMap[y * w + x], c4 = Math.cos(th4), s4 = Math.sin(th4);
+                for (let k3 = 0; k3 < 120; k3++) {
+                  const phi = k3 * Math.PI * 2 / 120;
+                  const cc = Math.abs(Math.cos(phi)), ss = Math.abs(Math.sin(phi));
+                  let R;
+                  if (ss < 1e-6) R = a3 + rho3;
+                  else { const r1 = rho3 / ss; R = (r1 * cc <= a3) ? r1 : a3 * cc + Math.sqrt(Math.max(0, a3 * a3 * cc * cc - a3 * a3 + rho3 * rho3)); }
+                  const lx = Math.cos(phi) * R, ly = Math.sin(phi) * R;
+                  putM(x + lx * c4 - ly * s4, y + lx * s4 + ly * c4);
+                }
+                putM(x, y); putM(x + 1, y); putM(x, y + 1);
+              }
+            }
+            emit('matchmap', { data: mmap, width: w, height: h });
+          }
           const primCounts = {};
           for (const g2 of singles2) primCounts[g2.shape.primitive] = (primCounts[g2.shape.primitive] || 0) + 1;
           const domPrim = Object.entries(primCounts).sort((x2, y2) => y2[1] - x2[1])[0];

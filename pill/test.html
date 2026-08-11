@@ -130,6 +130,8 @@
   <div id="analysis" style="display:none; gap:16px; flex-wrap:wrap; margin-bottom:18px; align-items:flex-start"></div>
   <h2 id="fail-head" class="sec" hidden>Misses — exact count wrong</h2>
   <div id="grid-fail" class="grid"></div>
+  <h2 id="known-head" class="sec" hidden>Known issues — documented, not forgotten</h2>
+  <div id="grid-known" class="grid"></div>
   <h2 id="pass-head" class="sec" hidden>Exact</h2>
   <div id="grid-pass" class="grid"></div>
   <div id="zoom"></div>
@@ -139,7 +141,7 @@
 
     const $ = (s) => document.querySelector(s);
     const statusEl = $('#status'), summary = $('#summary'), zoom = $('#zoom');
-    const gridFail = $('#grid-fail'), gridPass = $('#grid-pass');
+    const gridFail = $('#grid-fail'), gridPass = $('#grid-pass'), gridKnown = $('#grid-known');
 
     // Pass: within max(1, 10%); warn: within 30%; fail: worse.
     const grade = (got, exp) => {
@@ -157,6 +159,7 @@
       ['mask-otsu', '4 threshold'], ['mask-final', '5 cleaned'],
       ['disttransform', '6 dist-xform'], ['markers', '7 seeds'],
       ['geometry', '8 fitted shapes'], ['mask-used', '5b mask the count USED'],
+      ['matchmap', '9 where the shape matches'],
       ['template', '0 the pill, as learned'],
     ];
 
@@ -211,6 +214,7 @@
       cv = await loadCV('vendor/opencv.js');
       for (const b of ['#run', '#run-syn', '#run-real']) $(b).disabled = false;
       if (baked && auto !== 'live') {
+        await loadKnownIssues();
         renderBaked(baked);
       } else if (auto !== '0') {
         statusEl.textContent = `${manifest.length} images · engine ready · ${version}`;
@@ -270,6 +274,12 @@
     // Render the build-time results: same pass/fail split as a live run, but
     // counts-only (no per-image overlay — those need the actual pass, which
     // is what "Run all" is for).
+    let knownIssues = {};
+    async function loadKnownIssues() {
+      try {
+        knownIssues = (await (await fetch('docs/known-issues.json', { cache: 'no-store' })).json()).issues || {};
+      } catch { knownIssues = {}; }
+    }
     function renderBaked(baked) {
       gridFail.innerHTML = ''; gridPass.innerHTML = '';
       const rows = Object.entries(baked.results);
@@ -307,9 +317,25 @@
           ev.preventDefault();
           showBakedStages(file, r);
         });
-        (isExact ? gridPass : gridFail).appendChild(card);
+        // THE STANDARD (owner): 100% exact OR documented known issue. A miss
+        // with a ledger entry is triaged work-in-record, not a failure; a
+        // miss WITHOUT one is a triage bug and stays loud at the top.
+        const ki = !isExact && knownIssues[file];
+        if (ki) {
+          const b = document.createElement('div');
+          b.style.cssText = 'font-size:10px;padding:3px 8px;margin:0 12px 10px;border-radius:6px;background:#2a2416;color:#e9a13b';
+          b.textContent = `KNOWN ISSUE (${ki.status}): ${ki.note}`;
+          card.appendChild(b);
+          card.style.opacity = '0.75';
+          gridKnown.appendChild(card);
+        } else (isExact ? gridPass : gridFail).appendChild(card);
       }
-      $('#fail-head').hidden = false; $('#pass-head').hidden = false;
+      $('#fail-head').hidden = gridFail.children.length === 0;
+      $('#known-head').hidden = gridKnown.children.length === 0;
+      $('#pass-head').hidden = false;
+      $('#fail-head').textContent = gridFail.children.length
+        ? `Misses — NOT triaged (${gridFail.children.length}) — this section must be empty`
+        : '';
       const stamp = new Date(baked.generated).toLocaleString();
       // A stale bake is worse than no bake: say so loudly rather than quietly
       // showing numbers that no longer describe the shipped counter.

@@ -1,0 +1,23 @@
+{
+  "standard": "every image EXACT or listed here with mechanism+status; an unlisted miss is a triage bug",
+  "issues": {
+    "approx/t3-cream-caplets-wood.jpg": {"status": "measured-limit", "note": "45v48: last 3 behind photometry vetoes, chroma coverage 0.09-0.59 vs 0.6 vouch bar; lowering = tuning into noise (measured)"},
+    "shiny/s-0bfc44d8.jpg": {"status": "deliberate", "note": "33v36 honest-over-lucky: phantom removal shipped (bare-leather units=2 deleted, chroma 0.00); 3 real glare-wrecked beads stay behind the gate that blocked +8 phantoms"},
+    "lined/lined-503b3041.jpg": {"status": "documented-hard", "note": "embossed ruling bridges pills; research doc on file"},
+    "lined/lined-69204ff4.jpg": {"status": "documented-hard", "note": "same class, +1 side"},
+    "lined/lined-bfdbfef9.jpg": {"status": "documented-hard", "note": "same class"},
+    "real/r-7ff7fd99.jpg": {"status": "awaiting-ruling", "note": "the 20th pill is SHINGLED on its neighbour (7px perpendicular offset, single-layer impossible) - mild-stacking scope ruling"},
+    "synth2-rc-light-small-n30-t65-s140.png": {"status": "awaiting-ruling", "note": "camouflage class-C: per-pill random colours violate one-medication; regen ruling"},
+    "synth2-rc-light-normal-n30-t0-s144.png": {"status": "awaiting-ruling", "note": "camo class-C"},
+    "synth2-rc-light-large-n30-t35-s158.png": {"status": "awaiting-ruling", "note": "camo class-C"},
+    "synth2-rc-gradient-small-n12-t0-s161.png": {"status": "awaiting-ruling", "note": "camo class-C"},
+    "synth2-rc-gradient-small-n30-t65-s170.png": {"status": "awaiting-ruling", "note": "camo class-C"},
+    "synth2-rc-gradient-normal-n120-t65-s184.png": {"status": "label-dispute", "note": "annotation 106 vs manifest 104 - owner re-audit"},
+    "synth2-rc-noise-small-n60-t65-s201.png": {"status": "awaiting-ruling", "note": "camo class-C"},
+    "synth2-rc-wood-large-n30-t35-s248.png": {"status": "awaiting-ruling", "note": "camo class-C"},
+    "synth2-rc-wood-small-n12-t0-s221.png": {"status": "awaiting-ruling", "note": "camo class-C"},
+    "synth2-rc-kraft-normal-n12-t65-s271.png": {"status": "awaiting-ruling", "note": "camo class-C"},
+    "synth2-rc-kraft-large-n30-t35-s278.png": {"status": "awaiting-ruling", "note": "camo class-C"},
+    "synth2-rc-kraft-large-n12-t65-s279.png": {"status": "awaiting-ruling", "note": "camo class-C"}
+  }
+}
