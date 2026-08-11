@@ -58,7 +58,8 @@
     <div class="row"><span>best angle</span><span id="ang" class="big">—</span></div>
     <div class="row"><span>verdict</span><span id="verdict" class="big">—</span></div>
     <p style="margin-top:10px">Green outline = a stamp this good was <b>counted</b> nearby. Amber = good overlap but <b>nothing counted here</b> — that is a miss worth showing me.</p>
-    <p><b>Rotating:</b> scroll the wheel over the image, drag the angle slider, or press <kbd>S</kbd> to snap the stamp to the pill edges under the cursor (works inside piles, where overlap alone cannot tell). <kbd>[</kbd> <kbd>]</kbd> nudge 2° · <kbd>R</kbd> back to auto · <kbd>M</kbd> mark.</p>
+    <p><b>Placing stamps:</b> <b>click</b> the image to drop a stamp there. <b>Drag its middle</b> to move it, <b>drag an end</b> to rotate it onto the pill's axis. <kbd>,</kbd> <kbd>.</kbd> rotate the selected one 2° · <kbd>Delete</kbd> removes it. Each placed stamp shows live overlap and whether the counter got that pill.</p>
+    <p><b>Rotating the cursor stamp:</b> scroll the wheel over the image, drag the angle slider, or press <kbd>S</kbd> to snap the stamp to the pill edges under the cursor (works inside piles, where overlap alone cannot tell). <kbd>[</kbd> <kbd>]</kbd> nudge 2° · <kbd>R</kbd> back to auto · <kbd>M</kbd> mark.</p>
     <p style="color:var(--warn)">Inside a dense pile every angle covers ~100% foreground, so AUTO picks arbitrarily — that is expected, and why manual exists. Your marked angle is what tells me the true pill axis.</p>
     <h2 style="margin-top:12px">Marked misses</h2>
     <div id="log"><div style="color:var(--dim);border:0">none yet — hover a pill the counter skipped and press M</div></div>
@@ -199,9 +200,23 @@ function draw(cursor) {
   // counted placements, faint
   ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(61,220,151,.55)';
   for (const [px, py, pth] of probe.placements) outline(px, py, pth);
-  // marks
-  ctx.strokeStyle = '#e9a13b'; ctx.lineWidth = 2.5;
-  for (const m of marks) outline(m.x, m.y, m.th);
+  // placed marks: draggable stamps. Selected one is brighter with end grips.
+  marks.forEach((m, i) => {
+    ctx.strokeStyle = i === sel ? '#ffd479' : '#e9a13b';
+    ctx.lineWidth = i === sel ? 3.5 : 2.5;
+    outline(m.x, m.y, m.th);
+    if (i === sel) {
+      const a = Math.max(0, (probe.maj - probe.min) / 2);
+      for (const sgn of [1, -1]) {
+        ctx.beginPath();
+        ctx.arc(m.x + Math.cos(m.th) * a * sgn, m.y + Math.sin(m.th) * a * sgn, 5, 0, 6.284);
+        ctx.fillStyle = '#ffd479'; ctx.fill();
+      }
+    }
+    ctx.fillStyle = i === sel ? '#ffd479' : '#e9a13b';
+    ctx.font = 'bold 13px system-ui';
+    ctx.fillText(String(i + 1), m.x + 6, m.y - 6);
+  });
   if (cursor) {
     const { x, y, th, s } = cursor;
     const near = nearestPlacement(x, y);
@@ -229,11 +244,48 @@ function outline(x, y, th) {
   ctx.closePath(); ctx.stroke();
 }
 
-let last = null;
+let last = null, drag = null, sel = -1;
+const toImg = (e) => {
+  const r = cvEl.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * probe.w, y: (e.clientY - r.top) / r.height * probe.h };
+};
+const hitMark = (x, y) => {
+  // nearest placed stamp whose core contains the point (end zone = rotate)
+  for (let i = marks.length - 1; i >= 0; i--) {
+    const m = marks[i], dx = x - m.x, dy = y - m.y;
+    const c = Math.cos(-m.th), s = Math.sin(-m.th);
+    const u = dx * c - dy * s, v = dx * s + dy * c;
+    if (Math.abs(u) <= probe.maj / 2 + 4 && Math.abs(v) <= probe.min / 2 + 4) {
+      return { i, mode: Math.abs(u) > probe.maj / 2 - probe.min * 0.6 ? 'rot' : 'move' };
+    }
+  }
+  return null;
+};
+$('#stage').addEventListener('pointerdown', (e) => {
+  if (!probe) return;
+  const { x, y } = toImg(e);
+  const hit = hitMark(x, y);
+  if (hit) { sel = hit.i; drag = { ...hit, ox: x - marks[hit.i].x, oy: y - marks[hit.i].y }; }
+  else { addMarkAt(x, y, freeAng !== null ? freeAng : (last ? last.th : 0)); sel = marks.length - 1;
+         drag = { i: sel, mode: 'move', ox: 0, oy: 0 }; }
+  cvEl.setPointerCapture?.(e.pointerId);
+  draw(last);
+});
+$('#stage').addEventListener('pointerup', () => { drag = null; });
 $('#stage').addEventListener('pointermove', (e) => {
   if (!probe) return;
-  const r = cvEl.getBoundingClientRect();
-  const x = (e.clientX - r.left) / r.width * probe.w, y = (e.clientY - r.top) / r.height * probe.h;
+  if (drag) {
+    const { x, y } = toImg(e);
+    const m = marks[drag.i];
+    if (drag.mode === 'move') { m.x = +(x - drag.ox).toFixed(1); m.y = +(y - drag.oy).toFixed(1); }
+    else { m.th = +Math.atan2(y - m.y, x - m.x).toFixed(3); m.thDeg = +(m.th * 180 / Math.PI).toFixed(1); }
+    m.overlap = +scoreAt(m.x, m.y, m.th).toFixed(3);
+    m.nearestCounted = +nearestPlacement(m.x, m.y).toFixed(1);
+    m.verdict = m.overlap < 0.75 ? 'no-pill' : (m.nearestCounted < probe.min * 0.9 ? 'counted' : 'MISSED');
+    renderMarks(); draw(last);
+    return;
+  }
+  const { x, y } = toImg(e);
   const { th, s } = bestAngle(x, y);
   last = { x, y, th, s };
   report(last);
@@ -268,9 +320,24 @@ addEventListener('keydown', (e) => {
   if (e.key === 'm' || e.key === 'M') addMark();
   if (e.key === 's' || e.key === 'S') setAng(snapAngle(last.x, last.y));
   if (e.key === 'r' || e.key === 'R') { autoRot = true; freeAng = null; $('#auto').textContent = 'rotate: AUTO'; }
+  if ((e.key === 'Backspace' || e.key === 'Delete') && sel >= 0) {
+    marks.splice(sel, 1); sel = Math.min(sel, marks.length - 1); renderMarks(); draw(last); e.preventDefault();
+  }
+  if (sel >= 0 && (e.key === '<' || e.key === ',')) { marks[sel].th -= Math.PI / 90; marks[sel].thDeg = +(marks[sel].th * 180 / Math.PI).toFixed(1); renderMarks(); draw(last); }
+  if (sel >= 0 && (e.key === '>' || e.key === '.')) { marks[sel].th += Math.PI / 90; marks[sel].thDeg = +(marks[sel].th * 180 / Math.PI).toFixed(1); renderMarks(); draw(last); }
   if (e.key === '[') setAng((freeAng ?? last.th) - Math.PI / 90);
   if (e.key === ']') setAng((freeAng ?? last.th) + Math.PI / 90);
 });
+function addMarkAt(x, y, th) {
+  const near = nearestPlacement(x, y), ov = scoreAt(x, y, th);
+  marks.push({ file: $('#img').value, x: +x.toFixed(1), y: +y.toFixed(1),
+    thDeg: +(th * 180 / Math.PI).toFixed(1), th: +th.toFixed(3),
+    overlap: +ov.toFixed(3), manual: !autoRot,
+    stamp: [ +probe.maj.toFixed(1), +probe.min.toFixed(1) ],
+    nearestCounted: +near.toFixed(1),
+    verdict: ov < 0.75 ? 'no-pill' : (near < probe.min * 0.9 ? 'counted' : 'MISSED') });
+  renderMarks();
+}
 function addMark() {
   if (!last) return;
   marks.push({ file: $('#img').value, x: +last.x.toFixed(1), y: +last.y.toFixed(1),
