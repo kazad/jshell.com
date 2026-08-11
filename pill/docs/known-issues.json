@@ -2,8 +2,8 @@
  "standard": "every image EXACT or listed here with mechanism+status; an unlisted miss is a triage bug",
  "issues": {
   "shiny/s-0bfc44d8.jpg": {
-   "status": "deliberate",
-   "note": "33v36 honest-over-lucky: phantom removal shipped (bare-leather units=2 deleted, chroma 0.00); 3 real glare-wrecked beads stay behind the gate that blocked +8 phantoms"
+   "status": "root-cause-found",
+   "note": "MECHANISM CORRECTED (33v36). NOT split-by-glare: 13/13 vetted beads have the bright specular stripe INSIDE the mask. The mask loses the SHADOWED side \u2014 measured twice independently: 36% of magenta bead material (37855 px, 32 components median 1082px) falls OUTSIDE the mask, because shadowed bead surface is luminance-dark with modest chroma and trips colorDist shadow-damping. Ellipse reunification was built and honestly fired ZERO times: every measured inter-fragment gap is DARK (-0.30..-0.70), so there is no bright specular gap to merge across and merging would cross real contact seams. Fix belongs at segmentation (recover the dark half), in flight."
   },
   "lined/lined-503b3041.jpg": {
    "status": "detection-improved-count-open",

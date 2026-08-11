@@ -5504,7 +5504,14 @@ export function countPills(cv, source, opts = {}) {
                 if (du * du + v * v <= rho3 * rho3) pts2.push([u, v]);
               }
             }
-            const rots = (tMaj / Math.max(1, tMin)) < 1.15 ? [0, Math.PI / 5] : [0, 1, 2, 3, 4, 5].map((k3) => k3 * Math.PI / 6);
+            // 12 rotations, not 6: at 30-degree steps a capsule lying 15
+            // degrees off every sample loses enough coverage to fall under
+            // the bar, which is why isolated pills at arbitrary angles went
+            // unmarked while stage 8 outlined them perfectly. 15-degree
+            // steps bound the worst-case mismatch at 7.5 degrees.
+            const rots = (tMaj / Math.max(1, tMin)) < 1.15
+              ? [0, Math.PI / 5]
+              : Array.from({ length: 12 }, (_, k3) => k3 * Math.PI / 12);
             const stride3 = Math.max(3, (tMin / 5) | 0);
             const heat = new Float32Array(w * h);
             const thMap = new Float32Array(w * h);
@@ -5541,10 +5548,40 @@ export function countPills(cv, source, opts = {}) {
               // width-only separation over-suggests along a capsule's axis;
               // geometric mean respects elongation (round: ~= tMin anyway)
               const sep = Math.max(4, (Math.sqrt(tMaj * tMin) * 0.8) | 0);
+              // BAR CALIBRATED FROM THIS PHOTO'S OWN COUNTED PILLS, not
+              // assumed. Measured on r-7ff7fd99: coverage at the twenty
+              // hand-annotated TRUE centres ranges 0.63-0.95, because the
+              // mask erodes each pill slightly and a template-sized stamp
+              // therefore never reaches 1.0 on an isolated pill. A fixed
+              // 0.75 cut dropped exactly the six pills scoring below it —
+              // precisely the six marks missing from the render while
+              // stage 8 outlined them perfectly. Take the counted
+              // placements' own coverage and sit below their weakest.
+              let BAR = 0.6;
+              {
+                const selfCov = [];
+                for (const g2 of regions) {
+                  const list = (g2.pills && g2.pills.length) ? g2.pills
+                    : (g2.shape ? [{ cx: g2.cx, cy: g2.cy, theta: g2.shape.theta }] : []);
+                  for (const q2 of list) {
+                    const c4 = Math.cos(q2.theta), s4 = Math.sin(q2.theta);
+                    let on = 0;
+                    for (const [u, v] of pts2) {
+                      const xi = (q2.cx + u * c4 - v * s4) | 0, yi = (q2.cy + u * s4 + v * c4) | 0;
+                      if (xi >= 0 && yi >= 0 && xi < w && yi < h && surf[yi * w + xi]) on++;
+                    }
+                    selfCov.push(on / Math.max(1, pts2.length));
+                  }
+                }
+                if (selfCov.length >= 4) {
+                  selfCov.sort((x2, y2) => x2 - y2);
+                  BAR = Math.max(0.45, selfCov[(selfCov.length * 0.1) | 0] * 0.95);
+                }
+              }
               const peaks2 = [];
               for (let y = 0; y < h; y += stride3) for (let x = 0; x < w; x += stride3) {
                 const v3 = heat[y * w + x];
-                if (v3 < 0.8 * hMax) continue;
+                if (v3 < BAR) continue;
                 let isMax = true;
                 for (let dy = -sep; dy <= sep && isMax; dy += stride3) for (let dx = -sep; dx <= sep; dx += stride3) {
                   const xi = x + dx, yi = y + dy;
@@ -5553,7 +5590,10 @@ export function countPills(cv, source, opts = {}) {
                 }
                 if (isMax) peaks2.push([x, y]);
               }
-              // greedy min-separation cull (grid maxima can tie in plateaus)
+              // greedy min-separation cull (grid maxima tie on plateaus).
+              // Sort by score first: keeping scan-order winners left two
+              // marks on one pill in the reported render.
+              peaks2.sort((p1, p2) => heat[p2[1] * w + p2[0]] - heat[p1[1] * w + p1[0]]);
               const kept2 = [];
               for (const [x, y] of peaks2) {
                 let ok2 = true;
@@ -5569,7 +5609,9 @@ export function countPills(cv, source, opts = {}) {
                 }
               };
               for (const [x, y] of kept2) {
-                // expected outline at the peak, AT ITS WINNING ROTATION
+                // expected outline at the peak, AT ITS WINNING ROTATION,
+                // drawn at the SAME dims stage 8 uses so the two stages are
+                // directly comparable (they were visibly different sizes).
                 const a3 = Math.max(0, (tMaj - tMin) / 2), rho3 = tMin / 2;
                 const th4 = thMap[y * w + x], c4 = Math.cos(th4), s4 = Math.sin(th4);
                 for (let k3 = 0; k3 < 120; k3++) {
