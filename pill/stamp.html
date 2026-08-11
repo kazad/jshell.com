@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ValEye — stamp overlay tester</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --dim:#8a8f9e; --ok:#3ddc97; --warn:#e9a13b; --bad:#e2606f; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:#d9efe3; font:14px ui-rounded,-apple-system,system-ui,sans-serif; padding:14px; }
+  header { display:flex; gap:14px; align-items:baseline; flex-wrap:wrap; margin-bottom:10px; }
+  h1 { font-size:17px } h1 a { color:var(--dim); text-decoration:none; font-weight:400; font-size:13px }
+  select,button { background:var(--panel); color:inherit; border:1px solid #2b3b33; border-radius:9px; padding:7px 11px; font:inherit; cursor:pointer }
+  .wrap { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:14px; align-items:start }
+  @media (max-width:900px){ .wrap{ grid-template-columns:1fr } }
+  .stage { position:relative; background:#000; border-radius:12px; overflow:hidden; cursor:crosshair; touch-action:none }
+  .stage canvas { display:block; width:100%; height:auto }
+  #hud { position:absolute; inset:auto 8px 8px auto; background:rgba(9,12,18,.86); border-radius:9px; padding:7px 10px;
+         font:12px ui-monospace,Menlo,monospace; pointer-events:none; line-height:1.55 }
+  aside { background:var(--panel); border-radius:12px; padding:13px; font-size:13px; line-height:1.5 }
+  aside h2 { font-size:13px; margin:0 0 7px } aside p { color:var(--dim); margin:0 0 9px }
+  .row { display:flex; gap:8px; align-items:center; margin:7px 0; flex-wrap:wrap }
+  .big { font:700 21px ui-monospace,Menlo,monospace }
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  kbd { background:#222a33; border-radius:4px; padding:1px 5px; font:11px ui-monospace,monospace }
+  #log { margin-top:9px; max-height:210px; overflow:auto; font:11.5px ui-monospace,Menlo,monospace; color:#9fd4b8 }
+  #log div { padding:3px 0; border-top:1px solid #232c33 }
+</style>
+</head>
+<body>
+<header>
+  <h1>Stamp overlay tester <a href="test">← bench</a> <a href="./">app</a></h1>
+  <select id="img"></select>
+  <select id="surface">
+    <option value="photo">on photo</option>
+    <option value="mask" selected>on counting surface (green/black)</option>
+  </select>
+  <button id="auto">auto-rotate: ON</button>
+  <button id="mark">mark a miss here (M)</button>
+  <span id="status" style="color:var(--dim)"></span>
+</header>
+
+<div class="wrap">
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div id="hud">move the mouse…</div>
+  </div>
+  <aside>
+    <h2>What this does</h2>
+    <p>The stamp is the pill shape the counter <em>learned from this photo</em> — the same silhouette it counts with. Move the mouse: it lands the stamp under your cursor, spins it to the best angle, and reports how much of it falls on pill material.</p>
+    <div class="row"><span>overlap</span><span class="big" id="score">—</span></div>
+    <div class="row"><span>best angle</span><span id="ang" class="big">—</span></div>
+    <div class="row"><span>verdict</span><span id="verdict" class="big">—</span></div>
+    <p style="margin-top:10px">Green outline = a stamp this good was <b>counted</b> nearby. Amber = good overlap but <b>nothing counted here</b> — that is a miss worth showing me.</p>
+    <p><kbd>M</kbd> marks the spot · <kbd>R</kbd> free-rotate · <kbd>[</kbd> <kbd>]</kbd> nudge angle</p>
+    <h2 style="margin-top:12px">Marked misses</h2>
+    <div id="log"><div style="color:var(--dim);border:0">none yet — hover a pill the counter skipped and press M</div></div>
+    <button id="copy" style="margin-top:9px;width:100%">copy marks as JSON</button>
+  </aside>
+</div>
+
+<script type="module">
+import { loadCV, countPills } from './js/counter.js';
+
+const $ = (s) => document.querySelector(s);
+const cvEl = $('#cv'), ctx = cvEl.getContext('2d');
+let cvlib, probe = null, photo = null, autoRot = true, freeAng = null, marks = [];
+
+async function manifest() {
+  const sets = [['', 'testdata/expected.json'], ['real/', 'testdata/real/expected.json'],
+                ['lined/', 'testdata/lined/expected.json'], ['shiny/', 'testdata/shiny/expected.json'],
+                ['approx/', 'testdata/approx/expected.json']];
+  const out = [];
+  for (const [p, u] of sets) {
+    try { for (const f of Object.keys(await (await fetch(u, { cache:'no-store' })).json())) out.push(p + f); }
+    catch { /* set not deployed */ }
+  }
+  return out.sort();
+}
+
+async function load(file) {
+  $('#status').textContent = 'analysing ' + file + '…';
+  const im = new Image(); im.src = 'testdata/' + file; await im.decode();
+  const c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+  c.getContext('2d').drawImage(im, 0, 0);
+  const r = countPills(cvlib, c, { maxDim: 1280, variant: 'consensus', exportProbe: true });
+  if (!r.probe) { $('#status').textContent = 'no probe data (no template learned on this image)'; return; }
+  probe = r.probe;
+  // photo at the counter's working resolution
+  const pc = document.createElement('canvas'); pc.width = probe.w; pc.height = probe.h;
+  pc.getContext('2d').drawImage(c, 0, 0, probe.w, probe.h);
+  photo = pc.getContext('2d').getImageData(0, 0, probe.w, probe.h);
+  cvEl.width = probe.w; cvEl.height = probe.h;
+  $('#status').textContent = `${file} · counted ${r.count} · stamp ${probe.maj.toFixed(0)}×${probe.min.toFixed(0)}`;
+  draw(null);
+}
+
+// stamp sample points: learned kernel when present, else stadium
+function stampPts() {
+  const pts = [];
+  if (probe.kernel && probe.kernel.grid) {
+    const { grid, KG, span } = probe.kernel;
+    const step = Math.max(1, (KG / 13) | 0);
+    for (let gy = 0; gy < KG; gy += step) for (let gx = 0; gx < KG; gx += step) {
+      if (grid[gy * KG + gx]) pts.push([(gx / KG - 0.5) * span, (gy / KG - 0.5) * span]);
+    }
+  } else {
+    const a = Math.max(0, (probe.maj - probe.min) / 2), rho = probe.min / 2;
+    const st = Math.max(1.5, probe.min / 8);
+    for (let u = -probe.maj / 2; u <= probe.maj / 2; u += st) for (let v = -probe.min / 2; v <= probe.min / 2; v += st) {
+      const du = Math.max(0, Math.abs(u) - a);
+      if (du * du + v * v <= rho * rho) pts.push([u, v]);
+    }
+  }
+  return pts;
+}
+let PTS = null;
+
+function scoreAt(x, y, th) {
+  const c = Math.cos(th), s = Math.sin(th);
+  let on = 0;
+  for (const [u, v] of PTS) {
+    const xi = (x + u * c - v * s) | 0, yi = (y + u * s + v * c) | 0;
+    if (xi >= 0 && yi >= 0 && xi < probe.w && yi < probe.h && probe.surf[yi * probe.w + xi]) on++;
+  }
+  return on / PTS.length;
+}
+function bestAngle(x, y) {
+  if (freeAng !== null) return { th: freeAng, s: scoreAt(x, y, freeAng) };
+  if (!autoRot) return { th: 0, s: scoreAt(x, y, 0) };
+  let best = { th: 0, s: -1 };
+  for (let k = 0; k < 24; k++) { const th = k * Math.PI / 24, s = scoreAt(x, y, th); if (s > best.s) best = { th, s }; }
+  // refine
+  for (let d = -0.1; d <= 0.1; d += 0.02) { const th = best.th + d, s = scoreAt(x, y, th); if (s > best.s) best = { th, s }; }
+  return best;
+}
+const nearestPlacement = (x, y) => {
+  let dm = 1e9;
+  for (const [px, py] of probe.placements) dm = Math.min(dm, Math.hypot(px - x, py - y));
+  return dm;
+};
+
+function draw(cursor) {
+  if (!probe) return;
+  const mode = $('#surface').value;
+  const img = ctx.createImageData(probe.w, probe.h);
+  for (let i = 0; i < probe.w * probe.h; i++) {
+    const p = i * 4, on = probe.surf[i];
+    if (mode === 'mask') {
+      img.data[p] = on ? 40 : 0; img.data[p+1] = on ? 200 : 0; img.data[p+2] = on ? 130 : 0;
+    } else {
+      img.data[p] = photo.data[p] * 0.75; img.data[p+1] = photo.data[p+1] * 0.75; img.data[p+2] = photo.data[p+2] * 0.75;
+    }
+    img.data[p+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  // counted placements, faint
+  ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(61,220,151,.55)';
+  for (const [px, py, pth] of probe.placements) outline(px, py, pth);
+  // marks
+  ctx.strokeStyle = '#e9a13b'; ctx.lineWidth = 2.5;
+  for (const m of marks) outline(m.x, m.y, m.th);
+  if (cursor) {
+    const { x, y, th, s } = cursor;
+    const near = nearestPlacement(x, y);
+    const counted = near < probe.min * 0.9;
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = s < 0.75 ? '#e2606f' : counted ? '#3ddc97' : '#e9a13b';
+    outline(x, y, th);
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.beginPath(); ctx.arc(x, y, 3, 0, 6.284); ctx.fill();
+  }
+}
+function outline(x, y, th) {
+  const a = Math.max(0, (probe.maj - probe.min) / 2), rho = probe.min / 2;
+  const c = Math.cos(th), s = Math.sin(th);
+  ctx.beginPath();
+  for (let k = 0; k <= 96; k++) {
+    const phi = k * 6.283185 / 96, cc = Math.abs(Math.cos(phi)), ss = Math.abs(Math.sin(phi));
+    let R;
+    if (ss < 1e-6) R = a + rho;
+    else { const r1 = rho / ss; R = (r1 * cc <= a) ? r1 : a * cc + Math.sqrt(Math.max(0, a*a*cc*cc - a*a + rho*rho)); }
+    const lx = Math.cos(phi) * R, ly = Math.sin(phi) * R;
+    const px = x + lx * c - ly * s, py = y + lx * s + ly * c;
+    k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.closePath(); ctx.stroke();
+}
+
+let last = null;
+$('#stage').addEventListener('pointermove', (e) => {
+  if (!probe) return;
+  const r = cvEl.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * probe.w, y = (e.clientY - r.top) / r.height * probe.h;
+  const { th, s } = bestAngle(x, y);
+  last = { x, y, th, s };
+  const near = nearestPlacement(x, y), counted = near < probe.min * 0.9;
+  $('#score').textContent = (s * 100).toFixed(0) + '%';
+  $('#score').className = 'big ' + (s >= 0.9 ? 'ok' : s >= 0.75 ? 'warn' : 'bad');
+  $('#ang').textContent = (th * 180 / Math.PI).toFixed(0) + '°';
+  const v = s < 0.75 ? 'not a pill here' : counted ? 'counted ✓' : 'FITS BUT UNCOUNTED';
+  $('#verdict').textContent = v;
+  $('#verdict').className = 'big ' + (s < 0.75 ? 'bad' : counted ? 'ok' : 'warn');
+  $('#hud').innerHTML = `(${x.toFixed(0)}, ${y.toFixed(0)}) · overlap ${(s*100).toFixed(0)}% · ${(th*180/Math.PI).toFixed(0)}°<br>nearest counted pill: ${near.toFixed(0)}px`;
+  draw(last);
+});
+addEventListener('keydown', (e) => {
+  if (!last) return;
+  if (e.key === 'm' || e.key === 'M') addMark();
+  if (e.key === 'r' || e.key === 'R') { freeAng = freeAng === null ? last.th : null; }
+  if (e.key === '[') { freeAng = (freeAng ?? last.th) - 0.05; }
+  if (e.key === ']') { freeAng = (freeAng ?? last.th) + 0.05; }
+});
+function addMark() {
+  if (!last) return;
+  marks.push({ file: $('#img').value, x: +last.x.toFixed(1), y: +last.y.toFixed(1),
+    th: +last.th.toFixed(3), overlap: +last.s.toFixed(3),
+    nearestCounted: +nearestPlacement(last.x, last.y).toFixed(1) });
+  renderMarks(); draw(last);
+}
+$('#mark').onclick = addMark;
+function renderMarks() {
+  $('#log').innerHTML = marks.length ? marks.map((m, i) =>
+    `<div>#${i+1} (${m.x}, ${m.y}) ${(m.overlap*100).toFixed(0)}% @${(m.th*180/Math.PI).toFixed(0)}° · nearest ${m.nearestCounted}px</div>`).join('')
+    : '<div style="color:var(--dim);border:0">none yet</div>';
+}
+$('#copy').onclick = () => {
+  navigator.clipboard.writeText(JSON.stringify(marks, null, 1));
+  $('#copy').textContent = 'copied ✓'; setTimeout(() => $('#copy').textContent = 'copy marks as JSON', 1200);
+};
+$('#auto').onclick = () => { autoRot = !autoRot; freeAng = null; $('#auto').textContent = 'auto-rotate: ' + (autoRot ? 'ON' : 'OFF'); };
+$('#surface').onchange = () => draw(last);
+$('#img').onchange = async () => { marks = []; renderMarks(); await load($('#img').value); PTS = stampPts(); };
+
+(async () => {
+  $('#status').textContent = 'loading engine…';
+  cvlib = await loadCV('vendor/opencv.js');
+  const files = await manifest();
+  $('#img').innerHTML = files.map((f) => `<option ${f.includes('cream-caplets') ? 'selected' : ''}>${f}</option>`).join('');
+  await load($('#img').value);
+  PTS = stampPts();
+})();
+</script>
+</body>
+</html>

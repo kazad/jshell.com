@@ -5776,6 +5776,22 @@ export function countPills(cv, source, opts = {}) {
 
     const out = { count, regions, scale, boundaries, width: w, height: h, unitArea, thr: otsuThr };
     if (out2Template) out.templateInfo = out2Template;
+    // For the interactive stamp tester (/pill/stamp): the exact shape and
+    // the exact surface the counter used, so what the user probes is what
+    // the algorithm sees — not a lookalike.
+    if (opts.exportProbe && out2Template) {
+      const surfP = stampFgUsed || (() => {
+        const f2 = new Uint8Array(w * h); const db2 = distBg.data;
+        for (let i2 = 0; i2 < w * h; i2++) f2[i2] = db2[i2] > otsuThr ? 1 : 0;
+        return f2; })();
+      out.probe = { w, h, surf: surfP, scale,
+        maj: out2Template.major, min: out2Template.minor,
+        kernel: stampKernelUsed ? { grid: stampKernelUsed.grid, KG: stampKernelUsed.KG,
+          span: stampKernelUsed.KSPAN } : null,
+        placements: regions.flatMap((g) => (g.pills && g.pills.length)
+          ? g.pills.map((p2) => [p2.cx, p2.cy, p2.theta])
+          : (g.shape ? [[g.cx, g.cy, g.shape.theta]] : [])) };
+    }
     if (opts.variant === 'consensus') out.lowConfidence = lowConfidence;
     if (opts.variant === 'consensus' && consensusEligible <= 2 && regions.length) {
       // With <=2 countable blobs, the unit area is calibrated from the very
