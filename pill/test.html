@@ -156,7 +156,7 @@
       ['input', '1 input'], ['bgcolor', '2 bg'], ['distmap', '3 distance'],
       ['mask-otsu', '4 threshold'], ['mask-final', '5 cleaned'],
       ['disttransform', '6 dist-xform'], ['markers', '7 seeds'],
-      ['geometry', '8 fitted shapes'],
+      ['geometry', '8 fitted shapes'], ['template', '0 the pill, as learned'],
     ];
 
     async function loadManifest() {
@@ -252,7 +252,8 @@
       const pane = document.createElement('div');
       pane.style.cssText = 'max-width:1200px;max-height:90vh;overflow:auto;background:#101418;border-radius:12px;padding:18px';
       pane.innerHTML = `<div style="color:#d9efe3;font-weight:700;margin-bottom:10px">
-          ${file} — pipeline stages (baked) · got ${r.count}, expected ${r.expected}</div>
+          ${file} — pipeline stages (baked) · got ${r.count}, expected ${r.expected}
+          ${r.tpl ? `<div style="color:#e9a13b;font:12px ui-monospace,Menlo,monospace;margin-top:3px">template: ${r.tpl}</div>` : ''}</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">
         ${STAGE_ORDER.filter(([k]) => (r.stages || []).includes(k)).map(([k, label]) =>
           `<figure style="margin:0">

@@ -1240,6 +1240,7 @@ const STAGE_NOTES = {
   disttransform: ['6 · Distance transform', 'Bright = deep inside a blob. Peaks mark pill centres.'],
   markers: ['7 · Seeds', 'One dot per pill. Two touching pills MUST show two dots here.'],
   geometry: ['8 · Fitted shapes', 'Every counted pill drawn as its fitted outline. Green = confident, amber = flagged. The outline should hug the pill.'],
+  template: ['0 · The pill, as learned', 'Left: real pills cut from THIS photo with their fitted outlines. Right: the stamp silhouette used for placement. If the silhouette does not look like the cutouts, the template is wrong and the count inherits it.'],
 };
 
 // Render a stage as hard monochrome (pure white on black) instead of the

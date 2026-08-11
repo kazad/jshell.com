@@ -2340,6 +2340,7 @@ export function countPills(cv, source, opts = {}) {
     }
 
     let activeMd = md;
+    let out2Template = null;   // template card info, filled by the debug emit
     let unitArea = 0;
 
     // 'geometry' variant: classify every mask region by shape before counting.
@@ -5061,6 +5062,77 @@ export function countPills(cv, source, opts = {}) {
           }
         }
         emit('geometry', { data: g8, width: w, height: h });
+
+        // TEMPLATE CARD (owner: "the debug needs to show the median /
+        // assumed pill shape/stamp, to prove you understand what the pill
+        // looks like"). Left: up to four vouched single pills CUT OUT of
+        // this very photo, each wearing its fitted outline. Right: the
+        // solid stamp silhouette actually used for placement, at true
+        // scale. If the silhouette does not look like the cutouts, the
+        // template is wrong and every downstream count inherits it — this
+        // card makes that failure visible in one glance.
+        {
+          const singles2 = regions
+            .filter((g2) => (g2.units || 1) === 1 && g2.shape && g2.shape.residual <= 0.12)
+            .sort((a2, b2) => a2.shape.residual - b2.shape.residual)
+            .slice(0, 4);
+          const tMaj = median(singles2.map((g2) => g2.shape.major)) || 40;
+          const tMin = median(singles2.map((g2) => g2.shape.minor)) || 18;
+          const cell = Math.min(220, Math.max(46, Math.ceil(tMaj * 1.35)));
+          const cardW = cell * (singles2.length + 1) + 8, cardH = cell + 8;
+          const card = new Uint8ClampedArray(cardW * cardH * 4);
+          for (let i2 = 0; i2 < cardW * cardH; i2++) {
+            card[i2 * 4] = 16; card[i2 * 4 + 1] = 20; card[i2 * 4 + 2] = 24; card[i2 * 4 + 3] = 255;
+          }
+          const putC = (x, y, rr2, gg, bb) => {
+            const xi = x | 0, yi = y | 0;
+            if (xi < 0 || yi < 0 || xi >= cardW || yi >= cardH) return;
+            const i2 = (yi * cardW + xi) * 4;
+            card[i2] = rr2; card[i2 + 1] = gg; card[i2 + 2] = bb;
+          };
+          singles2.forEach((g2, k2) => {
+            const ox = 4 + k2 * cell, oy = 4;
+            // photo cutout centered in the cell
+            for (let dy = 0; dy < cell; dy++) for (let dx = 0; dx < cell; dx++) {
+              const sx2 = (g2.cx - cell / 2 + dx) | 0, sy2 = (g2.cy - cell / 2 + dy) | 0;
+              if (sx2 < 0 || sy2 < 0 || sx2 >= w || sy2 >= h) continue;
+              const si2 = (sy2 * w + sx2) * 4;
+              putC(ox + dx, oy + dy, src.data[si2], src.data[si2 + 1], src.data[si2 + 2]);
+            }
+            // fitted outline over the cutout
+            const a2 = Math.max(0, (g2.shape.major - g2.shape.minor) / 2), rho = g2.shape.minor / 2;
+            const c2 = Math.cos(g2.shape.theta), s2 = Math.sin(g2.shape.theta);
+            for (let k3 = 0; k3 < 140; k3++) {
+              const phi = k3 * Math.PI * 2 / 140;
+              const cc = Math.abs(Math.cos(phi)), ss = Math.abs(Math.sin(phi));
+              let R;
+              if (ss < 1e-6) R = a2 + rho;
+              else { const r1 = rho / ss; R = (r1 * cc <= a2) ? r1 : a2 * cc + Math.sqrt(Math.max(0, a2 * a2 * cc * cc - a2 * a2 + rho * rho)); }
+              const lx = Math.cos(phi) * R, ly = Math.sin(phi) * R;
+              putC(ox + cell / 2 + lx * c2 - ly * s2, oy + cell / 2 + lx * s2 + ly * c2, 40, 220, 120);
+            }
+          });
+          // the stamp silhouette, solid, at true scale
+          {
+            const ox = 4 + singles2.length * cell, oy = 4;
+            const a2 = Math.max(0, (tMaj - tMin) / 2), rho = tMin / 2;
+            for (let dy = 0; dy < cell; dy++) for (let dx = 0; dx < cell; dx++) {
+              const u = dx - cell / 2, v = dy - cell / 2;
+              const du = Math.max(0, Math.abs(u) - a2);
+              if (du * du + v * v <= rho * rho) putC(ox + dx, oy + dy, 255, 176, 32);
+            }
+          }
+          emit('template', { data: card, width: cardW, height: cardH });
+          const primCounts = {};
+          for (const g2 of singles2) primCounts[g2.shape.primitive] = (primCounts[g2.shape.primitive] || 0) + 1;
+          const domPrim = Object.entries(primCounts).sort((x2, y2) => y2[1] - x2[1])[0];
+          out2Template = {
+            primitive: domPrim ? domPrim[0] : 'stadium',
+            major: +tMaj.toFixed(1), minor: +tMin.toFixed(1),
+            aspect: +(tMaj / Math.max(1, tMin)).toFixed(2),
+            fromSingles: singles2.length,
+          };
+        }
       }
     }
 
@@ -5511,6 +5583,7 @@ export function countPills(cv, source, opts = {}) {
     }
 
     const out = { count, regions, scale, boundaries, width: w, height: h, unitArea, thr: otsuThr };
+    if (out2Template) out.templateInfo = out2Template;
     if (opts.variant === 'consensus') out.lowConfidence = lowConfidence;
     if (opts.variant === 'consensus' && consensusEligible <= 2 && regions.length) {
       // With <=2 countable blobs, the unit area is calibrated from the very
