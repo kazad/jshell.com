@@ -2,8 +2,8 @@
  "standard": "every image EXACT or listed here with mechanism+status; an unlisted miss is a triage bug",
  "issues": {
   "shiny/s-0bfc44d8.jpg": {
-   "status": "root-cause-found",
-   "note": "MECHANISM CORRECTED (33v36). NOT split-by-glare: 13/13 vetted beads have the bright specular stripe INSIDE the mask. The mask loses the SHADOWED side \u2014 measured twice independently: 36% of magenta bead material (37855 px, 32 components median 1082px) falls OUTSIDE the mask, because shadowed bead surface is luminance-dark with modest chroma and trips colorDist shadow-damping. Ellipse reunification was built and honestly fired ZERO times: every measured inter-fragment gap is DARK (-0.30..-0.70), so there is no bright specular gap to merge across and merging would cross real contact seams. Fix belongs at segmentation (recover the dark half), in flight. | ATTEMPTED AND DISQUALIFIED (measured, not shipped): global hueAware fixes the mask (36.5%->2.3% lost) but costs counts everywhere \u2014 s-0bfc 33->28, s-eb 37->34, r-7ff7fd99 19->12, r-295482c1 19->28. Shadow-gate hue variants: same corpus damage. Adjacency rescue: BROKE advil-2/3 (30->31). ROOT OF THE IMPASSE: the mask loss is LOAD-BEARING \u2014 s-eb90778f's perfect 37 comes entirely from the stamp arbiter keying on the shredded mask (stamp:false gives 31), and ONE dilation step drops it 37->31, chaotically not monotonically. UPPER BOUND: even a perfect magenta mask implies only 34 beads (truth 36) \u2014 fixing segmentation alone cannot deliver the count. Any real fix must re-derive the arbiter's shiny-path signature in the same change."
+   "status": "detection-fixed-count-open",
+   "note": "Per-pill 24/34 -> 31/34 matched, 10 misses -> 3. ROOT CAUSE was NOT mask loss (all 13 misses had healthy mask coverage 0.40-0.93): the SPLOTCH FILTER removed 14 regions of which 13 were REAL BEADS, and the one true junk blob scored HIGHER than every real bead on both solidity (0.903 v 0.756-0.883) and circularity (0.635 v 0.357-0.497) \u2014 zero discriminative power, because circularity 4piA/P^2 is quadratically sensitive to the boundary roughness specular shredding produces. Fixed by a population sanity guard (a shape test condemning >1/3 of regions has mis-modelled the pill class; fires on 1 of ~270 images). Count 33 -> 39 v 34: the old 33 was 10 drops cancelling 9 doublings; removing the drops exposed the doublings. REMAINING: 8 spurious from lloyd over-splitting, driven by unitLen collapsing to 53 against a true bead major of ~83 (specular specks contaminate the median). A fragment-filtered scale pool was tried and REJECTED \u2014 it broke 8 dense synthetics."
   },
   "lined/lined-503b3041.jpg": {
    "status": "detection-improved-count-open",
@@ -68,6 +68,10 @@
   "synth2-rc-kraft-large-n12-t65-s279.png": {
    "status": "awaiting-ruling",
    "note": "camo class-C"
+  },
+  "shiny/s-eb90778f.jpg": {
+   "status": "open-detection",
+   "note": "LABEL CORRECTED 34 (was 37 \u2014 mine, wrong). This image was previously reported as \"37 EXACT\" and shipped as a win; against the true label it is +3 OVER with 6 spurious (per-pill 31/34). The chroma-rescue \"5 beads recovered\" claim was measured against the wrong target. Both shiny images now have per-pill centres so this cannot recur."
   }
  },
  "guards": {

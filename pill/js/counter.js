@@ -2382,6 +2382,10 @@ export function countPills(cv, source, opts = {}) {
     const medPeak = median([...stats.values()].filter((s) => s.area >= minArea).map((s) => s.peak));
     let regions = [];
     let count = 0;
+    // Set when the splotch population guard refuses the shape filter: a
+    // signal that solidity/circularity could not separate pills from junk on
+    // this photo, so scales derived alongside them are suspect downstream.
+    let splotchRefused = false;
     for (const [lbl, s] of stats) {
       // The relative area floor assumes a discarded region is a sliver of
       // texture. That is wrong for a clump the watershed SHATTERED — most
@@ -2505,8 +2509,53 @@ export function countPills(cv, source, opts = {}) {
 
       const io = idOf.data32S;
       const wellFormed = shapes.filter((s) => s && s.solidity >= 0.90 && s.circularity >= 0.55);
+      // POPULATION SANITY GUARD ON THE SPLOTCH FILTER.
+      //
+      // Both arms below rest on an unstated premise: splotches are a MINORITY
+      // contaminant, and `wellFormed` (solidity >=0.90 AND circularity >=0.55)
+      // is a fair sample of the pill class to measure them against. On a
+      // glare-shredded photo of ELONGATED pills both halves fail at once, and
+      // they fail in the same direction, so the filter inverts.
+      //
+      // Why circularity in particular cannot be trusted here: it is
+      // 4*pi*area/perimeter^2, so it is quadratically sensitive to perimeter
+      // ROUGHNESS — and a ragged boundary is precisely what specular shredding
+      // produces. An ideal stadium at the beads' ~2.5 aspect scores 0.761,
+      // comfortably over the 0.50 bar; the real shredded beads measure
+      // 0.357-0.507 purely from boundary noise, not from being splotch-shaped.
+      //
+      // Measured on s-0bfc44d8 (34 beads, one medication): the filter removed
+      // 14 of 43 regions — 13 REAL BEADS and 1 piece of junk — and the single
+      // genuine junk blob scored HIGHER on BOTH criteria (sol 0.903, circ
+      // 0.635) than every real bead it was grouped with (sol 0.756-0.883,
+      // circ 0.357-0.497). The criteria had no discriminative power in either
+      // direction, so the stage was pure loss: those 13 are 10 of the image's
+      // per-pill misses.
+      //
+      // ONE MEDICATION PER PHOTO is the invariant that makes this checkable
+      // without new tuning: the pills in a photo are one population, so a
+      // shape test that condemns a large SHARE of that population is not
+      // finding contaminants — it has mis-modelled the pill class. Compute the
+      // verdicts first and refuse the whole stage when it over-reaches. The
+      // bar is deliberately loose (a third of the regions) so it only catches
+      // the inversion; genuine debris photos kill a handful out of many and
+      // are untouched, and the corpus confirms it (no count moves).
       if (wellFormed.length >= 3) {
         const medGood = median(wellFormed.map((s) => s.area));
+        const shOf = (r) => shapes[io[Math.round(r.cy) * w + Math.round(r.cx)] || 0];
+        const doomed = regions.filter((r) => {
+          const sh = shOf(r);
+          if (!sh) return false;
+          return (sh.solidity < 0.85 || sh.circularity < 0.50) && sh.area < 0.75 * medGood
+            ? true : sh.area < 0.45 * medGood;
+        });
+        const overReach = regions.length >= 6 && doomed.length > 0.33 * regions.length;
+        if (overReach) {
+          splotchRefused = true;
+          opts.debug?.({ stage: 'splotch-refused', kind: 'population',
+            regions: regions.length, doomed: doomed.length,
+            wellFormed: wellFormed.length, medGood: +medGood.toFixed(0) });
+        }
         const kept = [];
         for (const r of regions) {
           const sh = shapes[io[Math.round(r.cy) * w + Math.round(r.cx)] || 0];
@@ -2532,7 +2581,11 @@ export function countPills(cv, source, opts = {}) {
           // room above the splotch, and 0.85 breaks nothing across 267 images.
           const misshapen = sh && (sh.solidity < 0.85 || sh.circularity < 0.50);
           const undersized = sh && sh.area < 0.75 * medGood;
-          if (misshapen && undersized) { count -= r.units; continue; } // splotch
+          if (misshapen && undersized && !overReach) {
+            opts.debug?.({ stage: 'splotchkill', arm: 'shape', cx: r.cx, cy: r.cy,
+              area: sh.area, sol: +sh.solidity.toFixed(3), circ: +sh.circularity.toFixed(3),
+              medGood: +medGood.toFixed(0) });
+            count -= r.units; continue; } // splotch
           // SIZE-ONLY veto. One photo holds ONE medication, so every pill is
           // the same size; a blob far below the population's area is not a
           // pill whatever its shape. The AND-test above misses the common
@@ -2545,7 +2598,11 @@ export function countPills(cv, source, opts = {}) {
           // LENGTH but projects only ~2/3 the area. 0.45 sits well below
           // that 0.67 so on-edge pills are never touched, while the
           // measured splotches (0.34x on r-96e5f08f) fall clearly outside.
-          if (sh && sh.area < 0.45 * medGood) { count -= r.units; continue; }
+          if (sh && sh.area < 0.45 * medGood && !overReach) {
+            opts.debug?.({ stage: 'splotchkill', arm: 'size', cx: r.cx, cy: r.cy,
+              area: sh.area, sol: +sh.solidity.toFixed(3), circ: +sh.circularity.toFixed(3),
+              medGood: +medGood.toFixed(0) });
+            count -= r.units; continue; }
           kept.push(r);
         }
         if (kept.length !== regions.length) {
@@ -3991,8 +4048,19 @@ export function countPills(cv, source, opts = {}) {
             // real thickness AND enough length for at least a pair keeps the
             // genuine deep-pile rescue while refusing to invent pills inside
             // a blob the major axis says is too short to hold them.
+            // SINGLE-LAYER COROLLARY. The capture guidance forbids piles, so
+            // "stacked" can only ever mean pills TOUCHING end-to-end, and the
+            // length arm is the honest witness for that. When the shape model
+            // has already been caught mis-reading this photo (splotchRefused —
+            // the population guard fired, meaning solidity/circularity could
+            // not tell pills from junk), the derived scale it shares with
+            // unitLen is not trustworthy enough to invent a pill with NO
+            // length corroboration. Measured on s-0bfc44d8: unitLen collapsed
+            // to 53.0 against a true bead major of ~83, so a LONE bead cleared
+            // the 1.5x span test and four singles were doubled on this arm.
             const stacked = peaks[l] >= 1.35 * radiusEst
-              && unitLen > 0 && majL >= 1.5 * unitLen;
+              && unitLen > 0 && majL >= 1.5 * unitLen
+              && !(splotchRefused && !lenRoom);
 
             // PHYSICAL CAPACITY INVARIANT.
             // A blob can never hold more pills than fit inside it. The
