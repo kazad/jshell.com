@@ -34,6 +34,7 @@
   <select id="surface">
     <option value="photo">on photo</option>
     <option value="mask" selected>on counting surface (green/black)</option>
+    <option value="clean">on cleaned mask (what separated)</option>
   </select>
   <button id="auto">auto-rotate: ON</button>
   <button id="mark">mark a miss here (M)</button>
@@ -91,13 +92,16 @@ async function load(file) {
   pc.getContext('2d').drawImage(c, 0, 0, probe.w, probe.h);
   photo = pc.getContext('2d').getImageData(0, 0, probe.w, probe.h);
   cvEl.width = probe.w; cvEl.height = probe.h;
-  $('#status').textContent = `${file} · counted ${r.count} · stamp ${probe.maj.toFixed(0)}×${probe.min.toFixed(0)}`;
+  $('#status').textContent = `${file} · counted ${r.count} · stamp ${probe.maj.toFixed(0)}×${probe.min.toFixed(0)}`
+    + (probe.kernel ? ' (learned kernel)' : ' (stadium template)');
+  PTS = stampPts();            // before any draw/score
   draw(null);
 }
 
 // stamp sample points: learned kernel when present, else stadium
 function stampPts() {
   const pts = [];
+  if (!probe) return pts;
   if (probe.kernel && probe.kernel.grid) {
     const { grid, KG, span } = probe.kernel;
     const step = Math.max(1, (KG / 13) | 0);
@@ -116,12 +120,15 @@ function stampPts() {
 }
 let PTS = null;
 
+function activeSurf() {
+  return ($('#surface').value === 'clean' && probe.clean) ? probe.clean : probe.surf;
+}
 function scoreAt(x, y, th) {
-  const c = Math.cos(th), s = Math.sin(th);
+  const c = Math.cos(th), s = Math.sin(th), S = activeSurf();
   let on = 0;
   for (const [u, v] of PTS) {
     const xi = (x + u * c - v * s) | 0, yi = (y + u * s + v * c) | 0;
-    if (xi >= 0 && yi >= 0 && xi < probe.w && yi < probe.h && probe.surf[yi * probe.w + xi]) on++;
+    if (xi >= 0 && yi >= 0 && xi < probe.w && yi < probe.h && S[yi * probe.w + xi]) on++;
   }
   return on / PTS.length;
 }
@@ -148,6 +155,9 @@ function draw(cursor) {
     const p = i * 4, on = probe.surf[i];
     if (mode === 'mask') {
       img.data[p] = on ? 40 : 0; img.data[p+1] = on ? 200 : 0; img.data[p+2] = on ? 130 : 0;
+    } else if (mode === 'clean') {
+      const c2 = probe.clean ? probe.clean[i] : on;
+      img.data[p] = c2 ? 40 : 0; img.data[p+1] = c2 ? 200 : 0; img.data[p+2] = c2 ? 130 : 0;
     } else {
       img.data[p] = photo.data[p] * 0.75; img.data[p+1] = photo.data[p+1] * 0.75; img.data[p+2] = photo.data[p+2] * 0.75;
     }
@@ -230,7 +240,7 @@ $('#copy').onclick = () => {
 };
 $('#auto').onclick = () => { autoRot = !autoRot; freeAng = null; $('#auto').textContent = 'auto-rotate: ' + (autoRot ? 'ON' : 'OFF'); };
 $('#surface').onchange = () => draw(last);
-$('#img').onchange = async () => { marks = []; renderMarks(); await load($('#img').value); PTS = stampPts(); };
+$('#img').onchange = async () => { marks = []; renderMarks(); await load($('#img').value); };
 
 (async () => {
   $('#status').textContent = 'loading engine…';
@@ -238,7 +248,6 @@ $('#img').onchange = async () => { marks = []; renderMarks(); await load($('#img
   const files = await manifest();
   $('#img').innerHTML = files.map((f) => `<option ${f.includes('cream-caplets') ? 'selected' : ''}>${f}</option>`).join('');
   await load($('#img').value);
-  PTS = stampPts();
 })();
 </script>
 </body>

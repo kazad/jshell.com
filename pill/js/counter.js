@@ -5779,12 +5779,29 @@ export function countPills(cv, source, opts = {}) {
     // For the interactive stamp tester (/pill/stamp): the exact shape and
     // the exact surface the counter used, so what the user probes is what
     // the algorithm sees — not a lookalike.
-    if (opts.exportProbe && out2Template) {
+    if (opts.exportProbe) {
+      // Self-contained: the probe must NOT depend on the template card
+      // (that card only builds when opts.stages is set — the tester passes
+      // exportProbe alone and got probe:null, crashing on kernel access).
+      if (!out2Template) {
+        const s2 = regions.filter((g2) => (g2.units || 1) === 1 && g2.shape
+          && g2.shape.residual <= 0.12);
+        const tM = median(s2.map((g2) => g2.shape.major))
+          || median(regions.filter((g) => g.shape).map((g) => g.shape.major)) || 40;
+        const tN = median(s2.map((g2) => g2.shape.minor))
+          || median(regions.filter((g) => g.shape).map((g) => g.shape.minor)) || 18;
+        out2Template = { primitive: 'stadium', major: +tM.toFixed(1), minor: +tN.toFixed(1),
+          aspect: +(tM / Math.max(1, tN)).toFixed(2), fromSingles: s2.length };
+      }
       const surfP = stampFgUsed || (() => {
         const f2 = new Uint8Array(w * h); const db2 = distBg.data;
         for (let i2 = 0; i2 < w * h; i2++) f2[i2] = db2[i2] > otsuThr ? 1 : 0;
         return f2; })();
-      out.probe = { w, h, surf: surfP, scale,
+      // also ship the CLEANED mask — the owner's misses live in the gap
+      // between "threshold had it" and "cleaning kept it"
+      const cleanP = new Uint8Array(w * h);
+      for (let i2 = 0; i2 < w * h; i2++) cleanP[i2] = activeMd && activeMd[i2] > 0 ? 1 : 0;
+      out.probe = { w, h, surf: surfP, clean: cleanP, scale,
         maj: out2Template.major, min: out2Template.minor,
         kernel: stampKernelUsed ? { grid: stampKernelUsed.grid, KG: stampKernelUsed.KG,
           span: stampKernelUsed.KSPAN } : null,
