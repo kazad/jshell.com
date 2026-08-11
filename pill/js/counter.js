@@ -5212,7 +5212,13 @@ export function countPills(cv, source, opts = {}) {
           }
         }
         if (routedRegs.length) reasons.push(`hidden-contact(${routedRegs.length})`);
-        if (!fired && !routedRegs.length) {
+        // OFFLINE ONLY (whole-image sweep observation). Forces the stamp's env
+        // construction + calibration to run on images the router would skip,
+        // so a sweep can be scored against photos the pipeline believes it
+        // already understands. Never set in production; when unset this
+        // expression is exactly the original condition.
+        const forceStamp = !!opts.forceStamp;
+        if (!fired && !routedRegs.length && !forceStamp) {
           opts.debug?.({ stage: 'stamp', fired: false, reason: 'strong-evidence',
             before: count, after: count,
             explained: { frac: +explainedFrac.toFixed(3), cover: +cover.toFixed(3) },
@@ -5299,6 +5305,7 @@ export function countPills(cv, source, opts = {}) {
             raiseOnly: routedRegs.length ? new Set(routedRegs) : null,
             unownedSeeds,
             debug: opts.debug,
+            mqProbe: opts.mqProbe,   // offline match-quality validation hook only
           });
           if (verdict && verdict.kernel) stampKernelCard = verdict.kernel;
           const before = count;
@@ -5311,7 +5318,17 @@ export function countPills(cv, source, opts = {}) {
           if (verdict && verdict.fgUsed && verdict.maskUsed !== 'final') stampFgUsed = verdict.fgUsed;
           const fab = verdict && verdict.changed
             && (before + verdict.countDelta) > 3 * Math.max(1, before) + 8;
-          if (fab) {
+          // Under forceStamp the arbitration is OBSERVATION ONLY: on an image
+          // the router would have skipped, the stamp's verdict must not be
+          // allowed to move the count, or the forced run would no longer be
+          // measuring the shipping pipeline. (On images the router WOULD have
+          // fired on, `fired||routedRegs` is true and the verdict applies
+          // exactly as in production.)
+          const observeOnly = forceStamp && !fired && !routedRegs.length;
+          if (observeOnly) {
+            opts.debug?.({ stage: 'stamp', fired: 'forced-observe',
+              before, after: before });
+          } else if (fab) {
             opts.debug?.({ stage: 'stamp-reject', kind: 'fabrication',
               before, proposed: before + verdict.countDelta });
           } else if (verdict && verdict.changed) {

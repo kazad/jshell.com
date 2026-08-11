@@ -49,6 +49,349 @@ const med = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s
 const q25 = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[(s.length * 0.25) | 0] : 0; };
 export const stadArea = (maj, min) => { const a = (maj - min) / 2, rho = min / 2; return min * (maj - min) + Math.PI * rho * rho; };
 
+// ============ PHOTO-GROUNDED MATCH QUALITY (owner's self-test) ============
+// The peel's own `fit` score is MASK COVERAGE. Inside a dense pile every
+// pose covers ~100% foreground, so coverage saturates and cannot rank poses:
+// the stamp tester's auto-rotate demonstrably lays a horizontal stamp across
+// three diagonal capsules and scores perfectly. Coverage answers "is there
+// material here", never "is there ONE PILL here, at THIS pose".
+//
+// This metric goes back to the ORIGINAL PHOTO and asks how pill-like a
+// hypothesised placement is, using four independent components that a
+// cross-pill or on-board placement each break in a different way:
+//
+//   (a) BOUNDARY EDGE SUPPORT  — a real pill rim is a radial luma step, and
+//       the step is SIGN-COHERENT (a pale pill on dark board is darker
+//       outside all the way round). A stamp lying across two pills has real
+//       steps at its two ends and NOTHING at its flanks, where it runs
+//       through the neighbour's interior. Coverage cannot see this.
+//   (b) INTERIOR HOMOGENEITY   — one pill face is one material. Measured as
+//       a robust spread (MAD, speckle-tolerant) of interior luma, in units
+//       of what THIS photo's verified pills measure. A stamp straddling two
+//       pills swallows the contact shadow between them and its spread jumps.
+//   (c) SEAM CROSSING          — dark contact lines / mask holes crossing the
+//       stamp INTERIOR mean two pills. Reuses the crease+hole seam evidence
+//       already built for the routed peel (buildSeamMask below is the same
+//       rule as the in-peel seamMask, hoisted so both can share it).
+//   (d) GRADIENT-ORIENTATION AGREEMENT — the structure tensor over the photo
+//       under the stamp: the pill's long axis is perpendicular to the
+//       dominant gradient. This is what makes ROTATION decidable inside a
+//       pile (the tester's snap-to-pill), and it is the component that most
+//       directly kills the "horizontal stamp across diagonal capsules" case.
+//
+// EVERY component is calibrated on the photo's OWN verified single pills
+// (score them, take the median), so the output means "how pill-like relative
+// to what real pills in THIS photo measure", 0..1 — not an absolute constant
+// that would need per-corpus tuning.
+
+// Below this aspect ratio a pill has no long axis, so the orientation
+// component is not applicable (see scoreFromComponents). 1.4 is the same
+// elongation threshold the stamp tester already uses to decide whether a
+// placement's angle is meaningful when matching neighbours.
+const ASPECT_ORI_MIN = 1.4;
+
+// Seam evidence map: dark interior creases (contact shadows) + enclosed mask
+// holes. Same rule as the routed peel's seamMask, factored out for reuse.
+// creaseT is self-calibrated from the pill/bg luma levels; when pills are not
+// clearly brighter than the board the crease signal does not exist and only
+// the enclosed-hole term contributes.
+export function buildSeamMask(env, pool) {
+  const { w, h, fg, luma, dd } = env;
+  const seam = new Uint8Array(w * h);
+  let creaseT = -1;
+  if (pool && pool.length) {
+    const cs = pool.map((g) => {
+      const xi = Math.max(0, Math.min(w - 1, g.cx | 0)), yi = Math.max(0, Math.min(h - 1, g.cy | 0));
+      return luma[yi * w + xi];
+    });
+    const pillL = med(cs);
+    const bgs = [];
+    for (let i = 0; i < w * h; i += 17) if (!fg[i]) bgs.push(luma[i]);
+    const bgL = med(bgs);
+    if (pillL > bgL + 30) creaseT = pillL - 0.6 * (pillL - bgL);
+  }
+  for (let y = 2; y < h - 2; y++) for (let x = 2; x < w - 2; x++) {
+    const i = y * w + x;
+    if (fg[i]) {
+      // interior-only (>=3px deep): pill RIMS are dark too, and without the
+      // depth guard the whole outline ring reads as seam.
+      if (creaseT >= 0 && luma[i] < creaseT && dd && dd[i] >= 3) seam[i] = 1;
+    } else if ((fg[i - 2] && fg[i + 2]) || (fg[i - 2 * w] && fg[i + 2 * w])) {
+      seam[i] = 1; // enclosed interior hole (seam remnant), not open background
+    }
+  }
+  return seam;
+}
+
+// Raw (uncalibrated) components for one hypothesised placement.
+// place: { x, y, th, maj, min, kern? }.  env: { w,h,fg,luma,dd,seam,sampleRGB }.
+export function matchComponents(env, place) {
+  const { w, h, fg, luma, seam } = env;
+  const { x: cx, y: cy, th, maj, min } = place;
+  const kern = place.kern || null;
+  const c = Math.cos(th), s = Math.sin(th);
+  const L = (xi, yi) => (xi < 0 || yi < 0 || xi >= w || yi >= h) ? null : luma[yi * w + xi];
+
+  // ---- (a) boundary edge support, sign-coherent -------------------------
+  // At each rim point sample the photo just outside and just inside along the
+  // outward normal. |step| measures presence of a boundary; the SIGN votes,
+  // and we keep the majority sign's fraction so a rim that is dark-outside on
+  // one flank and bright-outside on the other (the signature of a stamp lying
+  // across two pills, one flank hitting board, the other a neighbour's face)
+  // cannot collect full credit from magnitude alone.
+  const bd = kern ? boundPtsK(maj, min, kern) : boundPts(maj, min);
+  let stepSum = 0, nB = 0, nPos = 0, nNeg = 0;
+  const steps = [];
+  for (const [u, v, nu, nv] of bd) {
+    const bx = cx + u * c - v * s, by = cy + u * s + v * c;
+    const nx = nu * c - nv * s, ny = nu * s + nv * c;
+    const lo = L((bx + EDGE_OFF * nx) | 0, (by + EDGE_OFF * ny) | 0);
+    const li = L((bx - EDGE_OFF * nx) | 0, (by - EDGE_OFF * ny) | 0);
+    if (lo === null || li === null) continue;
+    const d = li - lo;            // >0 : interior brighter than exterior
+    steps.push(Math.abs(d));
+    stepSum += Math.abs(d); nB++;
+    if (d > 0) nPos++; else if (d < 0) nNeg++;
+  }
+  const edgeMag = nB ? stepSum / nB : 0;
+  const edgeCoh = nB ? Math.max(nPos, nNeg) / nB : 0;   // 0.5 = no coherence
+  // fraction of the rim carrying a real step, at the calibrated scale
+  const edgeMed = steps.length ? med(steps) : 0;
+
+  // ---- (b) interior homogeneity ----------------------------------------
+  // Robust spread (MAD) of interior luma. Speckled/imprinted pills have a
+  // nonzero MAD, which is exactly why this is compared to the population of
+  // verified pills on the same photo rather than to zero.
+  const pts = kern ? basePtsK(maj, min, kern) : basePts(maj, min);
+  const vals = [];
+  for (const [u, v] of pts) {
+    // sample the CORE (0.8 inset) so rim antialiasing does not masquerade as
+    // interior inhomogeneity
+    const xi = (cx + 0.8 * (u * c - v * s)) | 0, yi = (cy + 0.8 * (u * s + v * c)) | 0;
+    const l = L(xi, yi);
+    if (l !== null) vals.push(l);
+  }
+  let mad = 0, medL = 0, madBi = 0, biSplit = 0;
+  if (vals.length >= 4) {
+    medL = med(vals);
+    mad = med(vals.map((t) => Math.abs(t - medL)));
+    // BICOLOR CAPSULES. "One pill face is one material" is false for two-tone
+    // capsules, and the failure is not subtle: measured on
+    // synth2-cc-kraft-s301, interior MAD is 0.7-11.0 for the 16 single-tone
+    // pills and 27.2-28.8 for the 4 bicolor ones, so homo collapses to 0.00
+    // and the geometric mean annihilates a PERFECTLY GOOD placement. The
+    // calibrator was rejecting two of its OWN verified singles the same way
+    // (selfQ 0.00 / 0.01) — the tell that the component, not the placement,
+    // is wrong.
+    //
+    // A two-tone capsule is still homogeneous WITHIN each half. Split the
+    // interior samples at the best 1-D threshold (Otsu on the sample values)
+    // and take the worse of the two within-half spreads: a genuine straddle
+    // (pill + shadow + neighbour) stays inhomogeneous inside its parts, while
+    // a clean colour boundary reduces to two tight clusters. Reported
+    // alongside `mad`; scoreFromComponents takes the MIN of the two readings,
+    // so this can only ever RESCUE a placement that the plain MAD condemns —
+    // it can never make a bad placement look better than plain MAD allows.
+    const sv = [...vals].sort((a, b) => a - b);
+    let bestVar = Infinity, cut = -1;
+    const n = sv.length;
+    const pre = new Float64Array(n + 1);
+    for (let i = 0; i < n; i++) pre[i + 1] = pre[i] + sv[i];
+    for (let i = 2; i <= n - 2; i++) {
+      const m1 = pre[i] / i, m2 = (pre[n] - pre[i]) / (n - i);
+      let s1 = 0, s2 = 0;
+      for (let j = 0; j < i; j++) s1 += Math.abs(sv[j] - m1);
+      for (let j = i; j < n; j++) s2 += Math.abs(sv[j] - m2);
+      const worst = Math.max(s1 / i, s2 / (n - i));
+      if (worst < bestVar) { bestVar = worst; cut = i; }
+    }
+    if (cut > 0) { madBi = bestVar; biSplit = Math.abs(sv[n - 1] - sv[0]) > 1e-6 ? cut / n : 0; }
+    else madBi = mad;
+  }
+
+  // ---- (c) seam crossing penalty ---------------------------------------
+  // Fraction of CORE interior samples sitting on seam evidence. Core only:
+  // a seam at the stamp's long edge is just the neighbour's boundary, but a
+  // seam under its spine means it straddles two pills.
+  //
+  // The lookup MUST be dilated (+-2px), exactly as the in-peel seam test is.
+  // A contact seam survives as a DOTTED line only ~1-2px wide (r-7ff7fd99:
+  // 179 seam px in a 154k-px frame) while the interior sample lattice steps
+  // at min/7 ~ 2.7px — measured, an exact-pixel lookup scored seamFrac 0.000
+  // on every placement including deliberate straddles, i.e. the component
+  // was inert (AUC 0.500). With the dilation it fires.
+  let nCore = 0, nSeam = 0;
+  if (seam) {
+    const vCore = 0.3 * min;
+    for (const [u, v] of pts) {
+      if (Math.abs(v) > vCore) continue;
+      const xi = (cx + u * c - v * s) | 0, yi = (cy + u * s + v * c) | 0;
+      if (xi < 0 || yi < 0 || xi >= w || yi >= h) continue;
+      nCore++;
+      let hit = false;
+      for (let dy = -2; dy <= 2 && !hit; dy++) {
+        const Y = yi + dy;
+        if (Y < 0 || Y >= h) continue;
+        for (let dx = -2; dx <= 2; dx++) {
+          const X = xi + dx;
+          if (X >= 0 && X < w && seam[Y * w + X]) { hit = true; break; }
+        }
+      }
+      if (hit) nSeam++;
+    }
+  }
+  const seamFrac = nCore ? nSeam / nCore : 0;
+
+  // ---- (d) gradient-orientation agreement ------------------------------
+  // Structure tensor of the PHOTO over a stamp-sized window. The dominant
+  // gradient direction is perpendicular to the pill's long axis. Coherence
+  // (l1-l2)/(l1+l2) says how directional the local structure is at all — a
+  // round pill or an isotropic pile has no axis to agree with, so the
+  // agreement term is only trusted where coherence is real.
+  const R = Math.max(6, (min * 0.9) | 0);
+  let sxx = 0, syy = 0, sxy = 0;
+  for (let dy = -R; dy <= R; dy += 2) for (let dx = -R; dx <= R; dx += 2) {
+    if (dx * dx + dy * dy > R * R) continue;
+    const xi = (cx + dx) | 0, yi = (cy + dy) | 0;
+    if (xi < 1 || yi < 1 || xi >= w - 1 || yi >= h - 1) continue;
+    const gx = luma[yi * w + xi + 1] - luma[yi * w + xi - 1];
+    const gy = luma[(yi + 1) * w + xi] - luma[(yi - 1) * w + xi];
+    sxx += gx * gx; syy += gy * gy; sxy += gx * gy;
+  }
+  const tr = sxx + syy;
+  const disc = Math.sqrt(Math.max(0, (sxx - syy) * (sxx - syy) + 4 * sxy * sxy));
+  const coher = tr > 1e-6 ? disc / tr : 0;
+  // pill axis = dominant gradient direction + 90deg
+  const axis = 0.5 * Math.atan2(2 * sxy, sxx - syy) + Math.PI / 2;
+  let dA = Math.abs(((axis - th) % Math.PI + Math.PI) % Math.PI);
+  if (dA > Math.PI / 2) dA = Math.PI - dA;              // axis, not direction
+  const align = 1 - dA / (Math.PI / 2);                 // 1 parallel, 0 perpendicular
+
+  // interior colour distance from the photo's pill colour (kept raw here;
+  // the calibrator turns it into a ratio)
+  let colD = 0;
+  if (env.sampleRGB && env.refCol) {
+    const cc = env.sampleRGB(cx, cy);
+    colD = Math.abs(cc[0] - env.refCol[0]) + Math.abs(cc[1] - env.refCol[1]) + Math.abs(cc[2] - env.refCol[2]);
+  }
+
+  // mask coverage, retained ONLY as a reference for comparison (this is the
+  // saturating quantity the metric exists to replace, never a term in it)
+  let onFg = 0, nAll = 0;
+  for (const [u, v] of pts) {
+    const xi = (cx + u * c - v * s) | 0, yi = (cy + u * s + v * c) | 0;
+    if (xi < 0 || yi < 0 || xi >= w || yi >= h) continue;
+    nAll++; if (fg[yi * w + xi]) onFg++;
+  }
+
+  return { edgeMag, edgeMed, edgeCoh, mad, madBi, biSplit, medL, seamFrac, coher, align, colD,
+    cover: nAll ? onFg / nAll : 0, nB, nCore, maj, min };
+}
+
+// Build the per-photo calibrator by scoring the VERIFIED SINGLES at their own
+// poses and taking medians. Everything downstream is expressed as a ratio to
+// these, which is what makes the output "pill-like relative to THIS photo".
+export function calibrateMatch(env, pool) {
+  const raw = [];
+  for (const g of pool) {
+    const th = (g.theta !== undefined ? g.theta : (g.shape ? g.shape.theta : 0)) || 0;
+    const maj = g.shape ? g.shape.major : (g.major || env.maj);
+    const min = g.shape ? g.shape.minor : (g.minor || env.min);
+    if (!(maj > 0) || !(min > 0)) continue;
+    raw.push(matchComponents(env, { x: g.cx, y: g.cy, th, maj, min, kern: env.kern }));
+  }
+  if (!raw.length) return null;
+  const cal = {
+    n: raw.length,
+    edge0: Math.max(4, med(raw.map((r) => r.edgeMed))),   // typical real rim step
+    coh0: med(raw.map((r) => r.edgeCoh)),
+    // calibrate on the SAME effective statistic the score uses, or the
+    // reference and the measurement live on different scales
+    mad0: Math.max(1.5, med(raw.map((r) => Math.min(r.mad, r.madBi > 0 ? r.madBi : r.mad)))),
+    seam0: med(raw.map((r) => r.seamFrac)),
+    coher0: med(raw.map((r) => r.coher)),
+    align0: med(raw.map((r) => r.align)),
+    col0: Math.max(12, med(raw.map((r) => r.colD))),
+  };
+  cal.selfQ = raw.map((r) => scoreFromComponents(r, cal).q);
+  cal.q50 = med(cal.selfQ);
+  // What a REAL pill on this photo covers of its own footprint. Used by the
+  // whole-image sweep to set its prefilter bar (see sweepWholeImage): on
+  // glare-eroded masks real pills cover as little as 0.50, so a fixed bar
+  // silently caps recall. Emitted here because the calibrator is the one place
+  // that scores known-good placements.
+  cal.selfCover = raw.map((r) => r.cover);
+  return cal;
+}
+
+// Turn raw components + calibrator into 0..1 sub-scores and the product-form
+// aggregate. Product (geometric) rather than sum: these are INDEPENDENT
+// necessary conditions — a placement that is perfect on three and null on the
+// fourth is not three-quarters of a pill, it is wrong. A weighted sum would
+// let strong coverage-like terms outvote a hard geometric contradiction,
+// which is the exact failure the combiner bake-off already measured for the
+// veto cascade (docs/stamp-strategy.md).
+export function scoreFromComponents(r, cal) {
+  // (a) rim step relative to a real rim on this photo, gated by sign coherence
+  const eMag = Math.min(1, r.edgeMed / cal.edge0);
+  // coherence 0.5 is a coin flip (no consistent sign) -> 0; 1.0 -> 1
+  const eCoh = Math.max(0, Math.min(1, (r.edgeCoh - 0.5) / 0.5));
+  const edge = Math.sqrt(eMag * Math.max(0.05, eCoh));
+  // (b) spread relative to real pills; 1x real = 1.0, 3x real = 0
+  // Take the better (lower) of the plain interior spread and the bicolor
+  // within-half spread: see matchComponents (b). A two-tone capsule is
+  // homogeneous within each half, and refusing to model that was zeroing out
+  // real pills — including verified singles inside the calibrator itself.
+  const madEff = Math.min(r.mad, r.madBi !== undefined && r.madBi > 0 ? r.madBi : r.mad);
+  const homo = Math.max(0, Math.min(1, 1 - (madEff / cal.mad0 - 1) / 2));
+  // (c) seam crossing: any core seam above the real-pill baseline hurts fast
+  const seamExc = Math.max(0, r.seamFrac - cal.seam0);
+  const seamS = Math.max(0, 1 - seamExc / 0.15);
+  // (d) orientation agreement, trusted in proportion to how directional the
+  // local structure actually is (relative to real pills' own coherence).
+  //
+  // APPLICABILITY: this component is only MEANINGFUL for elongated pills. On
+  // a round pill, rotation is a SYMMETRY, not an error — "is your angle
+  // right" has no answer, and measured on t2-advil-scatter-dark-1 (aspect
+  // 1.04) the term scored WORSE THAN CHANCE (AUC 0.111): the structure
+  // tensor under a round pill reads the neighbour-contact direction, so the
+  // rotated-by-90 pose agreed with it BETTER than the true pose and the
+  // aggregate inverted (q AUC 0.347 while edge alone was 0.667). Gating it
+  // off below aspect ASPECT_MIN is not tuning — it is refusing to answer an
+  // ill-posed question, the same discipline as edgeScore's `applicable`.
+  const aspect = r.min > 1e-6 ? r.maj / r.min : 1;
+  const oriApplicable = aspect >= ASPECT_ORI_MIN;
+  const trust = cal.coher0 > 1e-6 ? Math.min(1, r.coher / cal.coher0) : 0;
+  const ori = oriApplicable ? 1 - trust * (1 - r.align) : 1;
+  // interior colour, same claim-but-don't-count spirit as the peel dossier
+  const col = Math.max(0, Math.min(1, 1 - (r.colD / cal.col0 - 1) / 3));
+  // Geometric mean over the APPLICABLE components (colour is carried as a
+  // reported bit, not folded in: the peel already vetoes on it and
+  // double-counting it would mask the geometric signals). Product rather
+  // than sum, over only the terms that can actually answer here — averaging
+  // in a constant 1.0 for an inapplicable term would dilute the real signal
+  // toward 1 exactly where the metric is weakest.
+  const terms = [edge, homo, seamS];
+  if (oriApplicable) terms.push(ori);
+  let prod = 1;
+  for (const t of terms) prod *= Math.max(1e-6, t);
+  const q = Math.pow(prod, 1 / terms.length);
+  return { q, edge, homo, seam: seamS, ori, col, oriApplicable,
+    parts: { eMag, eCoh, trust, align: r.align, mad: r.mad, seamFrac: r.seamFrac,
+      edgeMed: r.edgeMed, cover: r.cover, aspect } };
+}
+
+// The public entry point: score one hypothesised placement against the photo.
+// Returns { q, qRel, edge, homo, seam, ori, col, parts } where q is 0..1 and
+// qRel is q relative to this photo's own verified pills (1.0 = as pill-like
+// as the median real pill here).
+export function matchQuality(env, place, cal) {
+  const r = matchComponents(env, place);
+  if (!cal) return { q: null, raw: r };
+  const sc = scoreFromComponents(r, cal);
+  return { ...sc, qRel: cal.q50 > 1e-6 ? sc.q / cal.q50 : null, raw: r };
+}
+
 // stamp interior points (unrotated [u,v]) and boundary points ([u,v,nu,nv])
 function basePts(maj, min) {
   const a = (maj - min) / 2, rho = min / 2, pts = [];
@@ -692,6 +1035,30 @@ export function stampArbitrate(cv, env) {
     const colDist = (c) => Math.abs(c[0] - refCol[0]) + Math.abs(c[1] - refCol[1]) + Math.abs(c[2] - refCol[2]);
     const colThr = Math.max(75, 3 * med(colPool.map(colDist)));
 
+    // ---- PHOTO-GROUNDED MATCH QUALITY: env + per-photo calibration.
+    // Computed for observation only in this build (emitted per placement as a
+    // debug event); it does not gate, veto or alter any count.
+    const mqPool = cands.length >= 3 ? cands : (pipeSingles.length ? pipeSingles : cands);
+    const mqEnv = { w, h, fg, luma, dd, sampleRGB, refCol, kern: kernel,
+      maj: MAJ, min: MIN, seam: null };
+    mqEnv.seam = buildSeamMask(mqEnv, mqPool);
+    let mqCal = null;
+    try { mqCal = calibrateMatch(mqEnv, mqPool); } catch { mqCal = null; }
+    if (mqCal) {
+      debug?.({ stage: 'matchq-cal', tag, n: mqCal.n,
+        edge0: +mqCal.edge0.toFixed(1), mad0: +mqCal.mad0.toFixed(2),
+        seam0: +mqCal.seam0.toFixed(3), coher0: +mqCal.coher0.toFixed(3),
+        align0: +mqCal.align0.toFixed(3), q50: +mqCal.q50.toFixed(3),
+        selfQ: mqCal.selfQ.map((v) => +v.toFixed(3)) });
+    }
+    const mqScore = (p) => {
+      if (!mqCal) return null;
+      try {
+        return matchQuality(mqEnv, { x: p.x, y: p.y, th: p.th, maj: p.maj, min: p.min,
+          kern: p.src === 'main' ? kernel : null }, mqCal);
+      } catch { return null; }
+    };
+
     // Crease threshold for routed peels, self-calibrated like the strategy
     // doc's other knobs: pill level from the pool's own centres, bg level
     // from the mask complement. A contact shadow between flush pills reads
@@ -894,6 +1261,23 @@ export function stampArbitrate(cv, env) {
       strictBg = false;
       return placed;
     }
+
+    // Emit a photo-grounded quality event per placement. Observation only:
+    // nothing here changes what was placed or counted.
+    const mqEmit = (list, phase) => {
+      if (!mqCal || !debug || !list) return;
+      for (const p of list) {
+        const m = mqScore(p);
+        if (!m) continue;
+        debug({ stage: 'matchq', phase, tag, x: Math.round(p.x), y: Math.round(p.y),
+          th: +(p.th).toFixed(3), src: p.src,
+          fit: +p.s.toFixed(3),                    // the saturating mask coverage
+          q: +m.q.toFixed(3), qRel: m.qRel === null ? null : +m.qRel.toFixed(3),
+          edge: +m.edge.toFixed(3), homo: +m.homo.toFixed(3),
+          seam: +m.seam.toFixed(3), ori: +m.ori.toFixed(3), col: +m.col.toFixed(3),
+          cover: +m.raw.cover.toFixed(3) });
+      }
+    };
 
     const totalFg = fg.reduce((a, b) => a + b, 0);
     const explained = (cl) => {
@@ -1129,10 +1513,21 @@ export function stampArbitrate(cv, env) {
         src: 'main', photo: Math.round(cdv), edge: null };
     };
 
+    mqEmit(placed, 'final');
+    // Validation hook: hand the live env/calibrator to an offline probe so
+    // deliberately WRONG placements can be scored against the same photo and
+    // the same calibration. Never set in production (env.mqProbe is undefined).
+    if (env.mqProbe && mqCal) {
+      try {
+        env.mqProbe({ tag, mqEnv, mqCal, placed, cands: mqPool, kernel,
+          MAJ, MIN, fg, matchQuality, scoreFromComponents, matchComponents });
+      } catch { /* probe must never affect the run */ }
+    }
+
     fgMat.delete(); labMat.delete(); distMat.delete();
     return { placed, anchors, claimed, expl, fg, MAJ, MIN, TAU, tplSrc, clusterFrac,
       cands, radiusEst, selfMed: med(selfScores), retried, edgeNote, tag, kernel, reseat,
-      colDist, colThr };
+      colDist, colThr, mqEnv, mqCal, mqScore };
   }
 
   // one-pill area under the shape model a given analysis actually used
@@ -1950,4 +2345,234 @@ export function stampArbitrate(cv, env) {
   }
   return { fgUsed: res.fg, maskUsed: res.tag, expl: res.expl, retried: res.retried, edgeNote: res.edgeNote,
     maskNote, remove, add, countDelta, changed: true, kernel: kernelOut };
+}
+
+// ==================== WHOLE-IMAGE STAMP SWEEP ====================
+// Owner's gap: "the stamp is only ever asked about places arbitration routes
+// it to, so pills nobody suspected stay invisible." Today stampArbitrate is a
+// LAST-RESORT arbiter over CONTESTED blobs; a pill sitting quietly in a region
+// the pipeline already believes it understands is never hypothesised at all.
+//
+// This sweep removes the routing entirely: EVERY position on a stride grid
+// over the FULL image, at EVERY rotation in a coarse-to-fine set, is scored as
+// a hypothesised placement — then rated AGAINST THE ORIGINAL PHOTO with the
+// photo-grounded match-quality metric (matchQuality), not with mask coverage.
+//
+// Why the photo metric is load-bearing here rather than a nicety: a whole-image
+// sweep generates O(10^6) hypotheses instead of the peel's handful, so the
+// ranking function is doing almost all of the work. Mask coverage SATURATES
+// inside a pile (every pose over a raft covers ~100% foreground), which is
+// survivable when arbitration has already narrowed the field to one contested
+// blob and fatal when the field is the whole frame. q is the ranking signal;
+// coverage is retained only as a cheap PREFILTER (it is ~40x cheaper to
+// evaluate, and it is a sound necessary condition: a placement over bare board
+// cannot be a pill).
+//
+// Pipeline: prefilter -> score -> NMS local maxima -> greedy peel with
+// rigid-body non-overlap -> dossier verification.
+export function sweepWholeImage(env, opts = {}) {
+  const { w, h, fg, luma, kern } = env;
+  const MAJ = opts.maj || env.maj, MIN = opts.min || env.min;
+  const cal = opts.cal;
+  if (!(MAJ > 0) || !(MIN > 0) || !cal) return null;
+
+  const t0 = Date.now();
+  // Stride: fraction of the SHORT axis, so the grid resolves two pills that
+  // are one minor-axis apart. 0.35*MIN is ~2px on the smallest corpus pills.
+  const stride = Math.max(2, Math.round((opts.strideFrac || 0.35) * MIN));
+  // Coarse rotation set. A stadium is pi-periodic, so the sweep covers [0,pi).
+  // A round pill (aspect < ASPECT_ORI_MIN) has no meaningful angle at all, so
+  // we collapse to a single rotation and save the whole factor of K.
+  const aspect = MAJ / MIN;
+  const nRot = aspect < ASPECT_ORI_MIN ? 1 : (opts.nRot || 12);
+  const rots = [];
+  for (let k = 0; k < nRot; k++) rots.push(k * Math.PI / nRot);
+
+  // Interior/boundary sample sets, built ONCE per rotation (they are pose
+  // independent in the stamp's own frame — only the rotation of the sample
+  // offsets changes, and that is hoisted out of the position loop).
+  const pts = kern ? basePtsK(MAJ, MIN, kern) : basePts(MAJ, MIN);
+  const rotPts = rots.map((th) => {
+    const c = Math.cos(th), s = Math.sin(th);
+    return pts.map(([u, v]) => [u * c - v * s, u * s + v * c]);
+  });
+
+  // ---- pass 1: coverage prefilter over the full grid --------------------
+  // Cheap necessary condition. A hypothesis whose footprint is mostly not
+  // foreground is not a pill under ANY metric, and discarding it here is what
+  // makes the expensive photo-grounded scoring affordable.
+  //
+  // The bar is SELF-CALIBRATED from the photo's own verified pills, not a
+  // constant. Measured on synth2-cc-kraft-s301, a fixed 0.80 discarded 9 of 20
+  // REAL pills before the metric ever saw them (their own best coverage runs
+  // 0.50-0.54, because the glare-eroded kraft mask simply does not hold a full
+  // pill footprint) — a hard recall ceiling imposed by the cheap prefilter,
+  // exactly the mask-derived saturation failure this sweep exists to escape.
+  // Taking the bar from what real pills on THIS photo actually cover keeps the
+  // prefilter a sound necessary condition without letting the mask veto the
+  // photo. The floor of 0.35 stops a degenerate mask from admitting the frame.
+  let COVER_MIN;
+  if (opts.coverMin !== undefined) COVER_MIN = opts.coverMin;
+  else {
+    const selfCov = (cal.selfCover && cal.selfCover.length) ? cal.selfCover : null;
+    COVER_MIN = selfCov ? Math.max(0.35, 0.85 * med(selfCov)) : 0.80;
+  }
+  const hyps = [];
+  let nGrid = 0, nPre = 0;
+  for (let cy = 0; cy < h; cy += stride) {
+    for (let cx = 0; cx < w; cx += stride) {
+      nGrid++;
+      // skip obvious background centres before touching the sample lattice
+      if (!fg[cy * w + cx]) continue;
+      for (let k = 0; k < nRot; k++) {
+        const rp = rotPts[k];
+        let on = 0, n = 0;
+        for (let j = 0; j < rp.length; j++) {
+          const x = (cx + rp[j][0]) | 0, y = (cy + rp[j][1]) | 0;
+          if (x < 0 || y < 0 || x >= w || y >= h) continue;
+          n++; if (fg[y * w + x]) on++;
+        }
+        if (!n) continue;
+        const cover = on / n;
+        if (cover < COVER_MIN) continue;
+        nPre++;
+        hyps.push({ x: cx, y: cy, th: rots[k], cover, q: 0 });
+      }
+    }
+  }
+  const tPre = Date.now() - t0;
+
+  // ---- pass 2: photo-grounded rating of every survivor ------------------
+  // THIS is the owner's "rate each candidate placement against the original
+  // photo". Every surviving hypothesis gets a real self-test: rim steps in the
+  // photo, interior homogeneity, seam crossing, gradient orientation.
+  //
+  // OCCUPANCY IS PART OF THE SCORE, not just the prefilter. Measured on
+  // lined-503b3041, a placement on BARE RULED PAPER scores q=0.69-0.71 while
+  // real pills score 0.75-0.80 — overlapping distributions that no threshold
+  // can separate. The reason is that three of the four components are
+  // VACUOUSLY satisfied by emptiness: flat board is perfectly homogeneous
+  // (homo=1.00), carries no seam (seam=1.00) and has no structure to disagree
+  // with (ori~0.9), so only the rim-step term can object and a geometric mean
+  // of {0.3, 1, 1, 0.9} is still ~0.7.
+  //
+  // This is not a flaw in the metric — it is a precondition the metric was
+  // built under. It was validated on placements ROUTED to contested material,
+  // where "is there anything here" was already guaranteed by the router. A
+  // whole-image sweep is exactly the setting that removes that guarantee, so
+  // the condition has to be reinstated explicitly. occ folds coverage in as a
+  // FIFTH necessary condition, on the same geometric footing as the rest:
+  // vacuous satisfaction of the photometric terms can no longer buy a pill.
+  const occOf = (cover) => Math.max(0, Math.min(1, (cover - 0.25) / 0.45));
+  for (const hp of hyps) {
+    const m = matchQuality(env, { x: hp.x, y: hp.y, th: hp.th, maj: MAJ, min: MIN, kern }, cal);
+    if (m && m.q !== null && isFinite(m.q)) {
+      const occ = occOf(m.parts ? m.parts.cover : hp.cover);
+      // 5-term geometric mean: re-raise the 4-term q to its product, multiply
+      // in occ, take the 5th root. Keeps the "independent necessary
+      // conditions" semantics the metric is built on.
+      const nT = (m.oriApplicable ? 4 : 3);
+      hp.q = Math.pow(Math.pow(m.q, nT) * Math.max(1e-6, occ), 1 / (nT + 1));
+      hp.occ = occ;
+    } else hp.q = 0;
+    hp.mq = m;
+  }
+  const tScore = Date.now() - t0 - tPre;
+
+  // ---- pass 3: fine refine of the promising ones ------------------------
+  // Coarse-to-fine: only hypotheses already near the bar earn a local
+  // coordinate-ascent polish (1px / pi/48), so the fine grid is paid for on
+  // O(100) placements rather than O(10^6).
+  // The bar must live on the SAME scale as the score it gates. hp.q is the
+  // 5-term mean (occupancy included) while cal.q50 is the metric's own 4-term
+  // median over verified singles, so calibrate the bar by pushing the verified
+  // singles' own median through the same occupancy fold, using what real pills
+  // on this photo actually cover.
+  const selfCovMed = (cal.selfCover && cal.selfCover.length) ? med(cal.selfCover) : 1;
+  const nT0 = (MAJ / MIN >= ASPECT_ORI_MIN) ? 4 : 3;
+  const q50occ = Math.pow(Math.pow(cal.q50, nT0) * Math.max(1e-6, occOf(selfCovMed)), 1 / (nT0 + 1));
+  const qBar = (opts.qFrac !== undefined ? opts.qFrac : 0.7) * q50occ;
+  const refineList = hyps.filter((hp) => hp.q >= 0.8 * qBar);
+  for (const hp of refineList) {
+    let best = hp;
+    for (let round = 0; round < 6; round++) {
+      let improved = false;
+      for (const [dx, dy, dth] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0],
+        [0, 0, Math.PI / 48], [0, 0, -Math.PI / 48]]) {
+        const c2 = { x: best.x + dx, y: best.y + dy, th: best.th + dth };
+        const m = matchQuality(env, { ...c2, maj: MAJ, min: MIN, kern }, cal);
+        // refine the SAME objective the peel ranks on (occupancy included),
+        // or the polish walks placements off their material to chase the
+        // vacuous photometric optimum on bare board.
+        let q2 = 0;
+        if (m && m.q !== null && isFinite(m.q)) {
+          const nT = (m.oriApplicable ? 4 : 3);
+          q2 = Math.pow(Math.pow(m.q, nT) * Math.max(1e-6, occOf(m.parts.cover)), 1 / (nT + 1));
+        }
+        if (q2 > best.q) { best = { ...c2, q: q2, mq: m, cover: m ? m.parts.cover : best.cover }; improved = true; }
+      }
+      if (!improved) break;
+    }
+    hp.x = best.x; hp.y = best.y; hp.th = best.th; hp.q = best.q; hp.mq = best.mq;
+  }
+  const tRefine = Date.now() - t0 - tPre - tScore;
+
+  // ---- pass 4: greedy peel with rigid-body non-overlap -------------------
+  // Sort by photo-grounded quality and take them greedily, enforcing the same
+  // spine-separation physics the routed peel uses (clearOf): two pills cannot
+  // interpenetrate. This is what turns a score field into a COUNT.
+  hyps.sort((a, b) => b.q - a.q);
+  const segP = (q) => {
+    const a2 = Math.max(0, (MAJ - MIN) / 2), out = [];
+    for (let t = -1; t <= 1; t += 0.34)
+      out.push([q.x + Math.cos(q.th) * a2 * t, q.y + Math.sin(q.th) * a2 * t]);
+    return out;
+  };
+  const SEP = (opts.sepFrac !== undefined ? opts.sepFrac : 0.72) * MIN;
+  // AREA EXCLUSION, in addition to spine separation. The spine test only
+  // samples the stadium's CENTRELINE, so two placements can satisfy it while
+  // their bodies still overlap heavily — measured on shiny/s-0bfc44d8, that is
+  // exactly how a duplicate slid half a bead off its neighbour and onto bare
+  // leather survived the peel next to the true placement (a genuine phantom,
+  // confirmed by eye at 6x). Rejecting a candidate whose footprint is already
+  // largely claimed is the same "physics by construction" the routed peel gets
+  // from its claimed-pixel mask, which a pure geometric test does not provide.
+  const OVMAX = opts.ovMax !== undefined ? opts.ovMax : 0.35;
+  const claimed = new Uint8Array(w * h);
+  const footprint = (hp) => {
+    const c = Math.cos(hp.th), s = Math.sin(hp.th), out = [];
+    for (const [u, v] of pts) {
+      const x = (hp.x + u * c - v * s) | 0, y = (hp.y + u * s + v * c) | 0;
+      if (x >= 0 && y >= 0 && x < w && y < h) out.push(y * w + x);
+    }
+    return out;
+  };
+  const kept = [];
+  for (const hp of hyps) {
+    if (hp.q < qBar) break;                 // sorted: everything after is worse
+    let clear = true;
+    for (const q of kept) {
+      let dmin = 1e9;
+      for (const [xa, ya] of segP(hp)) for (const [xb, yb] of segP(q)) {
+        const d = Math.hypot(xa - xb, ya - yb);
+        if (d < dmin) dmin = d;
+      }
+      if (dmin < SEP) { clear = false; break; }
+    }
+    if (!clear) continue;
+    const fpt = footprint(hp);
+    if (fpt.length) {
+      let ov = 0;
+      for (const i of fpt) if (claimed[i]) ov++;
+      if (ov / fpt.length > OVMAX) continue;
+    }
+    for (const i of fpt) claimed[i] = 1;
+    kept.push(hp);
+  }
+  const ms = Date.now() - t0;
+
+  return { placed: kept, count: kept.length, qBar, q50: cal.q50, stride, nRot,
+    stats: { nGrid, nHyp: hyps.length, nPre, nRefine: refineList.length,
+      ms, tPre, tScore, tRefine },
+    maj: MAJ, min: MIN };
 }

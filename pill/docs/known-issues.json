@@ -75,7 +75,7 @@
    "note": "Trigger has exactly ONE positive example in 251 images (cream). Force-running the rescue with the trigger bypassed: 35 adoptions, 2 BREAKS including cornerstone s301 20->40. The explain-margin cannot separate them (cream +0.204 sits between harmful +0.165 and +0.489), so the UPSTREAM TRIGGER is load-bearing for safety, not arbitration. Do not loosen the trigger without re-running that force-test."
   },
   "gate-blindspot": {
-   "note": "The regression gate scores COUNTS ONLY. Two fixes today improved per-pill detection substantially (lined 6/20->13/20, 8/20->16/20) with counts unchanged, so the gate neither credits nor PROTECTS them. A per-pill matched/missed/spurious metric belongs in the gate."
+   "note": "CLOSED 2026-08-11 by tools/perpill.mjs (baseline tools/baselines/perpill.json, 407/444 matched, 37 missed, 24 spurious over 24 annotated images). The count gate is blind to detection quality \u2014 proven when two agent patches that would have silently reverted shipped per-pill fixes both gated GREEN on counts. Run BOTH gates before any counter commit."
   }
  }
 }
