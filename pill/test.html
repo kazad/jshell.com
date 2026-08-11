@@ -332,6 +332,7 @@
       }
       $('#fail-head').hidden = gridFail.children.length === 0;
       $('#known-head').hidden = gridKnown.children.length === 0;
+      $('#known-head').textContent = `Known issues — documented, not forgotten (${gridKnown.children.length})`;
       $('#pass-head').hidden = false;
       $('#fail-head').textContent = gridFail.children.length
         ? `Misses — NOT triaged (${gridFail.children.length}) — this section must be empty`

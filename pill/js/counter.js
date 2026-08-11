@@ -2355,6 +2355,7 @@ export function countPills(cv, source, opts = {}) {
 
     let activeMd = md;
     let out2Template = null;   // template card info, filled by the debug emit
+    const COMBINER = opts.combiner || 'A';   // bake-off selector; A = shipping
     let stampKernelUsed = null, stampFgUsed = null;   // for the match-map stage
     let unitArea = 0;
 
@@ -3940,10 +3941,38 @@ export function countPills(cv, source, opts = {}) {
           // massContradicts already exists to block. Exactly one blob in the
           // corpus has mass voting for the descent: this one.
           const corroboratedDescent = k < a.unitsSum && massSupportsK;
-          const agreed = ks.length >= 2 && independent && !distancePairVsMass
+          // COMBINER SEAM (bake-off). Variant A is the shipping veto
+          // cascade, unchanged; B/C reinterpret the SAME evidence with a
+          // weighted score so no single bit can kill a well-supported
+          // answer. tools/bakeoff.mjs A/B/C-tests them on one corpus and
+          // aborts if A ever diverges from the stored baseline — the seam
+          // must be inert by construction.
+          const vetoA = ks.length >= 2 && independent && !distancePairVsMass
             && !massContradicts && !belowLenFloor && k >= regs.length
             && (broadAmbiguity || k === a.unitsSum || corroboratedRise
               || corroboratedDescent);
+          let agreed = vetoA;
+          if (COMBINER !== 'A') {
+            // Weighted evidence. Each condition contributes rather than
+            // vetoes; weights reflect how often each has been RIGHT in this
+            // project's measured history: cross-family agreement and the
+            // baseline match are strong, the distance-family objections are
+            // weaker (they are the ones that fail on flush contact).
+            let sc = 0;
+            sc += ks.length >= 2 ? 1.0 : 0;                  // >=2 methods concur
+            sc += independent ? 0.8 : 0;                     // from different families
+            sc += (k === a.unitsSum) ? 1.0 : 0;              // matches the baseline
+            sc += corroboratedRise || corroboratedDescent ? 0.9 : 0;
+            sc += broadAmbiguity ? 0.4 : 0;
+            sc -= distancePairVsMass ? 0.7 : 0;
+            sc -= massContradicts ? 0.9 : 0;
+            sc -= belowLenFloor ? 1.2 : 0;                   // physical floor: hard
+            sc -= (k < regs.length) ? 1.2 : 0;               // fewer than markers: hard
+            const BAR = COMBINER === 'C' ? 1.5 : 1.8;
+            agreed = sc >= BAR;
+            if (agreed !== vetoA) opts.debug?.({ stage: 'combiner', blob: l,
+              variant: COMBINER, score: +sc.toFixed(2), bar: BAR, vetoA, now: agreed });
+          }
           opts.debug?.({ stage: 'panel', blob: l, votes, k, agreed, base: a.unitsSum,
             massFrac: +massFrac.toFixed(2) });
 
