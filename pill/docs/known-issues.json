@@ -6,20 +6,20 @@
    "note": "33v36 honest-over-lucky: phantom removal shipped (bare-leather units=2 deleted, chroma 0.00); 3 real glare-wrecked beads stay behind the gate that blocked +8 phantoms"
   },
   "lined/lined-503b3041.jpg": {
-   "status": "documented-hard",
-   "note": "embossed ruling bridges pills; research doc on file"
+   "status": "detection-improved-count-open",
+   "note": "ROOT CAUSE FOUND (was mis-attributed to ruled-line bridging): the fused cluster took the deep-pile seeding branch, whose premise \"each pill rises to its own DT peak\" is FALSE for a flat sheet \u2014 81428px produced only 16 strict-max seed pixels, so the watershed could not split it and the count came from area estimation. Fix: reseed at pill scale when a blob is seed-starved AND single-layer (DT/radius < 2.4x; real stacking measures 3.3x) AND >= 8 pills. Per-pill detection: 503b 6/20->13/20, bfdbfef9 8/20->16/20. Counts unchanged (18/18/21) \u2014 the remaining gap is splitting accuracy inside the reseeded cluster."
   },
   "lined/lined-69204ff4.jpg": {
-   "status": "documented-hard",
-   "note": "same class, +1 side"
+   "status": "detection-improved-count-open",
+   "note": "ROOT CAUSE FOUND (was mis-attributed to ruled-line bridging): the fused cluster took the deep-pile seeding branch, whose premise \"each pill rises to its own DT peak\" is FALSE for a flat sheet \u2014 81428px produced only 16 strict-max seed pixels, so the watershed could not split it and the count came from area estimation. Fix: reseed at pill scale when a blob is seed-starved AND single-layer (DT/radius < 2.4x; real stacking measures 3.3x) AND >= 8 pills. Per-pill detection: 503b 6/20->13/20, bfdbfef9 8/20->16/20. Counts unchanged (18/18/21) \u2014 the remaining gap is splitting accuracy inside the reseeded cluster."
   },
   "lined/lined-bfdbfef9.jpg": {
-   "status": "documented-hard",
-   "note": "same class"
+   "status": "detection-improved-count-open",
+   "note": "ROOT CAUSE FOUND (was mis-attributed to ruled-line bridging): the fused cluster took the deep-pile seeding branch, whose premise \"each pill rises to its own DT peak\" is FALSE for a flat sheet \u2014 81428px produced only 16 strict-max seed pixels, so the watershed could not split it and the count came from area estimation. Fix: reseed at pill scale when a blob is seed-starved AND single-layer (DT/radius < 2.4x; real stacking measures 3.3x) AND >= 8 pills. Per-pill detection: 503b 6/20->13/20, bfdbfef9 8/20->16/20. Counts unchanged (18/18/21) \u2014 the remaining gap is splitting accuracy inside the reseeded cluster."
   },
   "real/r-7ff7fd99.jpg": {
-   "status": "awaiting-ruling",
-   "note": "the 20th pill is SHINGLED on its neighbour (7px perpendicular offset, single-layer impossible) - mild-stacking scope ruling"
+   "status": "open-real-miss",
+   "note": "LEDGER CORRECTED: the \"shingled pill\" verdict was WRONG (mine). 25x crop shows TWO separate caplets meeting at a dark contact seam, each with its own ground shadow \u2014 flat, side-by-side. Centers 20.5px apart vs a 20px pill width = flush coplanar contact, not the 7px offset stacking would give. This is a genuine flush-pair split failure, NOT a scope question. Per-pill now 18/20 (2 miss, 1 spurious) after the sibling-overlap fix."
   },
   "synth2-rc-light-small-n30-t65-s140.png": {
    "status": "awaiting-ruling",
@@ -73,6 +73,9 @@
  "guards": {
   "high-contrast-mask-rescue": {
    "note": "Trigger has exactly ONE positive example in 251 images (cream). Force-running the rescue with the trigger bypassed: 35 adoptions, 2 BREAKS including cornerstone s301 20->40. The explain-margin cannot separate them (cream +0.204 sits between harmful +0.165 and +0.489), so the UPSTREAM TRIGGER is load-bearing for safety, not arbitration. Do not loosen the trigger without re-running that force-test."
+  },
+  "gate-blindspot": {
+   "note": "The regression gate scores COUNTS ONLY. Two fixes today improved per-pill detection substantially (lined 6/20->13/20, 8/20->16/20) with counts unchanged, so the gate neither credits nor PROTECTS them. A per-pill matched/missed/spurious metric belongs in the gate."
   }
  }
 }

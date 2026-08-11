@@ -2242,11 +2242,92 @@ export function countPills(cv, source, opts = {}) {
     const sureFg = track(new cv.Mat(src.rows, src.cols, cv.CV_8UC1));
     const sf = sureFg.data;
     const pileFloor = Math.max(MIN_PEAK, 0.45 * radiusEst);
+
+    // PILE vs SHEET. The pile branch below seeds from STRICT distance-transform
+    // local maxima, on the premise that in a deep heap each pill centre rises to
+    // its own peak. That premise fails for a SHEET: many same-size pills fused
+    // side-by-side in ONE layer. There the medial axis is a smooth branching
+    // plateau with no per-pill bumps, so the strict-max test finds almost
+    // nothing and the whole clump gets a handful of seed pixels -- the watershed
+    // is then given nothing to split with and the pills are never individually
+    // detected. Measured on lined-503b3041's 14-pill cluster: 81428 px, 47129 of
+    // them above pileFloor, but only 16 px passing `dd >= dm` -- SIXTEEN seed
+    // pixels for fourteen pills, against 1300-1700 px for each isolated pill.
+    //
+    // `peaks[l]` cannot separate the two cases: it is a MAX, so one fused
+    // junction inflates a flat sheet's peak just as high as a real heap's (here
+    // 60.3 vs a true pill half-width of 28.7). Neither can the DT distribution:
+    // measured, a genuine sheet and a blob that the strict-max branch handles
+    // correctly both sit at p90/radiusEst ~= 1.2, so any cut there is tuning.
+    //
+    // The condition that actually matters is not what the blob IS but whether
+    // the strict-max branch produced enough SEED REGIONS to split the blob.
+    // Seed pixel COUNT is the wrong yardstick -- strict maxima are points, so
+    // even correct seeding covers a negligible fraction of area (measured on
+    // t2-salmon-pentagon-tablets-teal, a real stacked pile: 1 seed pixel for a
+    // 3497 px blob, working as intended). What matters is how many SEPARATE
+    // seeds there are versus how many pills the blob can hold: the watershed
+    // can never yield more regions than it has seeds, so a blob with room for
+    // a dozen pills and one connected seed is guaranteed to under-count no
+    // matter what happens downstream.
+    //
+    // Capacity is area/pillArea. Require the seeds to be able to account for
+    // at least a third of it -- generous, since a pile legitimately hides some
+    // pills behind others, but 503b3041's cluster (capacity 31, ONE seed
+    // component) misses by a factor of ten and cannot be explained by occlusion.
+    const sheetBlob = new Set();
+    {
+      const pillArea = Math.max(1, Math.PI * radiusEst * radiusEst);
+      // Label the strict-max seeds so distinct seeds can be counted per blob.
+      const pileSeed = track(new cv.Mat(src.rows, src.cols, cv.CV_8UC1));
+      const ps = pileSeed.data;
+      for (let i = 0; i < bl.length; i++) {
+        const l = bl[i];
+        ps[i] = (l && peaks[l] > 1.4 * radiusEst && dd[i] >= pileFloor && dd[i] >= dm[i]) ? 255 : 0;
+      }
+      const seedLab = track(new cv.Mat());
+      const nSeed = cv.connectedComponents(pileSeed, seedLab);
+      const sl = seedLab.data32S;
+      // one representative blob per seed component
+      const seedBlob = new Int32Array(nSeed);
+      for (let i = 0; i < sl.length; i++) if (sl[i]) seedBlob[sl[i]] = bl[i];
+      const seedCount = new Map();
+      for (let s = 1; s < nSeed; s++) {
+        const b2 = seedBlob[s];
+        if (b2) seedCount.set(b2, (seedCount.get(b2) || 0) + 1);
+      }
+      for (let l = 1; l < blobAreas.length; l++) {
+        if (!blobAreas[l] || peaks[l] <= 1.4 * radiusEst) continue;
+        const capacity = blobAreas[l] / pillArea;
+        if (capacity < 4) continue; // too small to be a multi-pill sheet
+        const got = seedCount.get(l) || 0;
+        // Starvation alone is not enough to justify reseeding. A genuinely
+        // STACKED pile is also seed-starved, but there the sparse point seeds
+        // plus the downstream mass estimate get the count right, and reseeding
+        // at pill scale merges the stack into mush instead (measured on
+        // t2-salmon-pentagon-tablets-teal: 90 -> 16). Reseeding only helps when
+        // the pills lie in ONE layer, and a single layer cannot be much thicker
+        // than a single pill: a flat sheet's DT peak exceeds pill radius only at
+        // the junctions where two pills' half-widths meet, capping it near 2x.
+        // Real stacking runs past that (salmon: peak 35.4 vs radius 10.6, 3.3x;
+        // the lined sheets: 60.3 vs 28.7 and 27 vs 13.4, both ~2.1x).
+        const singleLayer = peaks[l] <= 2.4 * radiusEst;
+        const starved = got < capacity / 3 && singleLayer && capacity >= 8;
+        if (starved) sheetBlob.add(l);
+        opts.debug?.({ stage: 'sheet', blob: l, area: blobAreas[l], capacity: +capacity.toFixed(1), seeds: got, peak: +peaks[l].toFixed(1), radiusEst: +radiusEst.toFixed(1), thickR: +(peaks[l] / radiusEst).toFixed(2), singleLayer, starved });
+      }
+    }
+
     for (let i = 0; i < bl.length; i++) {
       const l = bl[i];
       if (!l || peaks[l] < MIN_PEAK) { sf[i] = 0; continue; }
-      if (peaks[l] <= 1.4 * radiusEst) {
-        sf[i] = dd[i] >= 0.6 * peaks[l] ? 255 : 0;
+      if (peaks[l] <= 1.4 * radiusEst || sheetBlob.has(l)) {
+        // Pill-scale / single-layer: threshold on the POPULATION radius rather
+        // than this blob's own peak. For a sheet, `0.6 * peaks[l]` would key off
+        // the inflated junction depth and select only the junctions; the pill
+        // cores it needs to seed sit at radiusEst.
+        const cut = sheetBlob.has(l) ? 0.6 * radiusEst : 0.6 * peaks[l];
+        sf[i] = dd[i] >= cut ? 255 : 0;
       } else {
         sf[i] = dd[i] >= pileFloor && dd[i] >= dm[i] ? 255 : 0;
       }
@@ -5904,14 +5985,26 @@ export function countPills(cv, source, opts = {}) {
               // sit at core distance ~minor, so only penalize genuine
               // interpenetration, and gently — photometry breaks near-ties.
               const mine = segPts(cand);
+              let coincident = false;
               for (const sp of sibs) {
                 let dmin = 1e9;
                 for (const [xa, ya] of mine) for (const [xb, yb] of sp) {
                   const d3 = Math.hypot(xa - xb, ya - yb);
                   if (d3 < dmin) dmin = d3;
                 }
-                if (dmin < p2.minor * 0.75) { sc *= 0.75; break; }
+                // Two pills occupying the SAME place is not a near-tie the
+                // photometry may break — it is one pill drawn twice while a
+                // real one goes unplaced. The soft 0.75 factor cannot stop it:
+                // the cleanest patch of white in a crowded blob outscores every
+                // honest stand by more than 25%, so each stranded claim
+                // independently migrates onto that one spot (measured:
+                // r-554c3c1a blob 1, two claims both landing on the integer
+                // pixel (183,202), count still 19 but two pills unoutlined).
+                // Interpenetration is a graded judgement; co-location is not.
+                if (dmin < p2.minor * 0.25) { coincident = true; break; }
+                if (dmin < p2.minor * 0.75) { sc *= 0.75; }
               }
+              if (coincident) continue;
               if (!best || sc > best.sc) best = { sc, cand };
             }
           }
