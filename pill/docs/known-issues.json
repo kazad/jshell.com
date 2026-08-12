@@ -83,6 +83,15 @@
   },
   "perpill-blind-on-shiny": {
    "note": "testdata/centers/ has NO annotations for the two shiny photos, so tools/perpill.mjs cannot see mask/detection quality there \u2014 exactly the images where counts are least trustworthy. Hand-annotate them before the next shiny attempt."
+  },
+  "matchquality-scale-bias": {
+   "note": "matchQuality REWARDS UNDERSIZED outlines: sweeping a scale multiplier over shipped placements, q peaks at 0.85 on shiny/s-0bfc44d8 (visibly undersized) and only 1.00 on cream-caplets (visually correct). Mechanism: the rim edge test samples +/-1.8px (EDGE_OFF), so on a bead fading gradually from bright centre to dark edge an outline drawn INSIDE the pill still finds a local step and scores well. Consequence: the metric must NOT drive major/minor refinement until this is fixed \u2014 optimising size against it would visibly worsen the owner's standing complaint. Fix direction: scale the edge offset to pill size and/or require the step at the TRUE silhouette (largest gradient along the radial ray), not any step."
+  },
+  "matchquality-needs-calibrators": {
+   "note": "matchQuality discrimination tracks calibration pool size: pool >=11 gives AUC 0.71-1.00 (shiny 0.90, r-f5d11815 1.00), pool <=4 gives 0.56-0.63 and on lined-503b3041 it INVERTS (bad cross-pill lassos 0.616 vs true pills 0.571). Lined images have only ~4 verified singles because the pile is one blob. A canJudge guard (pool >= 11) refuses to flag on a weak calibrator rather than dash outlines at random."
+  },
+  "synthetic-corpus-must-be-single-medication": {
+   "note": "tools/gen-pills.html drew a NEW RANDOM COLOUR PER PILL until 2026-08-12 (drawRound: `light = PILL==='white' || rand()<0.6` then a 3-colour pick; drawCapsule: `CAP_COLORS[(rand()*4)|0]`), both INSIDE the draw loop. That produced green+white and white/pink/orange pills in a single frame \u2014 a direct violation of the owner's scope rule that a photo shows ONE medication (same size AND shape AND colour scheme; a consistent two-tone split is fine, per-pill random colours are OUT of scope). 186 of the corpus's synthetics were affected; 174 of them PASSED anyway, purely on a lucky palette draw, while the 12 that failed did so for a scope reason, not an algorithm reason \u2014 the counter was correctly refusing to unify several different-coloured pill populations. Fixed by hoisting both colour draws OUT of the loop (ROUND_BASE / CAP_PAIR, chosen once per image from the seed) and regenerating all 186 with exact generator-emitted truth. DO NOT move a colour draw back inside a draw loop: it silently makes the corpus test something the product does not claim to do, and it hides real regressions behind luck."
   }
  }
 }

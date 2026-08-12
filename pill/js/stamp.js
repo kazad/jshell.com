@@ -142,17 +142,45 @@ export function matchComponents(env, place) {
   const bd = kern ? boundPtsK(maj, min, kern) : boundPts(maj, min);
   let stepSum = 0, nB = 0, nPos = 0, nNeg = 0;
   const steps = [];
+  // SIZE-SCALED SAMPLING + BOUNDARY LOCALISATION. A fixed 1.8px offset
+  // measured the step wherever the outline happened to sit, so on a pill
+  // that fades gradually from a bright centre to a dark edge an outline
+  // drawn INSIDE the pill still found a local step and scored well —
+  // measured consequence: q peaked at scale 0.85 on the shiny beads
+  // (visibly undersized) versus 1.00 on cream (visually correct), i.e. the
+  // metric rewarded exactly the undersizing the owner keeps reporting.
+  // Now the offset scales with the pill, and each ray also asks whether the
+  // TRUE silhouette (the strongest gradient along that ray) lies where the
+  // outline is: a rim sitting well inside the real edge is penalised.
+  const off = Math.max(1.8, Math.min(6, min * 0.09));
+  let offAt = 0, offN = 0;
   for (const [u, v, nu, nv] of bd) {
     const bx = cx + u * c - v * s, by = cy + u * s + v * c;
     const nx = nu * c - nv * s, ny = nu * s + nv * c;
-    const lo = L((bx + EDGE_OFF * nx) | 0, (by + EDGE_OFF * ny) | 0);
-    const li = L((bx - EDGE_OFF * nx) | 0, (by - EDGE_OFF * ny) | 0);
+    const lo = L((bx + off * nx) | 0, (by + off * ny) | 0);
+    const li = L((bx - off * nx) | 0, (by - off * ny) | 0);
     if (lo === null || li === null) continue;
     const d = li - lo;            // >0 : interior brighter than exterior
     steps.push(Math.abs(d));
     stepSum += Math.abs(d); nB++;
     if (d > 0) nPos++; else if (d < 0) nNeg++;
+    // where is the real edge along this ray? search +-40% of the half-width
+    const reach = Math.max(2, min * 0.4);
+    let bestG = 0, bestT = 0;
+    for (let t = -reach; t <= reach; t += 1.5) {
+      const a1 = L((bx + (t - 1.5) * nx) | 0, (by + (t - 1.5) * ny) | 0);
+      const a2 = L((bx + (t + 1.5) * nx) | 0, (by + (t + 1.5) * ny) | 0);
+      if (a1 === null || a2 === null) continue;
+      const g = Math.abs(a1 - a2);
+      if (g > bestG) { bestG = g; bestT = t; }
+    }
+    if (bestG > 0) { offAt += Math.abs(bestT); offN++; }
   }
+  // mean distance from the drawn rim to the strongest local edge, in units
+  // of the pill's half-width: 0 = the outline sits on the silhouette.
+  const rimOff = offN ? (offAt / offN) / Math.max(1, min / 2) : 0;
+  // penalise a rim that consistently sits away from the true silhouette
+  const rimFit = Math.max(0, 1 - rimOff * 1.6);
   const edgeMag = nB ? stepSum / nB : 0;
   const edgeCoh = nB ? Math.max(nPos, nNeg) / nB : 0;   // 0.5 = no coherence
   // fraction of the rim carrying a real step, at the calibrated scale
@@ -284,7 +312,7 @@ export function matchComponents(env, place) {
     nAll++; if (fg[yi * w + xi]) onFg++;
   }
 
-  return { edgeMag, edgeMed, edgeCoh, mad, madBi, biSplit, medL, seamFrac, coher, align, colD,
+  return { edgeMag, edgeMed, edgeCoh, rimFit, mad, madBi, biSplit, medL, seamFrac, coher, align, colD,
     cover: nAll ? onFg / nAll : 0, nB, nCore, maj, min };
 }
 
@@ -336,7 +364,10 @@ export function scoreFromComponents(r, cal) {
   const eMag = Math.min(1, r.edgeMed / cal.edge0);
   // coherence 0.5 is a coin flip (no consistent sign) -> 0; 1.0 -> 1
   const eCoh = Math.max(0, Math.min(1, (r.edgeCoh - 0.5) / 0.5));
-  const edge = Math.sqrt(eMag * Math.max(0.05, eCoh));
+  // rimFit: does the drawn rim actually sit on the silhouette? Without this
+  // the metric is indifferent to an outline shrunk inside the pill.
+  const rf = r.rimFit == null ? 1 : Math.max(0.05, r.rimFit);
+  const edge = Math.sqrt(eMag * Math.max(0.05, eCoh)) * (0.55 + 0.45 * rf);
   // (b) spread relative to real pills; 1x real = 1.0, 3x real = 0
   // Take the better (lower) of the plain interior spread and the bicolor
   // within-half spread: see matchComponents (b). A two-tone capsule is

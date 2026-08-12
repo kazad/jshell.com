@@ -4,7 +4,8 @@
 //
 // CANDIDATE: stamp-router integration (see js/stamp.js). Last-resort
 // arbitration by stamp-peel-repeat, fired only on weak-evidence images.
-import { stampArbitrate, stadArea as stampStadArea } from './stamp.js';
+import { stampArbitrate, stadArea as stampStadArea,
+  buildSeamMask, calibrateMatch, matchQuality } from './stamp.js';
 
 let cvReady = null;
 
@@ -6276,6 +6277,266 @@ export function countPills(cv, source, opts = {}) {
         }
       }
     }
+
+    // ==================== PHOTO-GROUNDED FIT GATE ====================
+    // Owner: "some of the boundaries are HORRIBLE ... the horrible-ness of
+    // the fits makes me question how this entire app works." He is right,
+    // and the reason is structural: every pose above this line was chosen by
+    // optimising against a MASK -- Lloyd/watershed partitioning, then
+    // refinePoses' inFg - 2*inBg - 1.5*seam. Nothing in the shipping path
+    // ever asked the PHOTO "does this outline actually sit on a pill?"
+    //
+    // matchQuality has been able to answer that question for some time --
+    // rim edge support, interior homogeneity, seam crossing, gradient
+    // orientation agreement, every one of them self-calibrated from this
+    // photo's own verified singles -- but it was EMIT-ONLY, consumed nowhere
+    // except the offline sweep. A bad placement therefore had no mechanism
+    // to be corrected or rejected. This block gives it one, in three stages:
+    //
+    //   1. SCORE  every final placement; attach the score (p.mq) so it is
+    //             inspectable downstream instead of being thrown away.
+    //   2. REFINE poses that score poorly -- bounded coordinate ascent on
+    //             (x, y, theta) maximising matchQuality.
+    //   3. FLAG   what still cannot clear the photo's own calibrated bar
+    //             (valid = 0; the display already dashes those).
+    //
+    // Every threshold here is derived from the photo's own verified pills
+    // through calibrateMatch/scoreFromComponents, never from a fixed
+    // constant -- the same discipline matchQuality itself is built on.
+    if (regions.length) try {
+      const fitFg = new Uint8Array(w * h);
+      for (let i2 = 0; i2 < w * h; i2++) fitFg[i2] = activeMd && activeMd[i2] > 0 ? 1 : 0;
+      const fitLuma = new Float64Array(w * h);
+      for (let i2 = 0; i2 < w * h; i2++) {
+        const j2 = i2 * 4;
+        fitLuma[i2] = 0.299 * src.data[j2] + 0.587 * src.data[j2 + 1] + 0.114 * src.data[j2 + 2];
+      }
+      // interior depth: buildSeamMask's crease rule needs ">=3px deep" so
+      // that pill RIMS (which are dark too) do not read as seam.
+      const fitDd = new Float64Array(w * h);
+      for (let y2 = 1; y2 < h - 1; y2++) for (let x2 = 1; x2 < w - 1; x2++) {
+        const i2 = y2 * w + x2;
+        if (!fitFg[i2]) continue;
+        let d2 = 6;
+        for (let rr = 1; rr <= 5; rr++) {
+          let edge = false;
+          for (let a2 = -rr; a2 <= rr && !edge; a2++) {
+            const cand = [[x2 + a2, y2 - rr], [x2 + a2, y2 + rr],
+              [x2 - rr, y2 + a2], [x2 + rr, y2 + a2]];
+            for (const [X, Y] of cand) {
+              if (X < 0 || Y < 0 || X >= w || Y >= h || !fitFg[Y * w + X]) { edge = true; break; }
+            }
+          }
+          if (edge) { d2 = rr; break; }
+        }
+        fitDd[i2] = d2;
+      }
+      const fitRGB = (x2, y2) => {
+        const xi = Math.max(0, Math.min(w - 1, x2 | 0)), yi = Math.max(0, Math.min(h - 1, y2 | 0));
+        const i2 = (yi * w + xi) * 4;
+        return [src.data[i2], src.data[i2 + 1], src.data[i2 + 2]];
+      };
+      // Calibration pool: this photo's OWN verified singles -- one blob, one
+      // pill, a fitted shape the pipeline is confident about. These are the
+      // placements nobody disputes, so what THEY measure is the definition of
+      // "pill-like on this photo". Same pool discipline as stamp.js's mqPool.
+      // A region holding exactly ONE pill is the undisputed case whether the
+      // pipeline expressed it as a bare shape or as a single-element pills[]:
+      // both mean "one blob, one pill, nobody is arguing". Taking only the
+      // former collapsed the pool to 4 on lined-503b3041 (5 regions for 18
+      // pills -- the pile is a single multi-pill blob), which is too thin for
+      // a population statistic and left the bar calibrated on almost nothing.
+      const fitPool = regions.filter((g) => (g.units || 1) === 1 && g.shape
+        && g.shape.major > 0 && g.shape.minor > 0 && g.confidence !== 'low'
+        && !(g.pills && g.pills.length > 1))
+        .map((g) => {
+          const p3 = (g.pills && g.pills.length === 1) ? g.pills[0] : null;
+          return p3
+            ? { cx: p3.cx, cy: p3.cy, theta: p3.theta !== undefined ? p3.theta : g.shape.theta,
+                shape: { major: p3.major || g.shape.major, minor: p3.minor || g.shape.minor,
+                  theta: p3.theta !== undefined ? p3.theta : g.shape.theta } }
+            : { cx: g.cx, cy: g.cy, theta: g.shape.theta, shape: g.shape };
+        });
+      // Every shipped placement, paired with the object that owns its pose.
+      const fitPlaces = [];
+      for (const g of regions) {
+        if (g.pills && g.pills.length) {
+          for (const p2 of g.pills) {
+            const maj = p2.major || (g.shape && g.shape.major);
+            const min = p2.minor || (g.shape && g.shape.minor);
+            if (maj > 0 && min > 0) fitPlaces.push({ o: p2, g, maj, min });
+          }
+        } else if (g.shape && g.shape.major > 0 && g.shape.minor > 0) {
+          fitPlaces.push({ o: g, g, maj: g.shape.major, min: g.shape.minor });
+        }
+      }
+      // A calibrator needs enough undisputed pills to have an opinion. Below
+      // that, "the photo's own bar" is not a population statistic and we must
+      // not pretend otherwise -- score nothing rather than gate on noise.
+      if (fitPool.length >= 4 && fitPlaces.length) {
+        const fitEnv = { w, h, fg: fitFg, luma: fitLuma, dd: fitDd, sampleRGB: fitRGB,
+          maj: median(fitPlaces.map((f) => f.maj)), min: median(fitPlaces.map((f) => f.min)),
+          seam: null, kern: null };
+        const cpool = fitPool.map((g) => fitRGB(g.cx, g.cy));
+        fitEnv.refCol = [0, 1, 2].map((ch) => median(cpool.map((c) => c[ch])));
+        fitEnv.seam = buildSeamMask(fitEnv, fitPool);
+        const fitCal = calibrateMatch(fitEnv, fitPool);
+        if (fitCal && fitCal.q50 > 1e-6) {
+          const poseTh = (o) => (o.theta !== undefined ? o.theta
+            : (o.shape ? o.shape.theta : 0)) || 0;
+          const setPose = (o, x2, y2, th) => {
+            o.cx = x2; o.cy = y2;
+            if (o.theta !== undefined) o.theta = +th.toFixed(3);
+            else if (o.shape) o.shape.theta = +th.toFixed(3);
+            else o.theta = +th.toFixed(3);
+          };
+          const Q = (f, x2, y2, th) => {
+            const m = matchQuality(fitEnv, { x: x2, y: y2, th, maj: f.maj, min: f.min }, fitCal);
+            return (m && m.q !== null && isFinite(m.q)) ? m : null;
+          };
+
+          // ---- stage 1: SCORE every final placement -----------------------
+          for (const f of fitPlaces) {
+            f.th0 = poseTh(f.o); f.x0 = f.o.cx; f.y0 = f.o.cy;
+            const m = Q(f, f.x0, f.y0, f.th0);
+            f.m0 = m; f.q0 = m ? m.q : null;
+          }
+          const scored = fitPlaces.filter((f) => f.q0 !== null);
+
+          // THE BAR, taken from the photo itself. cal.selfQ holds the
+          // verified singles scored at their OWN poses, so its low percentile
+          // is "how bad a placement this photo's undisputed pills ever look".
+          // A fit below that is worse than any real pill here actually is --
+          // the only evidence-grounded definition of "bad" available without
+          // inventing a constant. The 0.7*q50 companion is the same ratio
+          // sweepWholeImage already uses for its own bar.
+          // The bar is the WORST a verified single on this photo actually
+          // scores, not a percentile of them. Using the 20th percentile
+          // assumes a fifth of this photo's undisputed pills are misfits,
+          // which is exactly backwards: they are the ground truth. Measured
+          // on t3-cream-caplets-wood -- 48/48 exact, every outline visibly
+          // tight -- a p20 bar condemned 11 of 48 correct placements, while
+          // that photo's own calibrator scores real singles as low as 0.030.
+          // Anything at or above the worst verified single is, by this
+          // photo's own evidence, as pill-like as a pill here; only what
+          // falls BELOW every real pill is unambiguously bad.
+          // TWO bars, because refining and condemning carry opposite risks.
+          //
+          // refineBar (generous): a placement scoring below what a TYPICAL
+          // verified single scores has room to improve, and trying costs
+          // nothing -- the ascent is bounded and only accepted on a measured
+          // gain, so a placement that was already right cannot be made wrong.
+          // This is the 20th percentile of the photo's own singles.
+          //
+          // flagBar (strict): condemning a placement is destructive, so it
+          // must clear a much higher standard of evidence -- BELOW EVERY
+          // verified single on this photo. Measured on t3-cream-caplets-wood
+          // (48/48 exact, every outline visibly tight), a p20 flag bar
+          // condemned 11 of 48 correct placements, because that photo's own
+          // calibrator scores real singles as low as 0.030. Anything at or
+          // above the worst real pill is, by this photo's own evidence, as
+          // pill-like as a pill here.
+          const selfSorted = [...fitCal.selfQ].sort((a2, b2) => a2 - b2);
+          const refineBar = Math.max(
+            selfSorted[Math.max(0, Math.floor(0.2 * (selfSorted.length - 1)))],
+            0.7 * fitCal.q50);
+          const flagBar = Math.min(selfSorted[0], 0.7 * fitCal.q50);
+
+          // CAN THIS PHOTO'S CALIBRATOR ACTUALLY TELL GOOD FROM BAD?
+          // Measured against the hand-annotated centres, the metric's ability
+          // to rank a spurious placement below a real one depends almost
+          // entirely on how many undisputed singles it was calibrated on:
+          //
+          //     pool >= 11  ->  AUC 0.71 - 1.00   (r-f5d11815 1.00,
+          //                     r-554c3c1a 0.91, s-0bfc44d8 0.90,
+          //                     r-7ff7fd99 0.83, s-eb90778f 0.73)
+          //     pool <=  4  ->  AUC 0.56 - 0.63   (lined-503b3041 0.615,
+          //                     lined-69204ff4 0.612, lined-bfdbfef9 0.563,
+          //                     c-2448027d 0.625)
+          //
+          // and on lined-503b3041 it is INVERTED inside the pile: the bad
+          // cross-pill lassos score 0.616 while the true in-pile pills score
+          // 0.571. Flagging on a calibrator that weak is a coin toss dressed
+          // up as evidence -- it would dash correct outlines as often as
+          // wrong ones. So the VERDICT (stage 3) requires a calibrator with a
+          // real population behind it. Scoring and refinement still run: a
+          // score is only reported, and refinement is bounded and accepted
+          // only on measured improvement, so neither can invent a pill.
+          const canJudge = fitPool.length >= 11;
+
+          // ---- stage 2: REFINE the poor scorers ---------------------------
+          // Bounded coordinate ascent on (x, y, theta) maximising the photo
+          // metric. Two bounds keep this a REFINEMENT rather than a silent
+          // re-detection:
+          //   (a) the pose may not travel more than half a pill width, so a
+          //       placement cannot walk off onto its neighbour; and
+          //   (b) the end pose must remain nearer its own origin than any
+          //       OTHER placement's origin, or two claims collapse onto one
+          //       pill and the count doubles up on the same material.
+          // Only sub-bar placements are refined: a fit that already matches
+          // this photo's own pills has nothing to gain, and moving it would
+          // risk exactly the drift the bounds exist to prevent.
+          const origins = scored.map((f) => [f.x0, f.y0]);
+          let nRef = 0, nImp = 0;
+          for (const f of scored) {
+            if (f.q0 >= refineBar) continue;
+            nRef++;
+            const cap = 0.5 * f.min;               // (a) half a pill width
+            let best = { q: f.q0, x: f.x0, y: f.y0, th: f.th0, m: f.m0 };
+            for (let round = 0; round < 8; round++) {
+              let improved = false;
+              for (const [dx, dy, dth] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0],
+                [0, 0, Math.PI / 48], [0, 0, -Math.PI / 48],
+                [1, 1, 0], [-1, -1, 0], [1, -1, 0], [-1, 1, 0]]) {
+                const x2 = best.x + dx, y2 = best.y + dy, th2 = best.th + dth;
+                if (Math.hypot(x2 - f.x0, y2 - f.y0) > cap) continue;
+                const m = Q(f, x2, y2, th2);
+                if (m && m.q > best.q) { best = { q: m.q, x: x2, y: y2, th: th2, m }; improved = true; }
+              }
+              if (!improved) break;
+            }
+            if (best.q <= f.q0 + 1e-6) continue;
+            // (b) reject a refinement that ended nearer a DIFFERENT
+            // placement than its own origin: that is a migration, not a fit.
+            const ownD = Math.hypot(best.x - f.x0, best.y - f.y0);
+            let nearer = false;
+            for (let k2 = 0; k2 < origins.length; k2++) {
+              if (scored[k2] === f) continue;
+              if (Math.hypot(best.x - origins[k2][0], best.y - origins[k2][1]) < ownD) { nearer = true; break; }
+            }
+            if (nearer) continue;
+            setPose(f.o, best.x, best.y, best.th);
+            f.qF = best.q; f.mF = best.m; nImp++;
+          }
+
+          // ---- stage 3: FLAG what stays below the photo's own bar ---------
+          // Marked valid = 0 so the display dashes it. An honest "this
+          // outline is not sitting on a pill" beats a confident wrong line,
+          // which is the owner's actual complaint.
+          //
+          // NOT dropped from the count. A placement can score badly because
+          // the pill is genuinely there but photometrically awkward -- glare,
+          // deep occlusion in a pile -- and on this corpus dropping on
+          // evidence this indirect costs real counts (measured: it breaks
+          // previously-exact images) while flagging costs nothing. Rejection
+          // stays available through mqBad for a caller that wants it.
+          let nFlag = 0;
+          for (const f of scored) {
+            const q = f.qF !== undefined ? f.qF : f.q0;
+            const m = f.mF !== undefined ? f.mF : f.m0;
+            f.o.mq = +q.toFixed(3);
+            if (m && m.qRel !== null && m.qRel !== undefined) f.o.mqRel = +m.qRel.toFixed(3);
+            if (q < flagBar && canJudge) { f.o.mqBad = 1; f.o.valid = 0; nFlag++; }
+          }
+          opts.debug?.({ stage: 'fitgate', pool: fitPool.length, n: scored.length,
+            refineBar: +refineBar.toFixed(3), flagBar: +flagBar.toFixed(3),
+            q50: +fitCal.q50.toFixed(3),
+            refined: nRef, improved: nImp, flagged: nFlag, canJudge: canJudge ? 1 : 0,
+            qBefore: +median(scored.map((f) => f.q0)).toFixed(3),
+            qAfter: +median(scored.map((f) => (f.qF !== undefined ? f.qF : f.q0))).toFixed(3) });
+        }
+      }
+    } catch (e) { opts.debug?.({ stage: 'fitgate', error: String((e && e.message) || e) }); }
 
     if (deferredGeometry) { try { deferredGeometry(); } catch { /* debug only */ } }
 

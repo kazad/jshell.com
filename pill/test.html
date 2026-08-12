@@ -130,6 +130,15 @@
   <div id="analysis" style="display:none; gap:16px; flex-wrap:wrap; margin-bottom:18px; align-items:flex-start"></div>
   <h2 id="fail-head" class="sec" hidden>Misses — exact count wrong</h2>
   <div id="grid-fail" class="grid"></div>
+  <div id="annotate-cta" style="margin:14px 0;padding:12px 14px;background:#12202a;border-radius:12px;display:none">
+    <b style="color:#3ddc97">Help most: annotate an image</b>
+    <div style="color:var(--dim);font-size:13px;margin-top:4px">
+      A verified dot map is the highest-value thing to contribute — wrong labels have cost more
+      debugging time here than any algorithm bug. Images below have no per-pill truth yet, so the
+      detection gate is blind on them.
+    </div>
+    <div id="annotate-list" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
+  </div>
   <h2 id="known-head" class="sec" hidden>Known issues — documented, not forgotten</h2>
   <div id="grid-known" class="grid"></div>
   <h2 id="pass-head" class="sec" hidden>Exact</h2>
@@ -338,6 +347,23 @@
       $('#fail-head').textContent = gridFail.children.length
         ? `Misses — NOT triaged (${gridFail.children.length}) — this section must be empty`
         : '';
+      // Which images lack per-pill truth? Those are where annotating helps most.
+      (async () => {
+        const need = [];
+        for (const [f, r2] of rows) {
+          if (r2.count === r2.expected) continue;              // misses first
+          const b2 = f.split('/').pop().replace(/\.\w+$/, '');
+          try {
+            const resp = await fetch(`testdata/centers/${b2}.json`, { method: 'HEAD' });
+            if (!resp.ok) need.push(f);
+          } catch { need.push(f); }
+        }
+        if (!need.length) return;
+        $('#annotate-cta').style.display = 'block';
+        $('#annotate-list').innerHTML = need.slice(0, 12).map((f) =>
+          `<a href="stamp.html?img=${encodeURIComponent(f)}&truth=1"
+              style="font-size:12px;padding:5px 10px;border-radius:8px;background:#1d6b4f;color:#fff;text-decoration:none">${f}</a>`).join('');
+      })();
       const stamp = new Date(baked.generated).toLocaleString();
       // A stale bake is worse than no bake: say so loudly rather than quietly
       // showing numbers that no longer describe the shipped counter.

@@ -60,12 +60,15 @@
     <div class="row"><span>best angle</span><span id="ang" class="big">—</span></div>
     <div class="row"><span>verdict</span><span id="verdict" class="big">—</span></div>
     <p style="margin-top:10px">Green outline = a stamp this good was <b>counted</b> nearby. Amber = good overlap but <b>nothing counted here</b> — that is a miss worth showing me.</p>
-    <p><b>Placing stamps:</b> <b>click</b> the image to drop a stamp there. <b>Drag its middle</b> to move it, <b>drag an end</b> to rotate it onto the pill's axis. <kbd>,</kbd> <kbd>.</kbd> rotate the selected one 2° · <kbd>Delete</kbd> removes it. Each placed stamp shows live overlap and whether the counter got that pill.</p>
+    <p><b>Placing stamps:</b> <b>click</b> the image to drop a stamp there. <b>Drag its middle</b> to move it, <b>drag an end</b> to rotate it onto the pill's axis. <b>To delete: right-click it</b> (or alt/shift-click, or the ✕ next to it in the list below). <kbd>,</kbd> <kbd>.</kbd> rotate the selected one 2°. Each placed stamp shows live overlap and whether the counter got that pill.</p>
     <p><b>Rotating the cursor stamp:</b> scroll the wheel over the image, drag the angle slider, or press <kbd>S</kbd> to snap the stamp to the pill edges under the cursor (works inside piles, where overlap alone cannot tell). <kbd>[</kbd> <kbd>]</kbd> nudge 2° · <kbd>R</kbd> back to auto · <kbd>M</kbd> mark.</p>
     <p style="color:var(--warn)">Inside a dense pile every angle covers ~100% foreground, so AUTO picks arbitrarily — that is expected, and why manual exists. Your marked angle is what tells me the true pill axis.</p>
     <h2 style="margin-top:12px">Marked misses</h2>
     <div id="log"><div style="color:var(--dim);border:0">none yet — hover a pill the counter skipped and press M</div></div>
-    <button id="copy" style="margin-top:9px;width:100%">copy marks as JSON</button>
+    <div style="display:flex;gap:6px;margin-top:9px">
+      <button id="copy" style="flex:1">copy marks as JSON</button>
+      <button id="clearall" title="remove every mark">clear all</button>
+    </div>
     <div id="truthbox" hidden style="margin-top:12px;padding:10px;background:#10202a;border-radius:9px">
       <h2 style="margin:0 0 6px">Truth annotation</h2>
       <p style="margin:0 0 8px">Click every pill (drag to adjust, Delete to remove). When the tally
@@ -74,6 +77,13 @@
       <div class="row"><span>marked</span><span class="big" id="truthn">0</span>
         <span id="truthexp" style="color:var(--dim)"></span></div>
       <button id="savetruth" style="width:100%;margin-top:6px;background:#1d6b4f">✓ Save to backend (no copy/paste)</button>
+      <button id="loadsaved" style="width:100%;margin-top:6px">review what I saved earlier</button>
+      <label style="display:flex;gap:7px;align-items:center;margin-top:8px;font-size:12px">
+        <input type="checkbox" id="showghost" checked> show existing truth as faint dots (spot what you missed)
+      </label>
+      <label style="display:flex;gap:7px;align-items:center;margin-top:4px;font-size:12px">
+        <input type="checkbox" id="autoseed"> prefill from the counter's detections, then correct
+      </label>
       <button id="exporttruth" style="width:100%;margin-top:6px">download centers JSON</button>
       <div id="savemsg" style="margin-top:6px;font-size:12px;color:var(--dim)"></div>
       <p style="margin-top:8px;font-size:12px">Wrong labels have cost more time today than any
@@ -88,7 +98,7 @@ import { loadCV, countPills } from './js/counter.js';
 
 const $ = (s) => document.querySelector(s);
 const cvEl = $('#cv'), ctx = cvEl.getContext('2d');
-let cvlib, probe = null, photo = null, autoRot = true, freeAng = null, marks = [];
+let cvlib, probe = null, photo = null, autoRot = true, freeAng = null, marks = [], ghost = [];
 
 async function manifest() {
   const sets = [['', 'testdata/expected.json'], ['real/', 'testdata/real/expected.json'],
@@ -118,6 +128,21 @@ async function load(file) {
   $('#status').textContent = `${file} · counted ${r.count} · stamp ${probe.maj.toFixed(0)}×${probe.min.toFixed(0)}`
     + (probe.kernel ? ' (learned kernel)' : ' (stadium template)');
   PTS = stampPts();            // before any draw/score
+  // reference truth for this image, if the corpus already has one
+  ghost = [];
+  try {
+    const b2 = file.split('/').pop().replace(/\.\w+$/, '');
+    const doc = await (await fetch(`testdata/centers/${b2}.json`, { cache: 'no-store' })).json();
+    const g2 = doc.size && doc.size[0] ? probe.w / doc.size[0] : 1;
+    ghost = doc.centers.map(([x, y]) => [x * g2, y * g2]);
+  } catch { /* no truth yet — annotating from scratch */ }
+  if ($('#autoseed')?.checked && probe.placements?.length) {
+    marks = probe.placements.map(([px, py, pth]) => ({ file, x: +px.toFixed(1), y: +py.toFixed(1),
+      th: pth, thDeg: +(pth * 180 / Math.PI).toFixed(1), overlap: +scoreAt(px, py, pth).toFixed(3),
+      stamp: [probe.maj, probe.min], verdict: 'seeded', nearestCounted: 0 }));
+    renderMarks();
+  }
+  updateTruth();
   draw(null);
 }
 
@@ -231,6 +256,15 @@ function draw(cursor) {
   // counted placements, faint
   ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(61,220,151,.55)';
   for (const [px, py, pth] of probe.placements) outline(px, py, pth);
+  // existing corpus truth as faint reference dots — annotating against a
+  // blank image made it easy to skip pills (a 33-vs-34 disagreement turned
+  // out to be two missed beads plus one stray mark on bare leather).
+  if (ghost.length && $('#showghost')?.checked) {
+    for (const [gx, gy] of ghost) {
+      ctx.beginPath(); ctx.arc(gx, gy, 5, 0, 6.284);
+      ctx.strokeStyle = 'rgba(120,200,255,.75)'; ctx.lineWidth = 2; ctx.stroke();
+    }
+  }
   // placed marks: draggable stamps. Selected one is brighter with end grips.
   marks.forEach((m, i) => {
     ctx.strokeStyle = i === sel ? '#ffd479' : '#e9a13b';
@@ -292,10 +326,24 @@ const hitMark = (x, y) => {
   }
   return null;
 };
+$('#stage').addEventListener('contextmenu', (e) => e.preventDefault());
 $('#stage').addEventListener('pointerdown', (e) => {
   if (!probe) return;
   const { x, y } = toImg(e);
   const hit = hitMark(x, y);
+  // DELETE without the keyboard: right-click, alt-click or shift-click a
+  // mark removes it. Keyboard-only deletion was unusable — keydown is bound
+  // to the window and clicking the canvas never gives the page focus, so
+  // Delete silently did nothing and stray marks could not be removed.
+  const wantDelete = e.button === 2 || e.altKey || e.shiftKey;
+  if (hit && wantDelete) {
+    marks.splice(hit.i, 1);
+    sel = Math.min(sel, marks.length - 1);
+    renderMarks(); updateTruth(); draw(last);
+    e.preventDefault();
+    return;
+  }
+  if (e.button === 2) return;               // right-click on empty space: nothing
   if (hit) { sel = hit.i; drag = { ...hit, ox: x - marks[hit.i].x, oy: y - marks[hit.i].y }; }
   else { addMarkAt(x, y, freeAng !== null ? freeAng : (last ? last.th : 0)); sel = marks.length - 1;
          drag = { i: sel, mode: 'move', ox: 0, oy: 0 }; }
@@ -382,9 +430,25 @@ function addMark() {
 $('#mark').onclick = addMark;
 function renderMarks() {
   $('#log').innerHTML = marks.length ? marks.map((m, i) =>
-    `<div><b class="${m.verdict === 'MISSED' ? 'warn' : m.verdict === 'counted' ? 'ok' : 'bad'}">${m.verdict}</b> #${i+1} (${m.x}, ${m.y}) ${(m.overlap*100).toFixed(0)}% @${m.thDeg}°${m.manual ? ' manual' : ''} · nearest ${m.nearestCounted}px</div>`).join('')
+    `<div style="display:flex;align-items:center;gap:6px">
+       <button data-del="${i}" title="delete this mark"
+         style="padding:1px 7px;border-radius:6px;background:#3a1f26;border:1px solid #6b2b38;color:#ffb3c0;cursor:pointer">✕</button>
+       <span><b class="${m.verdict === 'MISSED' ? 'warn' : m.verdict === 'counted' ? 'ok' : 'bad'}">${m.verdict}</b>
+       #${i+1} (${m.x}, ${m.y}) ${(m.overlap*100).toFixed(0)}%${m.thDeg != null ? ' @' + m.thDeg + '°' : ''}</span>
+     </div>`).join('')
     : '<div style="color:var(--dim);border:0">none yet</div>';
 }
+$('#log').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-del]');
+  if (!b) return;
+  marks.splice(+b.dataset.del, 1);
+  sel = Math.min(sel, marks.length - 1);
+  renderMarks(); updateTruth(); draw(last);
+});
+$('#clearall').onclick = () => {
+  if (!marks.length) return;
+  marks = []; sel = -1; renderMarks(); updateTruth(); draw(last);
+};
 $('#copy').onclick = () => {
   navigator.clipboard.writeText(JSON.stringify(marks, null, 1));
   $('#copy').textContent = 'copied ✓'; setTimeout(() => $('#copy').textContent = 'copy marks as JSON', 1200);
@@ -399,7 +463,11 @@ $('#truthmode').onclick = () => {
 function updateTruth() {
   $('#truthn').textContent = marks.length;
   const exp = expectedFor($('#img').value);
-  $('#truthexp').textContent = exp != null ? `label says ${exp}` : '';
+  const gap = exp != null ? marks.length - exp : null;
+  $('#truthexp').innerHTML = exp == null ? ''
+    : `label says ${exp}` + (gap === 0 ? ' <span style="color:var(--ok)">✓ agree</span>'
+        : ` <span style="color:var(--warn)">${gap > 0 ? '+' : ''}${gap}</span>`)
+      + (ghost.length ? ` · ${ghost.length} reference dots shown` : '');
   $('#truthn').className = 'big ' + (exp == null ? '' : marks.length === exp ? 'ok' : 'warn');
 }
 let EXPECTED = {};
@@ -407,6 +475,20 @@ function expectedFor(file) {
   const base = file.includes('/') ? file.split('/').pop() : file;
   return EXPECTED[file] ?? EXPECTED[base] ?? null;
 }
+$('#loadsaved').onclick = async () => {
+  const file = $('#img').value;
+  $('#savemsg').textContent = 'loading saved…';
+  try {
+    const doc = await (await fetch(`api/truth?file=${encodeURIComponent(file)}`, { cache: 'no-store' })).json();
+    if (!doc || !doc.centers) { $('#savemsg').textContent = 'nothing saved for this image yet'; return; }
+    const sc = doc.size && doc.size[0] ? probe.w / doc.size[0] : 1;
+    marks = doc.centers.map(([x, y]) => ({ file, x: +(x * sc).toFixed(1), y: +(y * sc).toFixed(1),
+      th: 0, thDeg: 0, overlap: +scoreAt(x * sc, y * sc, 0).toFixed(3),
+      stamp: [probe.maj, probe.min], verdict: 'truth', nearestCounted: 0 }));
+    renderMarks(); updateTruth(); draw(last);
+    $('#savemsg').innerHTML = `<span style="color:var(--ok)">loaded ${marks.length} saved marks — edit and Save again to replace</span>`;
+  } catch (e) { $('#savemsg').textContent = 'load failed: ' + e.message; }
+};
 $('#loadtruth').onclick = async () => {
   const base = $('#img').value.split('/').pop().replace(/\.\w+$/, '');
   try {
@@ -461,6 +543,7 @@ $('#auto').onclick = () => {
   if (last) { const r = bestAngle(last.x, last.y); last = { ...last, ...r }; report(last); draw(last); }
 };
 $('#surface').onchange = () => draw(last);
+$('#showghost').onchange = () => draw(last);
 $('#img').onchange = async () => { marks = []; renderMarks(); await load($('#img').value); };
 
 (async () => {
