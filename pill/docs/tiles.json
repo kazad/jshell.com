@@ -1,0 +1,52 @@
+{
+ "tiles": [
+  {
+   "file": "shiny/s-0bfc44d8.jpg",
+   "png": "tiles/shiny_s-0bfc44d8-337x533.png",
+   "x0": 337,
+   "y0": 533,
+   "x1": 597,
+   "y1": 793,
+   "w": 520,
+   "h": 520,
+   "scale": 2,
+   "why": "two outlines overlap by 27% — impossible for solid pills. How many pills are really here?"
+  },
+  {
+   "file": "shiny/s-0bfc44d8.jpg",
+   "png": "tiles/shiny_s-0bfc44d8-323x407.png",
+   "x0": 323,
+   "y0": 407,
+   "x1": 583,
+   "y1": 667,
+   "w": 520,
+   "h": 520,
+   "scale": 2,
+   "why": "two outlines overlap by 61% — impossible for solid pills. How many pills are really here?"
+  },
+  {
+   "file": "shiny/s-eb90778f.jpg",
+   "png": "tiles/shiny_s-eb90778f-891x0.png",
+   "x0": 891,
+   "y0": 0,
+   "x1": 1037,
+   "y1": 260,
+   "w": 292,
+   "h": 520,
+   "scale": 2,
+   "why": "two outlines overlap by 55% — impossible for solid pills. How many pills are really here?"
+  },
+  {
+   "file": "real/r-7ff7fd99.jpg",
+   "png": "tiles/real_r-7ff7fd99-85x141.png",
+   "x0": 85,
+   "y0": 141,
+   "x1": 345,
+   "y1": 393,
+   "w": 520,
+   "h": 504,
+   "scale": 2,
+   "why": "two outlines overlap by 26% — impossible for solid pills. How many pills are really here?"
+  }
+ ]
+}

@@ -45,8 +45,25 @@
   <button id="mark">mark a miss here (M)</button>
   <button id="truthmode" title="Annotate EVERY pill to produce ground truth">truth mode: OFF</button>
   <button id="loadtruth" title="Load existing centers for this image">load truth</button>
+  <button id="showstamp" title="Show the extracted pill, the learned stamp, and where it fits">stamp card</button>
   <span id="status" style="color:var(--dim)"></span>
 </header>
+<!-- WHAT THE STAMP ACTUALLY IS. Shipping only a number for the template size
+     hid a real defect for a long time: on the glossy photos the learned stamp
+     measured 79% of a real pill's width, and nothing on screen said so. Put
+     the extracted pill NEXT TO the stamp it produced, at the same scale, so a
+     size error is something you SEE rather than something you infer. -->
+<div id="stampcard" style="display:none;padding:12px 16px;background:var(--panel);
+     border-bottom:1px solid #21262d">
+  <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
+    <div><div class="cardlbl">pills it learned from</div><div id="exrow" style="display:flex;gap:8px"></div></div>
+    <div><div class="cardlbl">the stamp</div><canvas id="stampcv" width="140" height="140"
+         style="background:#000;border-radius:6px"></canvas></div>
+    <div><div class="cardlbl">size check</div><div id="sizechk"
+         style="font:12px/1.7 ui-monospace,monospace;color:var(--dim)"></div></div>
+  </div>
+</div>
+<style>.cardlbl{font-size:11px;color:var(--dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}</style>
 
 <div class="wrap">
   <div class="stage" id="stage">
@@ -502,6 +519,63 @@ $('#loadsaved').onclick = async () => {
     $('#savemsg').innerHTML = `<span style="color:var(--ok)">loaded ${marks.length} saved marks — edit and Save again to replace</span>`;
   } catch (e) { $('#savemsg').textContent = 'load failed: ' + e.message; }
 };
+// Extracted pill vs learned stamp, at ONE shared scale so the comparison is
+// honest. The number that matters is the last line: stamp width as a
+// percentage of the real pill's width. An undersized stamp is what makes a
+// single pill measure ~1.6 units and get split into several outlines.
+$('#showstamp').onclick = () => {
+  const card = $('#stampcard');
+  if (card.style.display !== 'none') { card.style.display = 'none'; return; }
+  if (!probe) { $('#status').textContent = 'load an image first'; return; }
+  card.style.display = 'block';
+  const row = $('#exrow'); row.innerHTML = '';
+  const ex = probe.exemplars || [];
+  const PX = 2;                                   // shared zoom for both panels
+  for (const e of ex.slice(0, 5)) {
+    const c = document.createElement('canvas');
+    c.width = e.w * PX; c.height = e.h * PX;
+    c.style.cssText = 'border-radius:6px;background:#000';
+    const g = c.getContext('2d');
+    const im = g.createImageData(e.w, e.h);
+    for (let i = 0; i < e.w * e.h; i++) {
+      im.data[i * 4] = e.rgb[i * 3]; im.data[i * 4 + 1] = e.rgb[i * 3 + 1];
+      im.data[i * 4 + 2] = e.rgb[i * 3 + 2]; im.data[i * 4 + 3] = 255;
+    }
+    const tmp = document.createElement('canvas'); tmp.width = e.w; tmp.height = e.h;
+    tmp.getContext('2d').putImageData(im, 0, 0);
+    g.imageSmoothingEnabled = false;
+    g.drawImage(tmp, 0, 0, c.width, c.height);
+    // the stamp we would place here, drawn ON the pill it came from
+    g.strokeStyle = '#3ddc97'; g.lineWidth = 2;
+    outlineOn(g, e.cx * PX, e.cy * PX, e.theta, probe.maj * PX, probe.min * PX);
+    row.appendChild(c);
+  }
+  // the stamp alone
+  const sc = $('#stampcv'), sg = sc.getContext('2d');
+  sg.clearRect(0, 0, sc.width, sc.height);
+  const fit = Math.min(sc.width / (probe.maj + 8), sc.height / (probe.min + 8));
+  sg.strokeStyle = '#3ddc97'; sg.lineWidth = 2;
+  outlineOn(sg, sc.width / 2, sc.height / 2, 0, probe.maj * fit, probe.min * fit);
+  // size check against the pills it was learned from
+  const med = (a) => { const v = [...a].sort((x, y) => x - y); return v.length ? v[v.length >> 1] : 0; };
+  const rMaj = med(ex.map((e) => e.major)), rMin = med(ex.map((e) => e.minor));
+  $('#sizechk').innerHTML = !ex.length ? 'no single pills to compare against'
+    : `stamp&nbsp;&nbsp;${probe.maj.toFixed(1)} × ${probe.min.toFixed(1)}<br>`
+    + `real&nbsp;&nbsp;&nbsp;${rMaj.toFixed(1)} × ${rMin.toFixed(1)}  (n=${ex.length})<br>`
+    + `<span style="color:${Math.abs(1 - probe.min / rMin) < 0.08 ? 'var(--ok)' : 'var(--bad)'}">`
+    + `width ${(100 * probe.min / rMin).toFixed(0)}% of real</span>`;
+};
+function outlineOn(g, x, y, th, maj, min) {
+  const a = Math.max(0, (maj - min) / 2), rho = min / 2, c = Math.cos(th), s = Math.sin(th);
+  g.beginPath();
+  for (let k = 0; k <= 72; k++) {
+    const t = k / 72 * 2 * Math.PI;
+    const u = Math.cos(t) * (a + rho), v = Math.sin(t) * rho;
+    const px = x + u * c - v * s, py = y + u * s + v * c;
+    k ? g.lineTo(px, py) : g.moveTo(px, py);
+  }
+  g.closePath(); g.stroke();
+}
 $('#loadtruth').onclick = async () => {
   const base = $('#img').value.split('/').pop().replace(/\.\w+$/, '');
   try {
