@@ -5136,12 +5136,66 @@ export function countPills(cv, source, opts = {}) {
     if (regions.length && activeMd) {
       // Eleven code paths create regions and only one records its label, so
       // derive it instead: sample the label map at the region's centroid.
-      // Convex-ish regions always contain their centroid, and a miss (label
-      // <= 0 at a boundary pixel) just means that region skips classification.
-      for (const r of regions) {
-        if (r.label == null) {
-          const lbl = activeMd[Math.round(r.cy) * w + Math.round(r.cx)];
-          if (lbl > 0) r.label = lbl;
+      //
+      // THE PREMISE IS FALSE FOR CLUMPS. "Convex-ish regions always contain
+      // their centroid" holds for one pill, but a multi-pill raft is CONCAVE
+      // and its centroid lands in the GAP BETWEEN PILLS — which is
+      // background. Measured on synth2-rc-light-small-n30-t65-s140: the
+      // mid-left 8-pill raft (area 6151) has centroid (255,398), that pixel
+      // is background, and activeMd carries the BACKGROUND label there. The
+      // region therefore adopted the background's label, and the clump
+      // placer — which collects "every pixel whose activeMd equals my
+      // label" — handed Lloyd 727841 pixels (a 998x748 sheet covering the
+      // whole frame, 118x the region's own area) instead of the raft's 6151.
+      // Lloyd dutifully partitioned the BACKGROUND into 8 cells and scattered
+      // 8 capsules across the image: rings on bare board far from any pill,
+      // while the raft itself received no placement at all (its 8 pills all
+      // scored MISS with "nearest detection 113-281px").
+      //
+      // FIX: a sampled label has to be CORROBORATED before it is trusted.
+      // The label's own pixel population must be in the same league as the
+      // region's measured area; the background fails this by two orders of
+      // magnitude. When the centroid sample is rejected, fall back to the
+      // nearest labelled pixel that does corroborate — for a raft that is one
+      // of its own pills, which is the honest answer.
+      {
+        const lblPop = new Map();
+        for (let i = 0; i < activeMd.length; i++) {
+          const L = activeMd[i];
+          if (L > 0) lblPop.set(L, (lblPop.get(L) || 0) + 1);
+        }
+        // A region may legitimately be one member of a larger labelled blob
+        // (consolidation splits), so allow generous headroom; the failure we
+        // are excluding is off by ~118x, not by 3x.
+        const plausible = (L, r) => {
+          if (!(L > 0)) return false;
+          const n = lblPop.get(L) || 0;
+          const a = r.area || 0;
+          return a <= 0 ? n > 0 : n <= a * 8;
+        };
+        for (const r of regions) {
+          if (r.label != null) continue;
+          const cxi = Math.round(r.cx), cyi = Math.round(r.cy);
+          const lbl = activeMd[cyi * w + cxi];
+          if (plausible(lbl, r)) { r.label = lbl; continue; }
+          // Centroid sample is background (or another region's sheet). Spiral
+          // outward for the nearest pixel whose label DOES corroborate.
+          const maxR = Math.max(4, Math.round(Math.sqrt(Math.max(1, r.area || 1))));
+          let found = 0;
+          for (let rad = 1; rad <= maxR && !found; rad++) {
+            for (let dy = -rad; dy <= rad && !found; dy++) {
+              for (let dx = -rad; dx <= rad; dx++) {
+                if (Math.max(Math.abs(dx), Math.abs(dy)) !== rad) continue;
+                const x2 = cxi + dx, y2 = cyi + dy;
+                if (x2 < 0 || y2 < 0 || x2 >= w || y2 >= h) continue;
+                const L2 = activeMd[y2 * w + x2];
+                if (plausible(L2, r)) { found = L2; break; }
+              }
+            }
+          }
+          if (found) r.label = found;
+          else opts.debug?.({ stage: 'labelmiss', cx: cxi, cy: cyi, area: r.area,
+            sampled: lbl, pop: lblPop.get(lbl) || 0 });
         }
       }
       const acc = new Map();
@@ -5957,6 +6011,272 @@ export function countPills(cv, source, opts = {}) {
             opts.debug?.({ stage: 'placeaxis', label: g.label, k,
               a: +candA.score.toFixed(1), b: +candB.score.toFixed(1),
               chose: winner === candB ? 'perp' : 'principal' });
+
+          // ---- STAMP-FOOTPRINT FIT (the diagonal-lasso cure) ----
+          // MEASURED FAILURE: Lloyd partitions mask pixels BY DISTANCE ONLY.
+          // On a fused blob its cells are Voronoi wedges, and a wedge's PCA
+          // axis is the WEDGE's shape — not any pill's. On r-7ff7fd99 the
+          // k=2 clump's two seeding axes scored 127.2 vs 127.5 (a 0.2%
+          // margin — the race is a coin flip), and the winner posed one
+          // capsule at 67 degrees, DIAGONALLY ACROSS two near-horizontal
+          // caplets. On lined-503b3041's k=14 clump the wedge centroids
+          // produced thetas of -370/-299/-159 degrees and centre errors up
+          // to 48.6px against hand-annotated truth.
+          //
+          // THE FIX: stop letting a point-centroid define a cell. Run the
+          // same alternating minimisation, but with the TEMPLATE SHAPE as
+          // the cell:
+          //   assign  — each pixel goes to the placement whose POSED STAMP
+          //             FOOTPRINT best contains it (normalised capsule
+          //             coordinate), so a cell can never be a wedge;
+          //   update  — each placement re-poses (cx, cy, AND theta) by
+          //             maximising the SAME fg/bg/seam objective the pose
+          //             refiner already uses, over its own assigned pixels.
+          // The centroid of a stamp is a stamp, so the fixed point is a
+          // tiling of pill-shaped cells rather than a pie of wedges.
+          //
+          // Kept as a REFINEMENT of the Lloyd winner rather than a
+          // replacement: Lloyd's k placements are a fine starting spread,
+          // and only the pose is untrustworthy. If the fit fails to improve
+          // the objective the Lloyd poses stand, so this can only help.
+          // SCOPE OF THE FOOTPRINT FIT — both bounds are measured, not tuned.
+          //
+          // (a) k === 2. The fit maximises MASK COVERAGE by k template
+          //     stamps. Measured against hand-annotated centres, that proxy
+          //     tracks truth at k=2 (mean placement error 11.7->7.7 on
+          //     r-7ff7fd99, 13.0->7.9 on r-cc7a2ada, 4.3->3.3 on
+          //     r-dbe1f2d8) and INVERTS above it: r-f5d11815's k=6 clump
+          //     went 8.5->30.6 and lined-503b3041's k=14 went 31.8->37.1
+          //     even though the objective rose in every case (93->127.5,
+          //     272->317). Above k=2 there are many ways to tile a blob
+          //     with k capsules that cover it equally well, and coverage
+          //     alone cannot pick the right one. Extending this fit to
+          //     larger k needs a per-pill evidence term (cap arcs, kernel
+          //     census), not a bigger search — left undone deliberately.
+          //
+          // (b) The blob must hold k pills. Two touching RIGID pills cannot
+          //     occupy one pill's worth of area. s-0bfc44d8's two k=2
+          //     clumps measure px/templateArea = 1.03 and 0.99 with exactly
+          //     ONE annotated centre each — the count over-split them, and
+          //     a coverage fit asked to spread two stamps over one pill's
+          //     material drags the one CORRECT placement off its pill
+          //     (label 49's best pill went from 1.2px off truth to 6.4px).
+          //     Genuine k=2 clumps measure 1.75. Requiring 1.35 sits between
+          //     the two populations and, being a geometric consequence of
+          //     rigidity, needs no per-image tuning.
+          const tplArea = Math.PI * (tMinor / 2) ** 2 + Math.max(0, tMajor - tMinor) * tMinor;
+          const areaSupportsK = tplArea > 0 && pxs.length / tplArea >= 1.35;
+          if (pills.length === k && k === 2 && areaSupportsK) {
+            const halfA = Math.max(1e-3, (tMajor - tMinor) / 2), rhoT = Math.max(1e-3, tMinor / 2);
+            // Signed capsule coordinate: 0 at the placement's spine, 1 on
+            // its rim. This IS the stamp footprint — the assignment step
+            // cannot produce a wedge because the level sets are capsules.
+            const capsuleR = (px, py, p2) => {
+              const c2 = Math.cos(p2.theta), s3 = Math.sin(p2.theta);
+              const dx = px - p2.cx, dy = py - p2.cy;
+              let t = dx * c2 + dy * s3;
+              const n2 = -dx * s3 + dy * c2;
+              if (t > halfA) t -= halfA; else if (t < -halfA) t += halfA; else t = 0;
+              return Math.hypot(t, n2) / rhoT;
+            };
+            // Objective for one pose: mask foreground covered, minus
+            // background claimed, minus interior seam samples. Identical in
+            // spirit to poseScore below (which runs later and cannot see
+            // this loop), so the two passes agree instead of fighting.
+            const dbFit = distBg.data;
+            // `mine` (optional) is the set of pixel indices this placement
+            // owns. Samples that land on mask foreground belonging to a
+            // SIBLING placement's cell score as claimed-territory, not as
+            // covered pill. Without this the k stamps optimise independently
+            // and simply pile onto the same locally-best pocket: measured on
+            // r-7ff7fd99's k=2 clump, the free fit doubled the objective
+            // (24.5 -> 50.0) by putting BOTH capsules at (156,205)/(159,203).
+            // Exclusivity is what makes this a partition instead of k
+            // independent searches.
+            const fitScore = (cx, cy, th, mine) => {
+              const c2 = Math.cos(th), s3 = Math.sin(th);
+              const a2 = 0.46 * tMajor, b2 = 0.46 * tMinor;
+              let inFg = 0, inBg = 0;
+              const lums = [];
+              for (let i2 = 0; i2 < 9; i2++) for (let j2 = 0; j2 < 5; j2++) {
+                const u = (i2 / 8) * 2 - 1, v = (j2 / 4) * 2 - 1;
+                if (u * u + v * v > 1.05) continue;
+                const x = (cx + u * a2 * c2 - v * b2 * s3) | 0;
+                const y = (cy + u * a2 * s3 + v * b2 * c2) | 0;
+                if (x < 0 || y < 0 || x >= w || y >= h) { inBg++; continue; }
+                if (activeMd[y * w + x] > 0) {
+                  if (mine && !mine.has(y * w + x)) { inBg++; continue; }  // sibling's pixel
+                  inFg++; lums.push(dbFit[y * w + x]);
+                } else inBg++;
+              }
+              // A lasso across two pills has the DARK CONTACT SEAM running
+              // through its middle: interior samples well below its own
+              // median. That is exactly the signal that tells a straddling
+              // pose from an honest one, and it is geometric (mask + local
+              // contrast), not matchQuality — so it stays trustworthy on
+              // lined images where the calibration pool is only ~4 singles
+              // and matchQuality is documented to INVERT.
+              let seam = 0;
+              if (lums.length >= 6) {
+                const sl = [...lums].sort((x2, y2) => x2 - y2);
+                const medL = sl[sl.length >> 1];
+                for (const L of lums) if (L < medL - 15) seam++;
+              }
+              return inFg - 2 * inBg - 1.5 * seam;
+            };
+            // ---- SEED: GREEDY STAMP COVER, not an axis sweep ----
+            // The axis race is the other half of the bug. It offers exactly
+            // two global orientations and asks the photo to pick one; when a
+            // blob is two horizontal caplets stacked VERTICALLY, neither
+            // candidate is right and the 0.2% score margin on r-7ff7fd99
+            // proves the photo could not tell them apart. So seed with no
+            // axis assumption at all: repeatedly place the single template
+            // pose that claims the most still-unclaimed mask pixels (minus
+            // twice the background it would swallow). That is pure shape
+            // evidence — where does a pill-shaped thing actually fit — and
+            // on r-7ff7fd99's k=2 clump it recovers (160,195)@15deg and
+            // (153,211)@15deg against truth (163,196) and (163,216): 3.2px
+            // and 11.2px, both near-horizontal like every pill in the photo.
+            // Lloyd's answer for the same blob was (159,204)@67deg — the
+            // diagonal lasso — and (134,210)@4deg.
+            const greedySeed = () => {
+              const left = new Set(pxs.map(([x, y]) => y * w + x));
+              const out = [];
+              // candidate centres: subsample the blob so cost stays linear-ish
+              const step = Math.max(1, Math.round(Math.sqrt(pxs.length / 260)));
+              const cands = pxs.filter((_, i) => i % step === 0);
+              for (let n = 0; n < k; n++) {
+                let best = null;
+                for (const [cx, cy] of cands) {
+                  // NO NEAR-DUPLICATES. Measured on r-f5d11815's k=6 clump:
+                  // without this the greedy returned (178,107)+(175,108) both
+                  // at 150deg and (183,130)+(183,131) both at 120deg — the
+                  // claimed-pixel mask is a slightly smaller footprint than
+                  // the gain probe, so a copy shifted by 3px still scored
+                  // full gain. Two stamps on one pill is the same lasso
+                  // failure wearing different clothes.
+                  let tooClose = false;
+                  for (const q of out) {
+                    const dq = Math.hypot(q.cx - cx, q.cy - cy);
+                    if (dq < 0.55 * tMinor) { tooClose = true; break; }
+                    // also reject a near-parallel stamp riding the same spine
+                    const cq = Math.cos(q.theta), sq = Math.sin(q.theta);
+                    const perp = Math.abs(-(cx - q.cx) * sq + (cy - q.cy) * cq);
+                    const along = Math.abs((cx - q.cx) * cq + (cy - q.cy) * sq);
+                    if (perp < 0.45 * tMinor && along < 0.45 * tMajor) { tooClose = true; break; }
+                  }
+                  if (tooClose) continue;
+                  for (let r2 = 0; r2 < 12; r2++) {
+                    const th = r2 * Math.PI / 12;
+                    const c2 = Math.cos(th), s3 = Math.sin(th);
+                    const a2 = 0.46 * tMajor, b2 = 0.46 * tMinor;
+                    let gain = 0, bad = 0;
+                    for (let i2 = 0; i2 < 13; i2++) for (let j2 = 0; j2 < 7; j2++) {
+                      const u = (i2 / 12) * 2 - 1, v = (j2 / 6) * 2 - 1;
+                      if (u * u + v * v > 1.05) continue;
+                      const px = Math.round(cx + u * a2 * c2 - v * b2 * s3);
+                      const py = Math.round(cy + u * a2 * s3 + v * b2 * c2);
+                      if (px < 0 || py < 0 || px >= w || py >= h || activeMd[py * w + px] !== g.label) { bad++; continue; }
+                      if (left.has(py * w + px)) gain++;
+                    }
+                    const sc = gain - 2 * bad;
+                    if (!best || sc > best.s) best = { s: sc, cx, cy, theta: th };
+                  }
+                }
+                if (!best) break;
+                out.push({ cx: best.cx, cy: best.cy, theta: best.theta });
+                const c2 = Math.cos(best.theta), s3 = Math.sin(best.theta);
+                const a2 = 0.46 * tMajor, b2 = 0.46 * tMinor;
+                for (let i2 = 0; i2 < 25; i2++) for (let j2 = 0; j2 < 13; j2++) {
+                  const u = (i2 / 24) * 2 - 1, v = (j2 / 12) * 2 - 1;
+                  if (u * u + v * v > 1) continue;
+                  const px = Math.round(best.cx + u * a2 * c2 - v * b2 * s3);
+                  const py = Math.round(best.cy + u * a2 * s3 + v * b2 * c2);
+                  if (px >= 0 && py >= 0 && px < w && py < h) left.delete(py * w + px);
+                }
+              }
+              return out;
+            };
+            const seeded = greedySeed();
+            const fit = seeded.length === k
+              ? seeded
+              : pills.map((p2) => ({ cx: p2.cx, cy: p2.cy, theta: p2.theta }));
+            const own = Array.from({ length: k }, () => []);
+            for (let it = 0; it < 6; it++) {
+              // -- assign: nearest STAMP FOOTPRINT, not nearest point --
+              for (let c = 0; c < k; c++) own[c].length = 0;
+              for (let i2 = 0; i2 < pxs.length; i2++) {
+                let b = 0, bd = Infinity;
+                for (let c = 0; c < k; c++) {
+                  const d2 = capsuleR(pxs[i2][0], pxs[i2][1], fit[c]);
+                  if (d2 < bd) { bd = d2; b = c; }
+                }
+                own[b].push(pxs[i2]);
+              }
+              // -- update: re-pose each stamp on its own pixels --
+              let moved = 0;
+              for (let c = 0; c < k; c++) {
+                const cell = own[c];
+                if (cell.length < 12) continue;
+                let sx = 0, sy = 0;
+                for (const [x, y] of cell) { sx += x; sy += y; }
+                const ccx = sx / cell.length, ccy = sy / cell.length;
+                const mine = new Set();
+                for (const [x, y] of cell) mine.add(y * w + x);
+                // Coordinate ascent over (theta, cx, cy) from BOTH the
+                // cell's own centroid and the incumbent pose, so a cell that
+                // is still malformed early on can be rescued by the photo
+                // instead of locking in its first bad guess.
+                let best = { s: fitScore(fit[c].cx, fit[c].cy, fit[c].theta, mine), cx: fit[c].cx, cy: fit[c].cy, th: fit[c].theta };
+                for (const [sx0, sy0] of [[ccx, ccy], [fit[c].cx, fit[c].cy]]) {
+                  for (let r2 = 0; r2 < 12; r2++) {
+                    const th = r2 * Math.PI / 12;
+                    for (let ox = -2; ox <= 2; ox++) for (let oy = -2; oy <= 2; oy++) {
+                      const nx2 = sx0 + ox * 1.5, ny2 = sy0 + oy * 1.5;
+                      const sc = fitScore(nx2, ny2, th, mine);
+                      if (sc > best.s) best = { s: sc, cx: nx2, cy: ny2, th };
+                    }
+                  }
+                }
+                // fine polish around the winner
+                for (let r2 = -3; r2 <= 3; r2++) {
+                  const th = best.th + r2 * Math.PI / 48;
+                  for (let ox = -2; ox <= 2; ox++) for (let oy = -2; oy <= 2; oy++) {
+                    const sc = fitScore(best.cx + ox * 0.7, best.cy + oy * 0.7, th, mine);
+                    if (sc > best.s) best = { s: sc, cx: best.cx + ox * 0.7, cy: best.cy + oy * 0.7, th };
+                  }
+                }
+                if (Math.hypot(best.cx - fit[c].cx, best.cy - fit[c].cy) > 0.4
+                  || Math.abs(best.th - fit[c].theta) > 0.02) moved++;
+                fit[c] = { cx: best.cx, cy: best.cy, theta: best.th };
+              }
+              if (!moved) break;
+            }
+            // ACCEPT ONLY ON MEASURED IMPROVEMENT. Total objective over all
+            // k placements must beat the Lloyd poses, and no two fitted
+            // placements may collapse onto each other (a degenerate fit
+            // would trade a lasso for a duplicate).
+            let sOld = 0, sNew = 0;
+            for (let c = 0; c < k; c++) {
+              sOld += fitScore(pills[c].cx, pills[c].cy, pills[c].theta);
+              sNew += fitScore(fit[c].cx, fit[c].cy, fit[c].theta);
+            }
+            let collapsed = false;
+            for (let a2 = 0; a2 < k && !collapsed; a2++) for (let b2 = a2 + 1; b2 < k; b2++)
+              if (Math.hypot(fit[a2].cx - fit[b2].cx, fit[a2].cy - fit[b2].cy) < 0.45 * tMinor) { collapsed = true; break; }
+            opts.debug?.({ stage: 'clumpfit', label: g.label, k,
+              lloyd: +sOld.toFixed(1), fitted: +sNew.toFixed(1),
+              collapsed, took: (sNew > sOld && !collapsed) });
+            if (sNew > sOld && !collapsed) {
+              for (let c = 0; c < k; c++) {
+                pills[c].cx = fit[c].cx; pills[c].cy = fit[c].cy;
+                pills[c].theta = +fit[c].theta.toFixed(3);
+                const st3 = pillPhotoStats(distBg.data, w, h, pills[c], otsuThr);
+                pills[c].photo = st3.mean; pills[c].bgFrac = st3.bgFrac;
+              }
+            }
+          }
+
           if (pills.length) {
             const medP = median(pills.map((p2) => p2.photo)) || 1;
             for (const p2 of pills) {

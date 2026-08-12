@@ -293,6 +293,15 @@ function draw(cursor) {
     ctx.beginPath(); ctx.arc(x, y, 3, 0, 6.284); ctx.fill();
   }
 }
+// A loaded mark's angle: the one that was saved, else the pill's own axis
+// measured from the photo. Never 0 — a hardcoded horizontal draws stamps
+// slicing across angled pills, which looks exactly like a counter bug.
+function loadAngle(doc, i, wx, wy) {
+  const a = doc.angles && doc.angles[i];
+  if (Number.isFinite(a)) return a;
+  const b = bestAngle(wx, wy);
+  return b && Number.isFinite(b.th) ? b.th : 0;
+}
 function outline(x, y, th) {
   const a = Math.max(0, (probe.maj - probe.min) / 2), rho = probe.min / 2;
   const c = Math.cos(th), s = Math.sin(th);
@@ -482,9 +491,13 @@ $('#loadsaved').onclick = async () => {
     const doc = await (await fetch(`api/truth?file=${encodeURIComponent(file)}`, { cache: 'no-store' })).json();
     if (!doc || !doc.centers) { $('#savemsg').textContent = 'nothing saved for this image yet'; return; }
     const sc = doc.size && doc.size[0] ? probe.w / doc.size[0] : 1;
-    marks = doc.centers.map(([x, y]) => ({ file, x: +(x * sc).toFixed(1), y: +(y * sc).toFixed(1),
-      th: 0, thDeg: 0, overlap: +scoreAt(x * sc, y * sc, 0).toFixed(3),
-      stamp: [probe.maj, probe.min], verdict: 'truth', nearestCounted: 0 }));
+    marks = doc.centers.map(([x, y], i) => {
+      const th = loadAngle(doc, i, x * sc, y * sc);
+      return { file, x: +(x * sc).toFixed(1), y: +(y * sc).toFixed(1),
+        th, thDeg: Math.round(th * 180 / Math.PI),
+        overlap: +scoreAt(x * sc, y * sc, th).toFixed(3),
+        stamp: [probe.maj, probe.min], verdict: 'truth', nearestCounted: 0 };
+    });
     renderMarks(); updateTruth(); draw(last);
     $('#savemsg').innerHTML = `<span style="color:var(--ok)">loaded ${marks.length} saved marks — edit and Save again to replace</span>`;
   } catch (e) { $('#savemsg').textContent = 'load failed: ' + e.message; }
@@ -494,8 +507,12 @@ $('#loadtruth').onclick = async () => {
   try {
     const doc = await (await fetch(`testdata/centers/${base}.json`, { cache: 'no-store' })).json();
     const sc = doc.size && doc.size[0] ? probe.w / doc.size[0] : 1;  // native -> working
-    marks = doc.centers.map(([x, y]) => ({ file: $('#img').value, x: +(x * sc).toFixed(1), y: +(y * sc).toFixed(1),
-      th: 0, thDeg: 0, overlap: 0, stamp: [probe.maj, probe.min], verdict: 'truth', nearestCounted: 0 }));
+    marks = doc.centers.map(([x, y], i) => {
+      const th = loadAngle(doc, i, x * sc, y * sc);
+      return { file: $('#img').value, x: +(x * sc).toFixed(1), y: +(y * sc).toFixed(1),
+        th, thDeg: Math.round(th * 180 / Math.PI), overlap: 0,
+        stamp: [probe.maj, probe.min], verdict: 'truth', nearestCounted: 0 };
+    });
     renderMarks(); updateTruth(); draw(last);
     $('#loadtruth').textContent = `loaded ${marks.length}`;
     setTimeout(() => { $('#loadtruth').textContent = 'load truth'; }, 1500);
@@ -509,6 +526,12 @@ $('#savetruth').onclick = async () => {
     size: [Math.round(probe.w * sc), Math.round(probe.h * sc)],
     expected: expectedFor(file),
     centers: marks.map((m) => [+(m.x * sc).toFixed(1), +(m.y * sc).toFixed(1)]),
+    // Rotation, parallel to centers. Dropping it (as this did until
+    // 2026-08-12) meant every reload redrew angled pills as HORIZONTAL
+    // stamps — outlines slicing across pills at the wrong angle, which
+    // read as the counter being broken when it was the annotator losing
+    // the work. Consumers that only want centres can ignore this.
+    angles: marks.map((m) => +(m.th || 0).toFixed(4)),
     note: `annotated in truth mode; label said ${expectedFor(file)}`,
   };
   $('#savemsg').textContent = 'saving…';
