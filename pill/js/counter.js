@@ -2614,6 +2614,7 @@ export function countPills(cv, source, opts = {}) {
 
     let activeMd = md;
     let out2Template = null;   // template card info, filled by the debug emit
+    let deferredGeometry = null;   // re-render geometry after clump placement
     const COMBINER = opts.combiner || 'A';   // bake-off selector; A = shipping
     let stampKernelUsed = null, stampFgUsed = null;   // for the match-map stage
     let unitArea = 0;
@@ -5535,6 +5536,45 @@ export function countPills(cv, source, opts = {}) {
           }
         }
         emit('geometry', { data: g8, width: w, height: h });
+        // ...and AGAIN after per-pill placement lands (see below). This stage
+        // runs before PLACE AGREED CLUMPS, so a clump could only ever draw
+        // its region ellipse — which is why a 14-pill cluster rendered as
+        // ONE GIANT CIRCLE while its 14 Lloyd placements sat unused on the
+        // region. Re-render once the placements exist.
+        deferredGeometry = () => {
+          const g9 = new Uint8ClampedArray(src.data);
+          const putPx9 = (x, y, rr2, gg, bb) => {
+            const xi = x | 0, yi = y | 0;
+            if (xi < 1 || yi < 1 || xi >= w - 1 || yi >= h - 1) return;
+            for (let a2 = -1; a2 <= 0; a2++) for (let b2 = -1; b2 <= 0; b2++) {
+              const i2 = ((yi + a2) * w + (xi + b2)) * 4;
+              g9[i2] = rr2; g9[i2 + 1] = gg; g9[i2 + 2] = bb; g9[i2 + 3] = 255;
+            }
+          };
+          const stadium9 = (cx, cy, major, minor, th, ok) => {
+            const a2 = Math.max(0, (major - minor) / 2), rho = minor / 2;
+            const c2 = Math.cos(th), s2 = Math.sin(th);
+            for (let k2 = 0; k2 < 160; k2++) {
+              const phi = k2 * Math.PI * 2 / 160;
+              const cc = Math.abs(Math.cos(phi)), ss = Math.abs(Math.sin(phi));
+              let R;
+              if (ss < 1e-6) R = a2 + rho;
+              else { const r1 = rho / ss; R = (r1 * cc <= a2) ? r1 : a2 * cc + Math.sqrt(Math.max(0, a2 * a2 * cc * cc - a2 * a2 + rho * rho)); }
+              const lx = Math.cos(phi) * R, ly = Math.sin(phi) * R;
+              putPx9(cx + lx * c2 - ly * s2, cy + lx * s2 + ly * c2,
+                ok ? 40 : 255, ok ? 220 : 176, ok ? 120 : 32);
+            }
+          };
+          for (const r of regions) {
+            const ok = r.confidence !== 'low';
+            if (r.pills && r.pills.length) {
+              for (const p2 of r.pills) stadium9(p2.cx, p2.cy, p2.major, p2.minor, p2.theta, ok && p2.valid !== 0);
+            } else if (r.shape) {
+              stadium9(r.cx, r.cy, r.shape.major, r.shape.minor, r.shape.theta, ok);
+            }
+          }
+          emit('geometry', { data: g9, width: w, height: h });
+        };
 
         // TEMPLATE CARD (owner: "the debug needs to show the median /
         // assumed pill shape/stamp, to prove you understand what the pill
@@ -6236,6 +6276,8 @@ export function countPills(cv, source, opts = {}) {
         }
       }
     }
+
+    if (deferredGeometry) { try { deferredGeometry(); } catch { /* debug only */ } }
 
     const out = { count, regions, scale, boundaries, width: w, height: h, unitArea, thr: otsuThr };
     if (out2Template) out.templateInfo = out2Template;
