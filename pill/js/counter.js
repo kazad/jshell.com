@@ -5956,10 +5956,80 @@ export function countPills(cv, source, opts = {}) {
             const ux = Math.cos(axTheta), uy = Math.sin(axTheta);
             let lo = Infinity, hi = -Infinity;
             for (const [x, y] of pxs) { const t = (x - mx) * ux + (y - my) * uy; if (t < lo) lo = t; if (t > hi) hi = t; }
-            const C = Array.from({ length: k }, (_, i) => {
-              const t = lo + (hi - lo) * (i + 0.5) / k;
-              return [mx + ux * t, my + uy * t];
-            });
+            // SEEDING. The line seeding below is right for a CHAIN of pills
+            // (a 1-D run along one axis) and catastrophic for a compact raft:
+            // it drops all k seeds on a single straight line through the
+            // centroid, so on a blob that is nearly as tall as it is wide the
+            // seeds start within a few pixels of each other and Lloyd
+            // converges to a degenerate partition — every centroid at the
+            // centre of mass.
+            //
+            // Measured on synth2-rc-noise-small-n12-t65-s199 region 9: the
+            // blob's unit count is CORRECT (claims 8, truly holds 8), yet all
+            // eight placements landed in a 24x27px box — smaller than one
+            // 27.6x27.2 pill — while the real pills were spread across the
+            // raft. The count was right and the picture was nonsense.
+            //
+            // So seed by farthest-point sampling over the blob's own pixels
+            // (k-means++ style, deterministic): take the pixel farthest from
+            // the centroid, then repeatedly the pixel farthest from every seed
+            // chosen so far. On a chain this reproduces the line; on a raft it
+            // spreads into 2-D, which is the case that was broken.
+            const spanT = hi - lo;
+            const ext = (() => {           // extent perpendicular to the axis
+              let plo = Infinity, phi = -Infinity;
+              for (const [x, y] of pxs) {
+                const s2 = -(x - mx) * uy + (y - my) * ux;
+                if (s2 < plo) plo = s2; if (s2 > phi) phi = s2;
+              }
+              return phi - plo;
+            })();
+            let C;
+            // A blob is "chain-like" when it is much longer than it is wide;
+            // only then does a line of seeds describe where the pills are.
+            if (spanT > 2.2 * ext || k <= 2) {
+              C = Array.from({ length: k }, (_, i) => {
+                const t = lo + spanT * (i + 0.5) / k;
+                return [mx + ux * t, my + uy * t];
+              });
+            } else {
+              // Grid seeding, not farthest-point. Farthest-point drives every
+              // seed to the blob's EXTREMES, which is wrong for the pills in
+              // the middle of a raft (measured: s172 got worse, 27 -> 38
+              // overlapping pairs). A raft of same-size discs is close to a
+              // regular packing, so lay seeds on a grid over the blob's
+              // bounding box in its own axis frame, keep only cells that
+              // contain blob pixels, and take the nearest actual pixel to each
+              // — spread by construction, and always ON the blob.
+              const cols = Math.max(1, Math.round(Math.sqrt(k * Math.max(spanT, 1) / Math.max(ext, 1))));
+              const rows2 = Math.max(1, Math.ceil(k / cols));
+              let plo = Infinity;
+              for (const [x, y] of pxs) {
+                const s3 = -(x - mx) * uy + (y - my) * ux;
+                if (s3 < plo) plo = s3;
+              }
+              const cand = [];
+              for (let gy = 0; gy < rows2; gy++) for (let gx = 0; gx < cols; gx++) {
+                const t = lo + spanT * (gx + 0.5) / cols;
+                const s3 = plo + ext * (gy + 0.5) / rows2;
+                const px2 = mx + ux * t - uy * s3, py2 = my + uy * t + ux * s3;
+                let bp = null, bd = Infinity;
+                for (const p of pxs) {
+                  const d2 = (p[0] - px2) ** 2 + (p[1] - py2) ** 2;
+                  if (d2 < bd) { bd = d2; bp = p; }
+                }
+                if (bp) cand.push({ p: bp, d: bd });
+              }
+              // prefer cells whose centre actually landed on the blob
+              cand.sort((a2, b2) => a2.d - b2.d);
+              C = [];
+              for (const c of cand) {
+                if (C.length >= k) break;
+                if (C.some((q) => (q[0] - c.p[0]) ** 2 + (q[1] - c.p[1]) ** 2 < 4)) continue;
+                C.push([c.p[0], c.p[1]]);
+              }
+              while (C.length < k) C.push([mx, my]);
+            }
             const asg = new Array(pxs.length).fill(0);
             for (let it = 0; it < 18; it++) {
               let moved = false;
@@ -5974,7 +6044,63 @@ export function countPills(cv, source, opts = {}) {
               const sum = Array.from({ length: k }, () => [0, 0, 0]);
               for (let i = 0; i < pxs.length; i++) { const s2 = sum[asg[i]]; s2[0] += pxs[i][0]; s2[1] += pxs[i][1]; s2[2]++; }
               for (let c = 0; c < k; c++) if (sum[c][2]) C[c] = [sum[c][0] / sum[c][2], sum[c][1] / sum[c][2]];
+              // SEPARATION CONSTRAINT — the physics Lloyd cannot know.
+              // Plain Lloyd partitions by DISTANCE ONLY, so nothing stops two
+              // centroids from collapsing onto the same bright lump; on a
+              // dense raft that is exactly what happens, and the result is k
+              // outlines stacked on one pill while real pills go unclaimed.
+              // But these are rigid same-size discs: two pill CENTRES can
+              // never be closer than one pill width. Enforcing that during
+              // the iteration is not a heuristic, it is the object model.
+              const sep = tMinor * 0.92;   // touching is legal, closer is not
+              for (let a3 = 0; a3 < k; a3++) for (let b3 = a3 + 1; b3 < k; b3++) {
+                let dx3 = C[b3][0] - C[a3][0], dy3 = C[b3][1] - C[a3][1];
+                let d3 = Math.hypot(dx3, dy3);
+                if (d3 >= sep) continue;
+                if (d3 < 1e-6) { dx3 = Math.cos(a3 * 2.399); dy3 = Math.sin(a3 * 2.399); d3 = 1; }
+                const push = (sep - d3) / 2 / d3;
+                C[a3][0] -= dx3 * push; C[a3][1] -= dy3 * push;
+                C[b3][0] += dx3 * push; C[b3][1] += dy3 * push;
+              }
               if (!moved) break;
+            }
+            // RECLAIM STARVED CELLS. The separation push can shove a centroid
+            // off its own blob, where it wins no pixels and its pill is then
+            // silently dropped by the n<15 filter below — the count says N but
+            // only N-2 outlines are drawn, and the missing pills read as
+            // misses. Pull any starved centroid back to the blob pixel that is
+            // farthest from every healthy centroid: the emptiest real estate,
+            // which is where an unclaimed pill actually is.
+            {
+              const cnt2 = new Array(k).fill(0);
+              for (let i = 0; i < pxs.length; i++) cnt2[asg[i]]++;
+              for (let c = 0; c < k; c++) {
+                if (cnt2[c] >= 15) continue;
+                let bp = null, bd = -1;
+                for (const p of pxs) {
+                  let nd = Infinity;
+                  for (let c2 = 0; c2 < k; c2++) {
+                    if (c2 === c || cnt2[c2] < 15) continue;
+                    const d2 = (p[0] - C[c2][0]) ** 2 + (p[1] - C[c2][1]) ** 2;
+                    if (d2 < nd) nd = d2;
+                  }
+                  if (nd > bd) { bd = nd; bp = p; }
+                }
+                // Respect the same separation the iteration enforces: a
+                // reclaimed centroid dropped at the farthest pixel with no
+                // spacing check simply lands on top of another pill, which is
+                // how s111 kept 14 stacked pairs after the constraint went in.
+                if (bp && bd >= (tMinor * 0.92) ** 2) C[c] = [bp[0], bp[1]];
+              }
+              // one settling pass so the reclaimed cells own their pixels
+              for (let i = 0; i < pxs.length; i++) {
+                let b = 0, bd2 = Infinity;
+                for (let c = 0; c < k; c++) {
+                  const d2 = (pxs[i][0] - C[c][0]) ** 2 + (pxs[i][1] - C[c][1]) ** 2;
+                  if (d2 < bd2) { bd2 = d2; b = c; }
+                }
+                asg[i] = b;
+              }
             }
             const cs2 = Array.from({ length: k }, () => ({ n: 0, sx: 0, sy: 0, sxx: 0, sxy: 0, syy: 0 }));
             for (let i = 0; i < pxs.length; i++) {
@@ -6335,6 +6461,48 @@ export function countPills(cv, source, opts = {}) {
           }
           return inFg - 2 * inBg - 1.5 * seam;
         };
+        // Would this pose put p2 inside another placed pill? Capsule-vs-capsule:
+        // the closest approach of the two spines must clear the sum of the
+        // half-widths. Every placement in the image is a candidate obstacle —
+        // pills in neighbouring regions are just as solid as siblings.
+        const allPlaced = [];
+        for (const g of regions) if (g.pills) for (const q of g.pills) allPlaced.push(q);
+        const spineMin = (ax, ay, ath, aMaj, aMin, B) => {
+          const ah = Math.max(0, (aMaj - aMin) / 2);
+          const bh = Math.max(0, ((B.major || 0) - (B.minor || 0)) / 2);
+          const ac = Math.cos(ath), as = Math.sin(ath);
+          const bc = Math.cos(B.theta || 0), bs = Math.sin(B.theta || 0);
+          let best2 = Infinity;
+          for (let i = 0; i <= 8; i++) for (let j = 0; j <= 8; j++) {
+            const t1 = ah ? -ah + 2 * ah * i / 8 : 0, t2 = bh ? -bh + 2 * bh * j / 8 : 0;
+            const dx2 = (ax + ac * t1) - (B.cx + bc * t2);
+            const dy2 = (ay + as * t1) - (B.cy + bs * t2);
+            const dd = Math.hypot(dx2, dy2);
+            if (dd < best2) best2 = dd;
+            if (!bh) break;
+          }
+          return best2;
+        };
+        // Total penetration depth (px) this pose would have against all other
+        // placed pills. 0 when merely touching. The refiner's score is in
+        // "samples covered" units and poseScore tops out near 33, so a weight
+        // of 1.5 makes ~2px of overlap cost about as much as one lost sample:
+        // enough to push pills apart, not so much that a pill flees the photo.
+        const PEN_W = 1.5;
+        const penetration = (p2, nx2, ny2, th) => {
+          const aMaj = p2.major || 0, aMin = p2.minor || 0;
+          if (!(aMin > 0)) return 0;
+          let tot = 0;
+          for (const B of allPlaced) {
+            if (B === p2 || !(B.minor > 0)) continue;
+            const reach2 = (aMaj + (B.major || 0)) / 2 + 2;
+            if (Math.abs(nx2 - B.cx) > reach2 || Math.abs(ny2 - B.cy) > reach2) continue;
+            // 1px slack: touching pills are legal, interpenetrating ones are not
+            const pen3 = (aMin + B.minor) / 2 - 1 - spineMin(nx2, ny2, th, aMaj, aMin, B);
+            if (pen3 > 0) tot += pen3;
+          }
+          return tot;
+        };
         const refinePoses = () => {
           for (const g of regions) {
             if (!g.pills) continue;
@@ -6344,8 +6512,12 @@ export function countPills(cv, source, opts = {}) {
             // onto the purged crescents. Leave them where the evidence is.
             if (g.stamp) continue;
             for (const p2 of g.pills) {
+              // The incumbent pose pays the same penetration charge as every
+              // challenger; otherwise an already-overlapping pill scores as if
+              // it were free and nothing can beat it.
               let best = { s: poseScore(p2, p2.cx, p2.cy, p2.theta),
-                cx: p2.cx, cy: p2.cy, th: p2.theta };
+                cx: p2.cx, cy: p2.cy, th: p2.theta,
+                pen: penetration(p2, p2.cx, p2.cy, p2.theta) };
               // ESCAPE RECOVERY: a placement mostly over background (shoved
               // there by collision resolution) needs reach, not fine-tuning —
               // widen the first pass's search radius until it can get home.
@@ -6358,8 +6530,49 @@ export function countPills(cv, source, opts = {}) {
                 for (let r2 = -6; r2 <= 6; r2++) {
                   const th = best.th + r2 * dth;
                   for (let ox = -reach; ox <= reach; ox++) for (let oy = -reach; oy <= reach; oy++) {
-                    const sc = poseScore(p2, best.cx + ox * dxy, best.cy + oy * dxy, th);
-                    if (sc > best.s) best = { s: sc, cx: best.cx + ox * dxy, cy: best.cy + oy * dxy, th };
+                    const nx2 = best.cx + ox * dxy, ny2 = best.cy + oy * dxy;
+                    // SOLID PILLS DO NOT INTERPENETRATE. Without this the
+                    // refiner scores each pill purely on how much pill
+                    // material it covers, which on a touching cluster is
+                    // maximised at the SAME bright centre for every pill in
+                    // the region — so it walked them all onto one bead and
+                    // undid the collision resolution that had just run.
+                    // Measured on synth2-rc-noise-small-n12-t65-s199: physics
+                    // reported 17 pairs fixed and worstAfter 0, then this
+                    // refiner re-stacked 8 full-size 27.6x27.2 pills into a
+                    // 24x27 box (26 of 28 pairs overlapping, min separation
+                    // 7.2px) while four real pills went undetected 35-94px
+                    // away. The count still read 12/12 because the four
+                    // phantoms cancelled the four misses.
+                    // Score penetration rather than forbidding it outright. A
+                    // hard veto cannot rescue a pill that is ALREADY inside a
+                    // neighbour: every candidate move collides too, so the
+                    // pose is frozen where it started (measured: s172 got
+                    // worse, 23 -> 31 overlapping pairs). Charging for
+                    // penetration instead lets a pill climb out — it will
+                    // accept slightly less pill coverage to stop sharing a
+                    // body with its neighbour, which is exactly the trade a
+                    // human makes when reading a touching cluster.
+                    // A candidate must not be MORE embedded than where we
+                    // already are. Phrasing it as "no worse than the
+                    // incumbent" rather than "zero overlap" is what lets an
+                    // already-overlapping pill climb out: it can always move
+                    // toward daylight, and can never move deeper in.
+                    // (A soft penalty was tried instead and measured WORSE —
+                    // 53 -> 86 overlapping pairs — because a pill will happily
+                    // buy a little more pill coverage with a little more
+                    // penetration, and in a touching cluster that trade is
+                    // always available.)
+                    const pen2 = penetration(p2, nx2, ny2, th);
+                    if (pen2 > best.pen + 0.01) continue;
+                    const sc = poseScore(p2, nx2, ny2, th);
+                    // Prefer LESS penetration over more coverage, always: a
+                    // physically impossible arrangement is not a better fit,
+                    // however much pill material it happens to cover.
+                    if (pen2 < best.pen - 0.01
+                        || (Math.abs(pen2 - best.pen) <= 0.01 && sc > best.s)) {
+                      best = { s: sc, cx: nx2, cy: ny2, th, pen: pen2 };
+                    }
                   }
                 }
               }
