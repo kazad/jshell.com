@@ -4,6 +4,7 @@
 //
 // CANDIDATE: stamp-router integration (see js/stamp.js). Last-resort
 // arbitration by stamp-peel-repeat, fired only on weak-evidence images.
+import { solveCluster, overlapDepth as clusterPen } from './cluster.js';
 import { stampArbitrate, stadArea as stampStadArea,
   buildSeamMask, calibrateMatch, matchQuality } from './stamp.js';
 
@@ -2227,7 +2228,71 @@ export function countPills(cv, source, opts = {}) {
     for (let l = 1; l < peaks.length; l++) {
       if (blobAreas[l] >= absFloor && peaks[l] >= MIN_PEAK) candPeaks.push(peaks[l]);
     }
-    const radiusEst = median(candPeaks) || mm.maxVal;
+    let radiusEst = median(candPeaks) || mm.maxVal;
+
+    // AUTOCORRELATION SCALE CHECK. radiusEst above is the median DT thickness,
+    // so it is only ever as good as the mask. On a LOW-CONTRAST board a pale
+    // pill barely clears the threshold and the ridge comes out at HALF scale —
+    // measured on the adversarial suite, R=6.7 against a true 13 on a light
+    // background versus 10.5 for identical pills on a dark one. Everything
+    // downstream then hunts at the wrong size: on those images the distance
+    // transform found 45% of the pills and every detector over-proposed 3-5x.
+    //
+    // Pills in contact REPEAT at one spacing, and the first peak of the
+    // photo's luminance autocorrelation is exactly that pitch (= 2R). It never
+    // consults a threshold, so it survives the bad mask that broke the ridge.
+    // Only ever used to RAISE the estimate, and only when it disagrees by more
+    // than 25%: a too-small radius invents pills, a too-large one merges them,
+    // and the ridge is right whenever the mask is healthy.
+    //
+    // Measured integrating this alone (tools/raft-bakeoff.mjs): dt recall
+    // 45.5% -> 81.3%, and every adversarial case whose R comes out correct is
+    // EXACT — including a 37-pill hex raft and a 120-pill dense board that
+    // previously returned count=1.
+    if (opts.acScale !== false) {
+      const acR = (() => {
+        const bwd0 = bw.data;
+        const w = src.cols, h = src.rows;      // `w`/`h` are declared later
+        let x0 = w, y0 = h, x1 = 0, y1 = 0, fg = 0;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          if (!bwd0[y * w + x]) continue;
+          fg++;
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+        if (fg < 400 || x1 - x0 < 16 || y1 - y0 < 16) return 0;
+        const sd = src.data;
+        const lum = (x, y) => { const o = (y * w + x) * 4;
+          return 0.299 * sd[o] + 0.587 * sd[o + 1] + 0.114 * sd[o + 2]; };
+        let mean = 0, n = 0;
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { mean += lum(x, y); n++; }
+        mean /= Math.max(1, n);
+        const maxLag = Math.min(60, Math.floor((x1 - x0) / 2));
+        let bestLag = 0, bestV = -Infinity;
+        for (let lag = 4; lag <= maxLag; lag++) {
+          let acc = 0, cnt = 0;
+          for (let y = y0; y <= y1; y += 2) for (let x = x0; x + lag <= x1; x++) {
+            acc += (lum(x, y) - mean) * (lum(x + lag, y) - mean); cnt++;
+          }
+          if (!cnt) continue;
+          const v = acc / cnt;
+          if (v > bestV) { bestV = v; bestLag = lag; }
+        }
+        return bestLag / 2;
+      })();
+      // Correct in BOTH directions. The ridge under-reads on a low-contrast
+      // board (pale pill, thin mask) and grossly OVER-reads on a fully fused
+      // raft, where the DT peak belongs to the whole lump rather than to one
+      // pill: measured radiusEst 53.2 on a 19-pill hex raft whose true radius
+      // is 13, so the counter saw ONE pill 106px across and returned count=1.
+      // The autocorrelation pitch describes the repeating unit either way.
+      if (acR > 3 && acR < 60
+          && (acR > radiusEst * 1.25 || acR < radiusEst * 0.8)) {
+        opts.debug?.({ stage: 'acscale', from: +radiusEst.toFixed(1), to: +acR.toFixed(1),
+          ratio: +(acR / radiusEst).toFixed(2) });
+        radiusEst = acR;
+      }
+    }
 
     // Local maxima of the distance transform (used for deep piles, where each
     // pill center is a peak even though the blob is one giant lump).
@@ -2312,16 +2377,121 @@ export function countPills(cv, source, opts = {}) {
         // the junctions where two pills' half-widths meet, capping it near 2x.
         // Real stacking runs past that (salmon: peak 35.4 vs radius 10.6, 3.3x;
         // the lined sheets: 60.3 vs 28.7 and 27 vs 13.4, both ~2.1x).
-        const singleLayer = peaks[l] <= 2.4 * radiusEst;
+        let singleLayer = peaks[l] <= 2.4 * radiusEst;
+        // The 2.4x test reads the blob's DT PEAK, which is only a layer-count
+        // signal while the blob is elongated. A COMPACT fused raft breaks it:
+        // a hex disc of 19 tablets is one layer, but its medial axis reaches
+        // the raft's own inradius, so peak/radius came out 4.1 (53.2 vs 13) and
+        // the sheet rescue refused it as a stack — the raft then kept its single
+        // watershed basin and the image returned count=1 for nineteen pills.
+        //
+        // Compactness separates the two cases without consulting peak height:
+        // in a single layer the blob's AREA is fully explained by pills tiling
+        // a plane (area ~= n * pillArea), whereas a genuine stack hides pills
+        // behind each other and covers far less ground than its pill count
+        // implies. So if the blob's footprint is close to a disc AND its area
+        // accounts for a whole number of pills at the measured scale, treat it
+        // as one layer regardless of how deep its medial axis runs.
+        if (!singleLayer) {
+          const rEq = Math.sqrt(blobAreas[l] / Math.PI);      // radius of equal-area disc
+          const compact = peaks[l] >= rEq * 0.72;             // peak ~ inradius => solid, not branched
+          if (compact && capacity >= 6) {
+            singleLayer = true;
+            opts.debug?.({ stage: 'compact-raft', blob: l, peak: +peaks[l].toFixed(1),
+              rEq: +rEq.toFixed(1), capacity: +capacity.toFixed(1) });
+          }
+        }
         const starved = got < capacity / 3 && singleLayer && capacity >= 8;
         if (starved) sheetBlob.add(l);
         opts.debug?.({ stage: 'sheet', blob: l, area: blobAreas[l], capacity: +capacity.toFixed(1), seeds: got, peak: +peaks[l].toFixed(1), radiusEst: +radiusEst.toFixed(1), thickR: +(peaks[l] / radiusEst).toFixed(2), singleLayer, starved });
       }
     }
 
+    // PHOTO-SEEDED RAFTS. For a fused raft the mask carries no usable seed
+    // signal at all: `dd >= 0.6 * radiusEst` is true across the whole interior,
+    // so every seed merges into ONE component and the watershed has nothing to
+    // separate — measured on a 19-pill hex raft, the reseed produced a single
+    // solid marker and the image returned count=1.
+    //
+    // The PHOTO still shows every pill: each carries its own specular highlight
+    // and a dark seam against its neighbours. A bake-off over the adversarial
+    // suite (tools/raft-bakeoff.mjs) measured highlight, Hough and template
+    // correlation all at 100% recall on exactly these images where the distance
+    // transform managed 45%. Their false positives are uncorrelated because
+    // they read independent layers, so requiring agreement — plus the
+    // one-diameter packing rule that solid pills obey — cut spurious detections
+    // to a quarter of the best single technique at the same recall.
+    //
+    // So seed compact rafts from the photo instead of the mask: local luminance
+    // maxima at pill pitch, confirmed by radial-gradient (Hough) voting, spaced
+    // at least one pill apart.
+    const photoSeed = new Map();          // blob -> [[x,y],...]
+    if (sheetBlob.size && opts.acScale !== false) {
+      const W2 = src.cols, H2 = src.rows, sd2 = src.data;
+      const lumAt = (x, y) => { const o = (y * W2 + x) * 4;
+        return 0.299 * sd2[o] + 0.587 * sd2[o + 1] + 0.114 * sd2[o + 2]; };
+      const rad = Math.max(3, radiusEst);
+      // box-blur the luminance at a fraction of pill scale: kills sensor grain
+      // without merging neighbouring highlights
+      const br = Math.max(1, Math.round(rad * 0.22));
+      const sm = new Float32Array(W2 * H2);
+      {
+        const tmp = new Float32Array(W2 * H2);
+        for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+          let s2 = 0, n2 = 0;
+          for (let d = -br; d <= br; d++) { const xx = x + d; if (xx < 0 || xx >= W2) continue; s2 += lumAt(xx, y); n2++; }
+          tmp[y * W2 + x] = s2 / n2;
+        }
+        for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+          let s2 = 0, n2 = 0;
+          for (let d = -br; d <= br; d++) { const yy = y + d; if (yy < 0 || yy >= H2) continue; s2 += tmp[yy * W2 + x]; n2++; }
+          sm[y * W2 + x] = s2 / n2;
+        }
+      }
+      // Hough-style centre vote: every strong rim gradient votes for a centre
+      // one radius away, on BOTH sides (a sign-aware vote was measured and was
+      // far worse — inside a raft a pill's rim gradient flips wherever the
+      // neighbour outshines the board).
+      const acc = new Float32Array(W2 * H2);
+      for (let y = 1; y < H2 - 1; y++) for (let x = 1; x < W2 - 1; x++) {
+        const i2 = y * W2 + x;
+        const gx = sm[i2 + 1] - sm[i2 - 1], gy = sm[i2 + W2] - sm[i2 - W2];
+        const g2 = Math.hypot(gx, gy);
+        if (g2 < 6) continue;
+        for (const sgn of [-1, 1]) {
+          const cx2 = Math.round(x + sgn * gx / g2 * rad), cy2 = Math.round(y + sgn * gy / g2 * rad);
+          if (cx2 < 0 || cy2 < 0 || cx2 >= W2 || cy2 >= H2) continue;
+          acc[cy2 * W2 + cx2] += g2;
+        }
+      }
+      for (const l of sheetBlob) {
+        const cand = [];
+        for (let y = 1; y < H2 - 1; y++) for (let x = 1; x < W2 - 1; x++) {
+          const i2 = y * W2 + x;
+          if (bl[i2] !== l) continue;
+          cand.push([x, y, sm[i2] * 0.6 + acc[i2] * 0.02]);
+        }
+        cand.sort((a2, b2) => b2[2] - a2[2]);
+        const picked = [];
+        const sep2 = (rad * 1.55) ** 2;    // solid discs: one diameter apart
+        for (const [x, y] of cand) {
+          if (picked.some(([px, py]) => (px - x) ** 2 + (py - y) ** 2 < sep2)) continue;
+          picked.push([x, y]);
+        }
+        opts.debug?.({ stage: 'photoseed-try', blob: l, cand: cand.length,
+          picked: picked.length, rad: +rad.toFixed(1) });
+        if (picked.length > 1) {
+          photoSeed.set(l, picked);
+          opts.debug?.({ stage: 'photoseed', blob: l, seeds: picked.length,
+            capacity: +(blobAreas[l] / (Math.PI * rad * rad)).toFixed(1) });
+        }
+      }
+    }
+
     for (let i = 0; i < bl.length; i++) {
       const l = bl[i];
       if (!l || peaks[l] < MIN_PEAK) { sf[i] = 0; continue; }
+      if (photoSeed.has(l)) { sf[i] = 0; continue; }   // painted below
       if (peaks[l] <= 1.4 * radiusEst || sheetBlob.has(l)) {
         // Pill-scale / single-layer: threshold on the POPULATION radius rather
         // than this blob's own peak. For a sheet, `0.6 * peaks[l]` would key off
@@ -2331,6 +2501,19 @@ export function countPills(cv, source, opts = {}) {
         sf[i] = dd[i] >= cut ? 255 : 0;
       } else {
         sf[i] = dd[i] >= pileFloor && dd[i] >= dm[i] ? 255 : 0;
+      }
+    }
+    // Paint the photo-derived seeds as small discs, well inside one pill so
+    // neighbouring seeds stay separate components for the watershed.
+    for (const [, pts] of photoSeed) {
+      const rr2 = Math.max(2, Math.round(radiusEst * 0.30));
+      for (const [x, y] of pts) {
+        for (let dy = -rr2; dy <= rr2; dy++) for (let dx = -rr2; dx <= rr2; dx++) {
+          if (dx * dx + dy * dy > rr2 * rr2) continue;
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= src.cols || yy >= src.rows) continue;
+          sf[yy * src.cols + xx] = 255;
+        }
       }
     }
     cv.dilate(sureFg, sureFg, kernel, anchor, 1); // fatten point seeds
@@ -2836,6 +3019,19 @@ export function countPills(cv, source, opts = {}) {
       // Physical sanity: a pill's area can't be much less than pi*(half its
       // thickness)^2 — engraving fragments fail this and must not calibrate.
       const minPlausibleUnit = 0.6 * Math.PI * radiusEst * radiusEst;
+      // A FLOOR WITHOUT A CEILING IS HALF A GUARD. The crease cut on a dense
+      // raft yields a few huge merged fragments, and their median becomes the
+      // "unit": measured on the adversarial dense case (120 pills, R=13), this
+      // installed a unit of 9317px against a geometric 531px -- 17.5x too big
+      // -- so pixel mass read the whole 81264px board as 8.72 units and the
+      // panel never had a chance. The raft-unit rescue had already set 531
+      // correctly two stages earlier; this line silently undid it.
+      //
+      // radiusEst is the autocorrelation pitch here, independent of the mask,
+      // so it bounds both directions. A real pill cannot be several times the
+      // area its own measured radius implies. Generous at 3x so genuinely
+      // elongated caplets (whose area exceeds a circle of their half-width)
+      // are untouched -- the case this bites is an order of magnitude out.
       if (pieces.length >= blobList.length * 2 && unit2 >= Math.max(absFloor, minPlausibleUnit)) unit = unit2;
       opts.debug?.({ stage: 'mass', blobs: blobList.length, unit, pieces: pieces.length, unit2 });
 
@@ -3005,6 +3201,27 @@ export function countPills(cv, source, opts = {}) {
       }
       let unit = estimateUnitArea(calList.map((l) => blobAreas[l]));
 
+      // FUSED-RAFT UNIT RESCUE. estimateUnitArea reads the median BLOB AREA,
+      // which is the right answer only when most blobs are single pills. On a
+      // photo that is one fully-fused raft there is exactly one blob, so the
+      // "median pill" IS the whole raft and massR comes out 1.00: a 19-pill
+      // hex raft was read as a single 120px pill and returned count=1.
+      //
+      // The autocorrelation scale above does not depend on the blob count — it
+      // measures the repeating pitch in the photo — so when it disagrees with
+      // the area-derived unit by more than 2x, believe the geometry. Guarded
+      // to that gross disagreement so healthy photos, where the two already
+      // agree, are untouched.
+      if (opts.acScale !== false && radiusEst > 0) {
+        const geomUnit = Math.PI * radiusEst * radiusEst;
+        if (unit > geomUnit * 2) {
+          opts.debug?.({ stage: 'raft-unit', from: Math.round(unit),
+            to: Math.round(geomUnit), radiusEst: +radiusEst.toFixed(1),
+            blobs: calList.length });
+          unit = geomUnit;
+        }
+      }
+
       // Crease-cut pieces: unit recalibration AND panel method 3's evidence.
       const cutM = track(new cv.Mat());
       bw.copyTo(cutM);
@@ -3024,7 +3241,24 @@ export function countPills(cv, source, opts = {}) {
       const pieces = [...pieceStats.values()].filter((p) => p.area >= absFloor);
       const unit2 = estimateUnitArea(pieces.map((p) => p.area));
       const minPlausibleUnit = 0.6 * Math.PI * radiusEst * radiusEst;
-      if (pieces.length >= blobList.length * 2 && unit2 >= Math.max(absFloor, minPlausibleUnit)) unit = unit2;
+      // A FLOOR WITHOUT A CEILING IS HALF A GUARD. The crease cut on a dense
+      // raft yields a handful of huge merged fragments, and their median
+      // becomes the "unit": measured on the adversarial dense case (120 pills
+      // of R=13), 3 pieces produced a unit of 9317px against a geometric
+      // 531px -- 17.5x too big -- so pixel mass read the whole 81264px board
+      // as 8.72 units. The raft-unit rescue had already set 531 correctly two
+      // stages earlier and this line silently undid it.
+      //
+      // radiusEst is the autocorrelation pitch, independent of the mask, so
+      // it bounds both directions. Generous at 3x: an elongated caplet covers
+      // more than a circle of its half-width, and the case this catches is an
+      // order of magnitude out, not a borderline one.
+      const maxPlausibleUnit2 = radiusEst > 0 ? 3 * Math.PI * radiusEst * radiusEst : Infinity;
+      if (pieces.length >= blobList.length * 2 && unit2 >= Math.max(absFloor, minPlausibleUnit)) {
+        if (unit2 <= maxPlausibleUnit2) unit = unit2;
+        else opts.debug?.({ stage: 'unit2-refused', proposed: +unit2.toFixed(0),
+          cap: +maxPlausibleUnit2.toFixed(0), pieces: pieces.length, kept: +unit.toFixed(0) });
+      }
       const unitOk = unit >= absFloor;
 
       // -- Length calibration (on-edge-proof; see estimateUnitLength). --
@@ -3941,7 +4175,21 @@ export function countPills(cv, source, opts = {}) {
           // px. When crease-cut or erosion answers "1" for a blob far beyond
           // that, they did not measure one pill — they hit their documented
           // failure mode (invisible seams / no separating neck). Abstain.
-          const singleable = blobAreas[l] <= 4 * Math.PI * peaks[l] * peaks[l];
+          //
+          // THE PEAK MUST NOT CERTIFY ITS OWN BLOB. This bound scales as
+          // peak^2, and a fused raft inflates its own peak to the raft's
+          // inradius — so the blob defines the very yardstick that decides
+          // whether it is one pill. Measured on the adversarial hex raft:
+          // peak 53.2 on 13px pills put the bound at 35566 px, so an 11163 px
+          // 19-pill raft read "singleable" and crease/ero were admitted at 1,
+          // out-voting a correct ws:19 and mass:21.
+          //
+          // radiusEst comes from the photo's autocorrelation pitch, not from
+          // the blob, so it is immune (the same reasoning as the lensingle
+          // veto below). When it says the blob is several pills wide, no
+          // abstention-waiver is owed to the seam-reading methods.
+          const singleable = blobAreas[l] <= 4 * Math.PI * peaks[l] * peaks[l]
+            && !(radiusEst > 0 && blobAreas[l] > 4 * Math.PI * radiusEst * radiusEst);
 
           // Length veto on the mass vote. A blob no longer than one pill
           // cannot contain two of them end to end, whatever its area says.
@@ -3964,7 +4212,23 @@ export function countPills(cv, source, opts = {}) {
           // true for it and the on-edge protection this veto exists for is
           // preserved exactly.
           const widthSingle = !(unitMinor > 0) || minL <= 0 || minL <= 1.35 * unitMinor;
-          const lenSingle = unitLen > 0 && majL > 0 && majL <= 1.35 * unitLen && widthSingle;
+          let lenSingle = unitLen > 0 && majL > 0 && majL <= 1.35 * unitLen && widthSingle;
+          // A fused raft defeats the length veto by defining the very scale it
+          // is measured against: with one blob in the photo, unitLen IS the
+          // raft's own length, so a 19-pill hex disc reads majL 120 <= 1.35 *
+          // unitLen and mass is forced to vote 1. Measured on the adversarial
+          // suite, that veto is what held the count at 1 even after the seeding
+          // was fixed — the watershed voted 19, mass/crease/ero all voted 1 on
+          // this reasoning, and the panel went with the majority.
+          //
+          // The autocorrelation radius is derived from the photo's repeating
+          // pitch, not from the blob, so it is immune. If the blob is many
+          // pill-diameters long it is not one pill, whatever unitLen says.
+          if (lenSingle && radiusEst > 0 && majL > 3 * radiusEst) {
+            opts.debug?.({ stage: 'lensingle-veto', blob: l, majL: +majL.toFixed(1),
+              unitLen: +unitLen.toFixed(1), radiusEst: +radiusEst.toFixed(1) });
+            lenSingle = false;
+          }
           // Round-up on a heavy fraction the BASELINE already claims. Plain
           // rounding throws away real evidence at the .3-.5 band: a clump
           // holding one flat pill plus one lying ON EDGE measures ~k+0.4
@@ -5092,12 +5356,32 @@ export function countPills(cv, source, opts = {}) {
         // pills whatever the fragment median says. Raise the cap to admit
         // them, but only in that unanimous case — a mixed scene, where some
         // pills do match the median, keeps the original clump protection.
+        //
+        // A FUSED RAFT IS ALSO ONE SMOOTH CONTOUR. The unanimity test cannot
+        // tell "the median is a shattered fragment" from "the whole photo is
+        // one tangent raft" — both present every smooth contour above the
+        // cap. Raising the cap in the second case merges the entire raft into
+        // a single pill. Measured on the adversarial hex raft: one 10967 px
+        // contour lifted the cap to 16449 and 19 correct regions consolidated
+        // to 1.
+        //
+        // radiusEst is the autocorrelation pitch, independent of any contour,
+        // so it can referee: a contour holding many pill-areas is a clump
+        // however smooth its outline. Only blocks the RAISE — the original
+        // fragment rescue is untouched whenever the contour really is
+        // pill-sized.
         if (cid && medRegion) {
           const smoothAreas = ells.slice(1).map((e) => e.area);
+          const pillArea = radiusEst > 0 ? Math.PI * radiusEst * radiusEst : 0;
           if (smoothAreas.length && smoothAreas.every((a) => a > maxPill)) {
             const medSmooth = median(smoothAreas);
-            maxPill = medSmooth * 1.5;
-            opts.debug?.({ stage: 'consolidate-cap', from: medRegion * 3, to: maxPill, contours: smoothAreas.length });
+            if (pillArea > 0 && medSmooth > 3 * pillArea) {
+              opts.debug?.({ stage: 'consolidate-cap-refused', med: +medSmooth.toFixed(0),
+                pillArea: +pillArea.toFixed(0), ratio: +(medSmooth / pillArea).toFixed(1) });
+            } else {
+              maxPill = medSmooth * 1.5;
+              opts.debug?.({ stage: 'consolidate-cap', from: medRegion * 3, to: maxPill, contours: smoothAreas.length });
+            }
           }
         }
 
@@ -5498,6 +5782,12 @@ export function countPills(cv, source, opts = {}) {
             noAnchor: routedRegs.length ? new Set(routedRegs) : null,
             raiseOnly: routedRegs.length ? new Set(routedRegs) : null,
             unownedSeeds,
+            // Independent scale. The stamp's own radiusEst is the median blob
+            // DT peak, which is NOT contact-independent on a fused raft: one
+            // blob means the raft's own inradius becomes the pill radius.
+            // radiusEst here carries the autocorrelation pitch, measured from
+            // the photo's repeating structure rather than from any blob.
+            pitchR: radiusEst,
             debug: opts.debug,
             mqProbe: opts.mqProbe,   // offline match-quality validation hook only
           });
@@ -6673,6 +6963,165 @@ export function countPills(cv, source, opts = {}) {
       if (pairsFixed && regions.__refinePoses) regions.__refinePoses();
       delete regions.__refinePoses;
 
+      // ---- DEEP CLUSTER RESOLUTION -------------------------------------
+      // The relaxation above can only MOVE pills, one at a time, each
+      // accepting only moves that do not deepen its own penetration. Several
+      // pills crossing what is really ONE pill at another angle is therefore
+      // STABLE: no single pill improves by moving. Escaping needs DELETE and
+      // MERGE, which are set-level moves. See js/cluster.js.
+      //
+      // Measured baseline before this existed: 197 overlapping pairs, 59
+      // duplicates, worst penetration 85.1px, over 59 of 219 images.
+      //
+      // Defined here but RUN LAST (see the call site): invalid-placement
+      // recovery and the photo-grounded fit gate both re-pose pills without
+      // any overlap check, so a law enforced here would simply be undone.
+      const drawnDims = (() => {
+        // The SAME template the probe exports and the geometry gate audits.
+        // An unfiltered median gave 27.6 against the audited 27.1, so the
+        // solver cleared its own idea of overlap and left the gate's intact.
+        const s2 = regions.filter((g2) => (g2.units || 1) === 1 && g2.shape
+          && g2.shape.residual <= 0.12);
+        const all = regions.filter((g2) => g2.shape);
+        const mj = median(s2.map((g2) => g2.shape.major))
+          || median(all.map((g2) => g2.shape.major)) || 40;
+        const mn = median(s2.map((g2) => g2.shape.minor))
+          || median(all.map((g2) => g2.shape.minor)) || 18;
+        return { maj: +mj.toFixed(1), min: +mn.toFixed(1) };
+      })();
+      const asCap = (P) => ({ cx: P.cx, cy: P.cy, th: P.theta || 0,
+        maj: drawnDims.maj, min: drawnDims.min });
+      const penAt = (A, B) => clusterPen(asCap(A), asCap(B));
+
+      regions.__runClusterSolve = () => {
+        if (opts.clusterSolve === false) return;
+        // Every DRAWN placement is a node, in both forms the probe exports:
+        // multi-pill regions carry g.pills, single-pill regions only g.shape.
+        // Single-pill regions and stamp poses are ANCHORS -- obstacles in the
+        // collision graph, never moved or deleted, as the rigid-body pass
+        // already treats them.
+        const nodes = [];
+        for (const g of regions) {
+          if (g.pills && g.pills.length) {
+            for (const p2 of g.pills) nodes.push({ p: p2, g, fixed: !!g.stamp });
+          } else if ((g.units || 1) === 1 && g.shape && g.shape.minor > 0) {
+            nodes.push({ p: { cx: g.cx, cy: g.cy, theta: g.shape.theta || 0,
+              major: g.shape.major, minor: g.shape.minor }, g, fixed: true });
+          }
+        }
+        if (nodes.length < 2) return;
+        // CLUSTERS COME FROM THE COLLISION GRAPH, NOT REGION MEMBERSHIP:
+        // pills interpenetrate across region boundaries and a per-region loop
+        // is blind to exactly those pairs.
+        const parent = nodes.map((_, i) => i);
+        const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const A = nodes[i].p, B = nodes[j].p;
+            if (!(A.minor > 0) || !(B.minor > 0)) continue;
+            if (penAt(A, B) > 0.75) {
+              const ra = find(i), rb = find(j);
+              if (ra !== rb) parent[ra] = rb;
+            }
+          }
+        }
+        const comps = new Map();
+        for (let i = 0; i < nodes.length; i++) {
+          const r0 = find(i);
+          if (!comps.has(r0)) comps.set(r0, []);
+          comps.get(r0).push(i);
+        }
+        let solved = 0, candidates = 0;
+        for (const idxs of comps.values()) {
+          if (idxs.length < 2) continue;
+          if (!idxs.some((k) => !nodes[k].fixed)) continue;   // nothing may move
+          candidates++;
+          const inSet = new Set(idxs);
+          const members = idxs.map((k) => nodes[k]);
+          const pills = members.map((m) => m.p);
+          const pad = drawnDims.maj + 4;
+          let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+          for (const p2 of pills) {
+            if (p2.cx - pad < bx0) bx0 = p2.cx - pad;
+            if (p2.cy - pad < by0) by0 = p2.cy - pad;
+            if (p2.cx + pad > bx1) bx1 = p2.cx + pad;
+            if (p2.cy + pad > by1) by1 = p2.cy + pad;
+          }
+          const box = { x0: Math.max(0, Math.floor(bx0)), y0: Math.max(0, Math.floor(by0)),
+            x1: Math.min(w - 1, Math.ceil(bx1)), y1: Math.min(h - 1, Math.ceil(by1)) };
+          if (box.x1 <= box.x0 || box.y1 <= box.y0) continue;
+          const area = (box.x1 - box.x0) * (box.y1 - box.y0);
+          const st = area > 40000 ? 3 : area > 12000 ? 2 : 1;
+          // Pills OUTSIDE this cluster are still solid. Without them the
+          // solver clears its own cluster by shoving pills into neighbours it
+          // cannot see -- measured on s261, both clusters reported 0 internal
+          // overlap while the photo-wide count stayed at 5.
+          const obstacles = [];
+          for (let k = 0; k < nodes.length; k++) {
+            if (inSet.has(k)) continue;
+            const q = nodes[k].p;
+            if (!(q.minor > 0)) continue;
+            if (q.cx < box.x0 - pad || q.cx > box.x1 + pad) continue;
+            if (q.cy < box.y0 - pad || q.cy > box.y1 + pad) continue;
+            obstacles.push(asCap(q));
+          }
+          // Solve at the DRAWN size, so the arrangement certified legal is the
+          // arrangement the user is actually shown.
+          const r = solveCluster(
+            pills.map((p2) => ({ cx: p2.cx, cy: p2.cy, th: p2.theta || 0,
+              maj: drawnDims.maj, min: drawnDims.min })),
+            activeMd, w, h, box, { rounds: 3, step: st, obstacles });
+          if (!r.pills.length) continue;
+          if (r.worstOverlap > 0.75) continue;      // accept only a LEGAL result
+          if (r.pills.length > pills.length) continue;   // never invents pills
+          // GEOMETRY ONLY -- THE SOLVER MAY NOT CHANGE THE COUNT.
+          // Running this late, after the panel, the stamp arbiter and the fit
+          // gate have all had their say, a deletion here cannot be verified
+          // against any of the evidence those stages used. Measured on
+          // synth2-cw-light-normal-n60-t25-s300: the solver dropped 2 pills
+          // from a photo that was CLEAN in the baseline, leaving 58
+          // placements behind a count of 60 -- and because the count is
+          // settled elsewhere, the decrement did not even take. The image
+          // went from 0 overlapping pairs to 9.
+          //
+          // Deleting a phantom is the right move when the evidence supports
+          // it (and the solver does it correctly in isolation -- see
+          // tools/cluster-test.mjs CROSSED-PHANTOMS and STACKED). It is not
+          // the right move from here. Re-posing is: a pill moved out of its
+          // neighbour is the same pill, so the count is untouched by
+          // construction and the arrangement becomes physically possible.
+          if (r.pills.length !== pills.length) continue;
+          // Assign each survivor to the region its nearest original came from:
+          // a cluster spans several regions and the result order carries no
+          // ownership, so index-matching scrambles them.
+          const taken = new Set();
+          const keepFor = new Map();
+          for (const np of r.pills) {
+            let bi = -1, bd = Infinity;
+            for (let n = 0; n < members.length; n++) {
+              if (taken.has(n)) continue;
+              const d = Math.hypot(np.cx - members[n].p.cx, np.cy - members[n].p.cy);
+              if (d < bd) { bd = d; bi = n; }
+            }
+            if (bi < 0) bi = 0; else taken.add(bi);
+            const owner = members[bi].g;
+            if (!keepFor.has(owner)) keepFor.set(owner, []);
+            keepFor.get(owner).push({ cx: np.cx, cy: np.cy, theta: np.th,
+              major: np.maj, minor: np.min });
+          }
+          for (const g2 of new Set(members.map((m) => m.g))) {
+            if (!g2.pills) continue;
+            const mine = new Set(members.filter((m) => m.g === g2).map((m) => m.p));
+            g2.pills = g2.pills.filter((p2) => !mine.has(p2)).concat(keepFor.get(g2) || []);
+            g2.units = g2.pills.length || 1;
+          }
+          solved++;
+        }
+        if (solved) {
+          opts.debug?.({ stage: 'clustersolve', clusters: solved, candidates });
+        }
+      };
+
       // INVALID-PLACEMENT RECOVERY. When a blob's count is short, one
       // placement has no pill of its own; collision resolution tends to
       // evict it onto bare board, where it draws as a runaway lasso over
@@ -7078,6 +7527,13 @@ export function countPills(cv, source, opts = {}) {
     // For the interactive stamp tester (/pill/stamp): the exact shape and
     // the exact surface the counter used, so what the user probes is what
     // the algorithm sees — not a lookalike.
+    // ENFORCE THE PHYSICAL LAW LAST. Invalid-placement recovery relocates a
+    // stranded claim on background fraction alone (it checks co-location but
+    // not interpenetration) and the fit gate re-poses for match quality --
+    // measured on s261, running the solver before them left 0 overlapping
+    // pairs and those two stages put 3 back at 19.1px.
+    if (regions.__runClusterSolve) { regions.__runClusterSolve(); delete regions.__runClusterSolve; }
+
     if (opts.exportProbe) {
       // Self-contained: the probe must NOT depend on the template card
       // (that card only builds when opts.stages is set — the tester passes

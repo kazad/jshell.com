@@ -1,0 +1,43 @@
+{
+ "image": "testdata/adv/adv-lonely-dark-n8-s30-t100.png",
+ "size": [
+  1000,
+  750
+ ],
+ "method": "EXACT — emitted by tools/gen-adversarial.html (window.__centers)",
+ "count": 8,
+ "centers": [
+  [
+   140,
+   150
+  ],
+  [
+   380,
+   150
+  ],
+  [
+   620,
+   150
+  ],
+  [
+   860,
+   150
+  ],
+  [
+   140,
+   370
+  ],
+  [
+   380,
+   370
+  ],
+  [
+   620,
+   370
+  ],
+  [
+   860,
+   370
+  ]
+ ]
+}

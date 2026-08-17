@@ -802,7 +802,36 @@ export function stampArbitrate(cv, env) {
     }
 
     // contact-independent thickness witness
-    const radiusEst = med(blobs.filter((b) => b.peak >= MIN_PEAK).map((b) => b.peak));
+    let radiusEst = med(blobs.filter((b) => b.peak >= MIN_PEAK).map((b) => b.peak));
+    // ...except it is NOT contact-independent when the pills have fused into
+    // one raft: the median blob peak is then the raft's own inradius, and
+    // every scale downstream (MIN, the minVet cross-check, the separation
+    // rule) inherits the error together, so nothing catches it. Measured on
+    // the adversarial hex raft: peak 53.2 on 13px pills made MIN 105.3, and
+    // the physics veto then demanded 75.8px between pills sitting 26px apart
+    // -- 19 correct placements culled to 1.
+    //
+    // env.pitchR is the counter's autocorrelation pitch, read off the photo's
+    // repeating structure rather than any blob, so it survives fusion.
+    //
+    // SCOPED TO THE SINGLE-BLOB CASE, WHICH IS THE ONLY PROVABLE ONE. The
+    // median blob peak is self-referential precisely when there is nothing to
+    // take a median OVER: one blob means the raft measures itself. With
+    // several blobs the median is a real cross-blob statistic, and the peak
+    // remains the better local measurement even though clustering inflates
+    // it -- the pitch is a global average that under-reads a locally larger
+    // pill. Measured: a blanket >1.6x override cost 4 exact images on the
+    // approx set (t2-beige-round-cluster-black-1 90->52 at 5 blobs,
+    // -black-2 90->47 at 7, t2-salmon-pentagon-tablets-teal 90->88 at 8,
+    // t3-white-round-cluster-lightblue-1 70->72 at 1 blob but a pitch of 6.4
+    // that is itself wrong). So the override requires BOTH a single fused
+    // blob and a pitch that is plausibly a pill rather than noise.
+    const oneBlob = blobs.filter((b) => b.peak >= MIN_PEAK).length <= 1;
+    if (oneBlob && env.pitchR >= 8 && radiusEst > 0 && radiusEst > 1.6 * env.pitchR) {
+      debug?.({ stage: 'stamp-scale-override', from: +radiusEst.toFixed(1),
+        to: +env.pitchR.toFixed(1), blobs: blobs.length });
+      radiusEst = env.pitchR;
+    }
 
     // thickness-vetted single candidates
     const preCands = blobs.filter((b) => {
@@ -1771,9 +1800,26 @@ export function stampArbitrate(cv, env) {
       }
       return dmin;
     };
+    // AN ANCHOR'S OWN WIDTH IS NOT A PILL WIDTH WHEN THE ANCHOR IS A CLUMP.
+    // `need` below is derived from the two shapes' minor axes, so a fused
+    // raft — one anchor spanning the whole cluster — sets an exclusion radius
+    // of its own half-width and vetoes every genuine pill around it.
+    // Measured on the adversarial hex raft: the raft anchor's minor of ~120
+    // put need at 75.8px on pills whose true pitch is 26, so 19 correct
+    // placements were culled to 1.
+    //
+    // res.MIN is the TEMPLATE's width, learned from the stamp rather than
+    // from any single blob, so it is immune to a blob that swallowed its
+    // neighbours. Clamp the shape-derived width to it: a real pill's minor
+    // never materially exceeds the template it was learned from, so this is
+    // inert on every well-formed anchor and only bites on a clump.
+    const anchorMin = (g) => {
+      const m = (g.shape && g.shape.minor) || res.MIN;
+      return res.MIN > 0 ? Math.min(m, res.MIN) : m;
+    };
     const anchorsGeo = res.anchors.map((g) => ({
       x: g.cx, y: g.cy, th: (g.shape && g.shape.theta) || 0,
-      maj: (g.shape && g.shape.major) || res.MAJ, min: (g.shape && g.shape.minor) || res.MIN,
+      maj: (g.shape && g.shape.major) || res.MAJ, min: anchorMin(g),
       s: 9, anchor: true }));
     const all = anchorsGeo.concat(res.placed);
     const dead = new Set();

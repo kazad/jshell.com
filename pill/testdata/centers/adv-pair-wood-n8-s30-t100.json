@@ -1,0 +1,43 @@
+{
+ "image": "testdata/adv/adv-pair-wood-n8-s30-t100.png",
+ "size": [
+  1000,
+  750
+ ],
+ "method": "EXACT — emitted by tools/gen-adversarial.html (window.__centers)",
+ "count": 8,
+ "centers": [
+  [
+   105,
+   130
+  ],
+  [
+   135,
+   130
+  ],
+  [
+   342.5,
+   117
+  ],
+  [
+   357.5,
+   143
+  ],
+  [
+   587.5,
+   117
+  ],
+  [
+   572.5,
+   143
+  ],
+  [
+   825,
+   130
+  ],
+  [
+   795,
+   130
+  ]
+ ]
+}
