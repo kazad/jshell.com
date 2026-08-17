@@ -1,0 +1,267 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ValEye · algorithm lab</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!--
+  ALGORITHM PLAYGROUND. One panel per stage, each rendered from the SAME run,
+  so a disagreement between two stages is visible side by side rather than
+  inferred. Toggles re-run the whole pipeline live, so the effect of a switch
+  is a visual diff, not a number in a log.
+
+  Feedback is per-stage on purpose: "the mask is eating the rim" and "the
+  stamp is too small" are different bugs with different owners, and a single
+  thumbs-down on the final count cannot tell them apart.
+-->
+<style>
+:root{--bg:#0d0f13;--panel:#151922;--line:#222836;--ink:#e7e9ee;--dim:#8b93a7;--acc:#5b9dff;--ok:#5ad18c;--bad:#ff6b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif}
+header{padding:16px 22px;border-bottom:1px solid var(--line);display:flex;gap:18px;align-items:center;flex-wrap:wrap;position:sticky;top:0;background:var(--bg);z-index:10}
+h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+.sub{color:var(--dim);font-size:12px}
+select,button,input[type=file]{background:#1b2130;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 11px;font:inherit;font-size:13px}
+button{cursor:pointer} button:hover{border-color:var(--acc)}
+button.go{background:var(--acc);border-color:var(--acc);color:#06101f;font-weight:600}
+.toggles{display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:12px 22px;border-bottom:1px solid var(--line);background:#11151d}
+label.sw{display:flex;gap:7px;align-items:center;font-size:12px;color:var(--dim);cursor:pointer;user-select:none}
+label.sw input{accent-color:var(--acc);width:15px;height:15px}
+.status{padding:10px 22px;font-size:13px;color:var(--dim);border-bottom:1px solid var(--line)}
+.status b{color:var(--ink)} .status .ok{color:var(--ok)} .status .bad{color:var(--bad)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px;padding:18px 22px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.card h2{margin:0;padding:11px 13px;font-size:13px;font-weight:600;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.card h2 em{font-style:normal;color:var(--dim);font-weight:400;font-size:11px}
+.card .what{padding:9px 13px;font-size:11.5px;color:var(--dim);border-bottom:1px solid var(--line);line-height:1.45}
+.card canvas,.card img{width:100%;display:block;background:#000;cursor:crosshair}
+.fb{display:flex;gap:6px;padding:9px 13px;border-top:1px solid var(--line);align-items:center;flex-wrap:wrap}
+.fb button{padding:4px 9px;font-size:11.5px;border-radius:6px}
+.fb button.on{background:var(--acc);color:#06101f;border-color:var(--acc)}
+.fb button.bad.on{background:var(--bad);border-color:var(--bad);color:#1a0505}
+.fb input{flex:1;min-width:110px;background:#0f131b;border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px 8px;font:inherit;font-size:11.5px}
+.trace{padding:18px 22px;border-top:1px solid var(--line)}
+.trace h2{font-size:13px;margin:0 0 10px}
+pre{background:#0f131b;border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;max-height:320px;font-size:11px;line-height:1.5;margin:0}
+.zoom{position:fixed;inset:0;background:rgba(4,6,10,.93);display:none;align-items:center;justify-content:center;z-index:50;padding:24px}
+.zoom.on{display:flex} .zoom img{max-width:100%;max-height:100%;image-rendering:pixelated;border-radius:10px}
+#out{padding:14px 22px;border-top:1px solid var(--line)}
+textarea{width:100%;min-height:120px;background:#0f131b;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:11px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+</style>
+
+<header>
+  <h1>Algorithm lab</h1>
+  <span class=sub>every stage of one run, side by side</span>
+  <select id=img></select>
+  <input type=file id=file accept="image/*">
+  <button class=go id=run>Run</button>
+  <button id=copy>Copy feedback</button>
+</header>
+
+<div class=toggles id=toggles></div>
+<div class=status id=status>pick an image and press Run</div>
+<div class=grid id=grid></div>
+
+<div class=trace>
+  <h2>Debug trace <em style="color:var(--dim);font-weight:400">— every stage decision, in order</em></h2>
+  <pre id=trace>—</pre>
+</div>
+
+<div id=out>
+  <h2 style="font-size:13px;margin:0 0 8px">Your feedback</h2>
+  <textarea id=fbout placeholder="Mark stages good/bad above; the report collects here."></textarea>
+</div>
+
+<div class=zoom id=zoom><img id=zoomimg></div>
+
+<script type="module">
+import { loadCV, countPills, drawOverlay } from './js/counter.js';
+
+// Each stage, with what it MEANS — so feedback can name the right thing.
+const STAGES = [
+  ['input',        'the photo as the pipeline sees it (downscaled to maxDim)'],
+  ['bgcolor',      'estimated background colour (a swatch, not an image — blank is normal)'],
+  ['mask-otsu',    'raw threshold — before any cleaning. Too greedy or too shy?'],
+  ['mask-final',   'the mask actually used. Compare to otsu: what did cleaning eat?'],
+  ['pre-dist',     'mask fed to the distance transform after morphology'],
+  ['disttransform','distance to nearest background. Ridges = pill centres.'],
+  ['markers',      'watershed seeds — one blob per seed is the goal'],
+  ['template',     'the learned pill stamp. Should be ONE real pill, at true size.'],
+  ['matchmap',     'where the stamp fits. Bright = good fit.'],
+  ['geometry',     'fitted outlines'],
+  ['mask-used',    'mask the stamp arbitration ran on (only emitted when the stamp fires)'],
+];
+
+const TOGGLES = [
+  ['acScale',      true,  'autocorrelation scale (photo pitch instead of blob thickness)'],
+  ['clusterSolve', true,  'deep cluster solver (delete/merge/separate, no overlap)'],
+  ['stamp',        true,  'stamp arbitration'],
+];
+
+const $ = (s) => document.querySelector(s);
+const grid = $('#grid'), statusEl = $('#status');
+let cv = null, feedback = {};
+
+// toggles
+$('#toggles').innerHTML = TOGGLES.map(([k, d, t]) =>
+  `<label class=sw title="${t}"><input type=checkbox id="t_${k}" ${d ? 'checked' : ''}>${k}</label>`).join('')
+  + `<label class=sw title="longest side in px; smaller = faster, coarser">maxDim
+       <select id=t_maxDim><option>640</option><option selected>1280</option><option>1920</option></select></label>`
+  + `<label class=sw title="how the panel combines its witnesses">combiner
+       <select id=t_combiner><option selected>A</option><option>B</option><option>C</option></select></label>`;
+
+// image list
+// The corpus is spread over per-directory manifests; the root one holds only
+// the synthetics. Loading just the root is the same trap that once made the
+// parallel bake silently skip 34 images while printing a healthy total.
+const DIRS = ['', 'adv/', 'approx/', 'backtest/', 'bgsweep/', 'glare/', 'lined/',
+  'onedge/', 'perspective/', 'piles/', 'real/', 'real19/', 'real19b/', 'shiny/'];
+let EXPECTED = {};
+Promise.all(DIRS.map((d) => fetch(`testdata/${d}expected.json`)
+  .then((r) => (r.ok ? r.json() : {}))
+  .then((j) => Object.fromEntries(Object.entries(j).map(([k, v]) => [k.includes('/') ? k : d + k, v])))
+  .catch(() => ({}))))
+  .then((all) => {
+    EXPECTED = Object.assign({}, ...all);
+    const names = Object.keys(EXPECTED).sort();
+    $('#img').innerHTML = names.map((n) => `<option value="${n}">${n} (${EXPECTED[n]})</option>`).join('');
+    statusEl.textContent = `${names.length} images loaded — pick one and press Run`;
+    // ?img=real/r-7ff7fd99.jpg auto-runs, so a finding is a link you can send.
+    const want = new URLSearchParams(location.search).get('img');
+    if (want && EXPECTED[want] !== undefined) { $('#img').value = want; $('#run').click(); }
+  });
+
+let localFile = null;
+$('#file').onchange = (e) => { localFile = e.target.files[0] || null; if (localFile) $('#run').click(); };
+
+$('#zoom').onclick = () => $('#zoom').classList.remove('on');
+
+function card(name, why) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML = `<h2>${name}<em id="m_${name}"></em></h2>
+    <div class=what>${why}</div>
+    <canvas id="c_${name}"></canvas>
+    <div class=fb>
+      <button data-v=good data-s="${name}">good</button>
+      <button class=bad data-v=bad data-s="${name}">bad</button>
+      <input placeholder="what's wrong with this stage?" data-n="${name}">
+    </div>`;
+  grid.appendChild(el);
+  el.querySelector(`#c_${name}`).onclick = () => {
+    const c = el.querySelector(`#c_${name}`);
+    $('#zoomimg').src = c.toDataURL(); $('#zoom').classList.add('on');
+  };
+  return el;
+}
+
+grid.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-v]');
+  if (!b) return;
+  const s = b.dataset.s;
+  feedback[s] = feedback[s] || {};
+  feedback[s].verdict = feedback[s].verdict === b.dataset.v ? null : b.dataset.v;
+  b.parentElement.querySelectorAll('button[data-v]').forEach((x) => x.classList.remove('on'));
+  if (feedback[s].verdict) b.classList.add('on');
+  render();
+});
+grid.addEventListener('input', (e) => {
+  if (!e.target.dataset.n) return;
+  const s = e.target.dataset.n;
+  feedback[s] = feedback[s] || {};
+  feedback[s].note = e.target.value;
+  render();
+});
+function render() {
+  const lines = [];
+  for (const [k, v] of Object.entries(feedback)) {
+    if (!v.verdict && !v.note) continue;
+    lines.push(`${v.verdict === 'bad' ? '✗' : v.verdict === 'good' ? '✓' : '·'} ${k}${v.note ? ' — ' + v.note : ''}`);
+  }
+  $('#fbout').value = (lastMeta ? `image: ${lastMeta}\n\n` : '') + lines.join('\n');
+}
+$('#copy').onclick = () => { $('#fbout').select(); document.execCommand('copy'); };
+
+let lastMeta = '';
+
+async function decodeToImageData(src) {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = src; });
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  c.getContext('2d').drawImage(img, 0, 0);
+  return c.getContext('2d').getImageData(0, 0, c.width, c.height);
+}
+
+$('#run').onclick = async () => {
+  statusEl.textContent = 'loading OpenCV…';
+  try { cv = cv || await loadCV('vendor/opencv.js'); }
+  catch (e) { statusEl.innerHTML = `<span class=bad>OpenCV failed: ${e.message}</span>`; return; }
+
+  let imgData, label;
+  if (localFile) {
+    imgData = await decodeToImageData(URL.createObjectURL(localFile));
+    label = localFile.name;
+  } else {
+    label = $('#img').value;
+    if (!label) { statusEl.textContent = 'pick an image'; return; }
+    imgData = await decodeToImageData('testdata/' + label);
+  }
+  lastMeta = label;
+
+  grid.innerHTML = '';
+  const cards = {};
+  for (const [n, why] of STAGES) cards[n] = card(n, why);
+
+  const stages = {}, trace = [];
+  const opts = {
+    maxDim: +$('#t_maxDim').value,
+    variant: 'consensus',
+    combiner: $('#t_combiner').value,
+    exportProbe: true,
+    debug: (e) => trace.push(e),
+    stages: (k, v) => { stages[k] = v; },
+  };
+  for (const [k] of TOGGLES) if (!$(`#t_${k}`).checked) opts[k] = false;
+
+  statusEl.textContent = 'counting…';
+  await new Promise((r) => setTimeout(r, 20));
+  const t0 = performance.now();
+  let res;
+  try { res = countPills(cv, imgData, opts); }
+  catch (e) { statusEl.innerHTML = `<span class=bad>${e.message}</span>`; console.error(e); return; }
+  const ms = Math.round(performance.now() - t0);
+
+  for (const [n] of STAGES) {
+    const v = stages[n];
+    const c = cards[n].querySelector('canvas');
+    const meta = cards[n].querySelector('em');
+    if (!v || !v.data) {
+      c.height = 30; meta.textContent = 'not emitted this run';
+      const w2 = cards[n].querySelector('.what');
+      if (n === 'mask-used') w2.innerHTML += ' <b style="color:#5b9dff">— the stamp did not fire here</b>';
+      continue;
+    }
+    c.width = v.width; c.height = v.height;
+    c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(v.data), v.width, v.height), 0, 0);
+    meta.textContent = `${v.width}×${v.height}`;
+  }
+
+  // overlay card, drawn last so it sits at the end
+  const ov = card('overlay', 'final placements over the photo — what the user sees');
+  const oc = ov.querySelector('canvas');
+  oc.width = imgData.width; oc.height = imgData.height;
+  const octx = oc.getContext('2d');
+  octx.putImageData(imgData, 0, 0);
+  try { drawOverlay(oc, res, { clear: false }); } catch (e) { /* overlay is best-effort */ }
+
+  const exp = EXPECTED[label];
+  const okCls = exp === undefined ? '' : res.count === exp ? 'ok' : 'bad';
+  statusEl.innerHTML = `<b>${label}</b> — counted <b class="${okCls}">${res.count}</b>`
+    + (exp !== undefined ? ` / expected <b>${exp}</b>` : '')
+    + ` · ${ms}ms · confidence ${(res.confidence ?? 0).toFixed(2)}`
+    + ` · ${trace.length} trace events`;
+
+  $('#trace').textContent = trace.map((e) => JSON.stringify(e)).join('\n') || '—';
+  render();
+};
+</script>

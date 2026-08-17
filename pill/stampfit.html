@@ -1,0 +1,251 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ValEye · stamp fit explorer</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!--
+  HOW THE STAMP MATCHER SEES THE PHOTO.
+  Left: click anywhere to drop the stamp there; it then SETTLES -- a local
+  search over position and angle, exactly the "raindrop rolling to where it
+  fits" idea. The readout shows every component of the score, so a bad match
+  can be blamed on the right term.
+  Right: the fit surface for the whole photo at the best angle -- bright means
+  "a pill could sit here". Ridges that do not correspond to pills are how
+  phantom placements get born.
+-->
+<style>
+:root{--bg:#0d0f13;--panel:#151922;--line:#222836;--ink:#e7e9ee;--dim:#8b93a7;--acc:#5b9dff;--ok:#5ad18c;--bad:#ff6b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 ui-sans-serif,system-ui,sans-serif}
+header{padding:15px 22px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+h1{font-size:16px;margin:0;font-weight:600}
+.sub{color:var(--dim);font-size:12px}
+select,button{background:#1b2130;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 11px;font:inherit;font-size:13px}
+button{cursor:pointer} button.go{background:var(--acc);border-color:var(--acc);color:#06101f;font-weight:600}
+.wrap{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:18px 22px}
+@media(max-width:1000px){.wrap{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.card h2{margin:0;padding:11px 13px;font-size:13px;border-bottom:1px solid var(--line);font-weight:600}
+.card .what{padding:9px 13px;font-size:11.5px;color:var(--dim);border-bottom:1px solid var(--line)}
+canvas{width:100%;display:block;background:#000;cursor:crosshair}
+.read{padding:12px 22px;display:flex;gap:22px;flex-wrap:wrap;font-size:12.5px;border-top:1px solid var(--line)}
+.read div{min-width:92px}
+.read b{display:block;color:var(--dim);font-size:11px;font-weight:500;margin-bottom:2px}
+.read span{font-size:15px;font-variant-numeric:tabular-nums}
+.hi{color:var(--ok)} .lo{color:var(--bad)}
+.status{padding:10px 22px;color:var(--dim);font-size:13px}
+</style>
+<header>
+  <h1>Stamp fit explorer</h1><span class=sub>click the photo to drop the stamp — it settles into the best nearby pose</span>
+  <select id=img></select><button class=go id=run>Load</button>
+  <label class=sub><input type=checkbox id=settle checked> settle on drop</label>
+  <button id=audit title="which placements are trapped in a local minimum?">Audit poses</button>
+</header>
+<div class=status id=status>pick an image</div>
+<div class=wrap>
+  <div class=card><h2>Photo — click to place</h2>
+    <div class=what>green = the settled stamp outline · the cross is where you clicked</div>
+    <canvas id=main></canvas></div>
+  <div class=card><h2>Fit surface</h2>
+    <div class=what>best score over all angles at every pixel — bright means a pill could sit here.
+      On r-7ff7fd99 a real pill reads q 0.80 (coverage 0.74) against bare board at 0.53 (coverage 0),
+      a clean separation. (An earlier build of this page fed the matcher probe.clean — the watershed
+      LABEL map, ~98% non-zero — instead of probe.surf, which made coverage 1.0 everywhere and the
+      surface render inverted. The bug was in this tool, not the matcher.)</div>
+    <canvas id=heat></canvas></div>
+</div>
+<div class=read id=read></div>
+<script type="module">
+import { loadCV, countPills } from './js/counter.js';
+// the matcher primitives live in stamp.js, not counter.js -- importing them
+// from the wrong module fails the whole script silently (no options render)
+import { calibrateMatch, matchQuality, buildSeamMask } from './js/stamp.js';
+const $=(s)=>document.querySelector(s);
+const DIRS=['','adv/','approx/','backtest/','bgsweep/','glare/','lined/','onedge/','perspective/','piles/','real/','real19/','real19b/','shiny/'];
+let EXPECTED={},cv=null,env=null,cal=null,TPL=null,imgData=null,lastInput=null;
+
+Promise.all(DIRS.map(d=>fetch(`testdata/${d}expected.json`).then(r=>r.ok?r.json():{})
+  .then(j=>Object.fromEntries(Object.entries(j).map(([k,v])=>[k.includes('/')?k:d+k,v]))).catch(()=>({}))))
+  .then(all=>{EXPECTED=Object.assign({},...all);
+    $('#img').innerHTML=Object.keys(EXPECTED).sort().map(n=>`<option>${n}</option>`).join('');
+    const w=new URLSearchParams(location.search).get('img');
+    if(w&&EXPECTED[w]!==undefined){$('#img').value=w;$('#run').click();}
+    else $('#status').textContent=`${Object.keys(EXPECTED).length} images — pick one and press Load`;});
+
+async function decode(src){const i=new Image();i.crossOrigin='anonymous';
+  await new Promise((a,b)=>{i.onload=a;i.onerror=b;i.src=src;});
+  const c=document.createElement('canvas');c.width=i.naturalWidth;c.height=i.naturalHeight;
+  c.getContext('2d').drawImage(i,0,0);return c.getContext('2d').getImageData(0,0,c.width,c.height);}
+
+$('#run').onclick=async()=>{
+  $('#status').textContent='loading…';
+  cv=cv||await loadCV('vendor/opencv.js');
+  const name=$('#img').value;
+  imgData=await decode('testdata/'+name);
+  const stages={},trace=[];
+  const res=countPills(cv,imgData,{maxDim:1280,variant:'consensus',exportProbe:true,
+    debug:e=>trace.push(e),stages:(k,v)=>{stages[k]=v;}});
+  const pr=res.probe; window.__pr=pr;
+  if(!pr){$('#status').textContent='no probe';return;}
+  TPL={maj:pr.maj,min:pr.min};
+  const W=pr.w,H=pr.h;
+  // rebuild the matcher environment the pipeline uses
+  const inp=stages['input'];
+  const luma=new Float32Array(W*H),rgb=new Uint8ClampedArray(W*H*4);
+  for(let i=0;i<W*H;i++){const o=i*4;
+    const r=inp.data[o],g=inp.data[o+1],b=inp.data[o+2];
+    luma[i]=0.299*r+0.587*g+0.114*b;rgb[o]=r;rgb[o+1]=g;rgb[o+2]=b;rgb[o+3]=255;}
+  // probe.clean is activeMd>0 -- the WATERSHED LABEL MAP, where every labelled
+  // region including background is non-zero, so it reads ~98% foreground and
+  // makes coverage 1.0 everywhere. probe.surf is the actual binary mask.
+  const fg=pr.surf;
+  env={w:W,h:H,fg,luma,dd:null,maj:TPL.maj,min:TPL.min,seam:null,kern:pr.kernel||null,
+    sampleRGB:(x,y)=>{const o=((y|0)*W+(x|0))*4;return [rgb[o],rgb[o+1],rgb[o+2]];}};
+  const pool=(pr.placements||[]).slice(0,40).map(([x,y,th])=>({cx:x,cy:y,shape:{theta:th||0,major:TPL.maj,minor:TPL.min}}));
+  try{env.seam=buildSeamMask(env,pool);}catch(e){}
+  try{cal=calibrateMatch(env,pool);}catch(e){cal=null;}
+  const mc=$('#main');mc.width=W;mc.height=H;
+  mc.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(inp.data),W,H),0,0);
+  lastInput=mc.getContext('2d').getImageData(0,0,W,H);
+  window.__audit=()=>{
+    // Replay the fit gate's own +-1px hill climb, then compare against an
+    // exhaustive box over the same neighbourhood. A large gap means the
+    // placement is trapped in a local minimum -- it cannot cross the dip.
+    const P=pr.placements||[], N=env.maj/env.min<1.4?1:12, rows=[];
+    for(const[x0,y0]of P){
+      let b={q:0,x:x0,y:y0,th:0};
+      for(let k=0;k<N;k++){const m=scoreAt(x0,y0,k*Math.PI/N);if(m&&m.q>b.q)b={q:m.q,x:x0,y:y0,th:k*Math.PI/N};}
+      for(let r=0;r<8;r++){let imp=false;
+        for(const[dx,dy,dth]of[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,Math.PI/48],[0,0,-Math.PI/48],[1,1,0],[-1,-1,0],[1,-1,0],[-1,1,0]]){
+          const m=scoreAt(b.x+dx,b.y+dy,b.th+dth);
+          if(m&&m.q>b.q){b={q:m.q,x:b.x+dx,y:b.y+dy,th:b.th+dth};imp=true;}}
+        if(!imp)break;}
+      let bx=0,bat=null;
+      for(let dx=-8;dx<=8;dx++)for(let dy=-8;dy<=8;dy++)for(let k=0;k<N;k++){
+        const m=scoreAt(x0+dx,y0+dy,k*Math.PI/N);
+        if(m&&m.q>bx){bx=m.q;bat=[dx,dy,Math.round(k*180/N)];}}
+      rows.push({xy:[Math.round(x0),Math.round(y0)],climb:+b.q.toFixed(3),box:+bx.toFixed(3),
+        gain:+(bx-b.q).toFixed(3),at:bat});
+    }
+    rows.sort((a,c)=>c.gain-a.gain);
+    return {stuck:rows.filter(r=>r.gain>0.05).length,n:rows.length,rows:rows.slice(0,8)};
+  };
+  $('#status').innerHTML=`<b>${name}</b> — counted ${res.count}/${EXPECTED[name]} · template ${TPL.maj.toFixed(1)}×${TPL.min.toFixed(1)}px · click the photo`;
+  drawHeat();
+};
+
+window.__score=(x,y,th)=>scoreAt(x,y,th);
+window.__fgAt=(x,y)=>env?env.fg[(y|0)*env.w+(x|0)]:null;
+window.__places=()=>window.__pr?window.__pr.placements:null;
+window.__fgFrac=()=>{if(!env)return null;let n=0;for(let i=0;i<env.fg.length;i++)if(env.fg[i])n++;
+  return +(n/env.fg.length).toFixed(3);};
+function scoreAt(x,y,th){
+  if(!cal)return null;
+  try{return matchQuality(env,{x,y,th,maj:TPL.maj,min:TPL.min},cal);}catch(e){return null;}
+}
+function settleAt(x0,y0){
+  let best=null;
+  const N=env.maj/env.min<1.4?1:12;
+  for(let k=0;k<N;k++){const th=k*Math.PI/N;
+    const m=scoreAt(x0,y0,th); if(m&&(!best||m.q>best.q))best={...m,x:x0,y:y0,th};}
+  if(!best)return null;
+  if(!$('#settle').checked)return best;
+  // local descent: position then angle, the "raindrop settling" step
+  for(let pass=0;pass<3;pass++){
+    const step=[4,2,1][pass],dth=[Math.PI/12,Math.PI/24,Math.PI/48][pass];
+    let moved=true,guard=0;
+    while(moved&&guard++<30){moved=false;
+      for(const[dx,dy,dt]of[[step,0,0],[-step,0,0],[0,step,0],[0,-step,0],[0,0,dth],[0,0,-dth]]){
+        const m=scoreAt(best.x+dx,best.y+dy,best.th+dt);
+        if(m&&m.q>best.q+1e-6){best={...m,x:best.x+dx,y:best.y+dy,th:best.th+dt};moved=true;}}}
+  }
+  return best;
+}
+
+$('#main').onclick=(e)=>{
+  if(!cal){$('#status').textContent='matcher not calibrated for this image';return;}
+  const c=$('#main'),r=c.getBoundingClientRect();
+  const x=Math.round((e.clientX-r.left)*c.width/r.width);
+  const y=Math.round((e.clientY-r.top)*c.height/r.height);
+  const b=settleAt(x,y);
+  const ctx=c.getContext('2d');
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(lastInput.data),c.width,c.height),0,0);
+  ctx.strokeStyle='#ff5b5b';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(x-7,y);ctx.lineTo(x+7,y);ctx.moveTo(x,y-7);ctx.lineTo(x,y+7);ctx.stroke();
+  if(!b){$('#read').innerHTML='<div><b>no score</b><span class=lo>—</span></div>';return;}
+  ctx.save();ctx.translate(b.x,b.y);ctx.rotate(b.th);
+  ctx.strokeStyle='#5ad18c';ctx.lineWidth=2;
+  const a=Math.max(0,(TPL.maj-TPL.min)/2),rr=TPL.min/2;
+  ctx.beginPath();
+  ctx.arc(-a,0,rr,Math.PI/2,-Math.PI/2);ctx.lineTo(a,-rr);
+  ctx.arc(a,0,rr,-Math.PI/2,Math.PI/2);ctx.closePath();ctx.stroke();
+  ctx.restore();
+  const f=(v)=>v==null?'—':(+v).toFixed(3);
+  const cls=(v,g)=>v==null?'':(v>=g?'hi':'lo');
+  $('#read').innerHTML=`
+   <div><b>q (overall)</b><span class="${cls(b.q,0.6)}">${f(b.q)}</span></div>
+   <div><b>moved</b><span>${Math.hypot(b.x-x,b.y-y).toFixed(1)}px</span></div>
+   <div><b>angle</b><span>${(b.th*180/Math.PI).toFixed(0)}°</span></div>
+   <div><b>edge</b><span class="${cls(b.edge,0.3)}">${f(b.edge)}</span></div>
+   <div><b>homogeneity</b><span class="${cls(b.homo,0.7)}">${f(b.homo)}</span></div>
+   <div><b>seam</b><span class="${cls(b.seam,0.7)}">${f(b.seam)}</span></div>
+   <div><b>orientation</b><span>${f(b.ori)}</span></div>
+   <div><b>colour</b><span>${f(b.col)}</span></div>
+   <div><b>coverage</b><span class="${cls(b.raw&&b.raw.cover,0.7)}">${f(b.raw&&b.raw.cover)}</span></div>
+   <div><b>edge median</b><span>${f(b.raw&&b.raw.edgeMed)}</span></div>`;
+};
+function drawHeat(){
+  if(!cal)return;
+  const W=env.w,H=env.h,c=$('#heat');c.width=W;c.height=H;
+  const im=new ImageData(W,H);
+  const step=Math.max(2,Math.round(env.min/6));
+  const N=env.maj/env.min<1.4?1:6;
+  const grid=new Float32Array(W*H);let mx=0,mn=Infinity;
+  for(let y=0;y<H;y+=step)for(let x=0;x<W;x+=step){
+    let best=0;
+    for(let k=0;k<N;k++){const m=scoreAt(x,y,k*Math.PI/N);if(m&&m.q>best)best=m.q;}
+    grid[y*W+x]=best;if(best>mx)mx=best;if(best<mn)mn=best;
+  }
+  // Stretch over the OBSERVED range. Measured on r-7ff7fd99 the whole photo
+  // spans q 0.52 (bare board) to 0.60 (on a pill) -- an 0.08 window -- so
+  // dividing by the max renders almost pure noise and reads as inverted.
+  const lo=mn,hi=Math.max(mn+1e-6,mx);
+  $('#status').innerHTML += ` · fit range ${lo.toFixed(3)}–${hi.toFixed(3)}`
+    + (hi-lo<0.15?' <b style="color:#ff6b6b">— matcher barely separates pill from board</b>':'');
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    // bilinear over the sample grid, so a cell's score does not paint its
+    // whole neighbourhood at full strength
+    const fx=x/step, fy=y/step;
+    const x0=Math.min(W-1,Math.floor(fx)*step), x1=Math.min(W-1,(Math.floor(fx)+1)*step);
+    const y0=Math.min(H-1,Math.floor(fy)*step), y1=Math.min(H-1,(Math.floor(fy)+1)*step);
+    const tx=(x-x0)/Math.max(1,x1-x0), ty=(y-y0)/Math.max(1,y1-y0);
+    const g00=grid[y0*W+x0],g10=grid[y0*W+x1],g01=grid[y1*W+x0],g11=grid[y1*W+x1];
+    const gv=g00*(1-tx)*(1-ty)+g10*tx*(1-ty)+g01*(1-tx)*ty+g11*tx*ty;
+    const v=Math.max(0,Math.min(1,(gv-lo)/(hi-lo))),o=(y*W+x)*4;
+    // dark navy -> teal -> amber -> white
+    const stops=[[12,16,34],[18,92,110],[64,170,140],[240,196,70],[255,255,235]];
+    const t=v*(stops.length-1), i0=Math.min(stops.length-2,Math.floor(t)), f=t-i0;
+    im.data[o]  =Math.round(stops[i0][0]+(stops[i0+1][0]-stops[i0][0])*f);
+    im.data[o+1]=Math.round(stops[i0][1]+(stops[i0+1][1]-stops[i0][1])*f);
+    im.data[o+2]=Math.round(stops[i0][2]+(stops[i0+1][2]-stops[i0][2])*f);
+    im.data[o+3]=255;
+  }
+  const hx=c.getContext('2d');
+  hx.putImageData(im,0,0);
+  // Draw the pipeline's OWN placements on top. The absolute colours are hard
+  // to judge (bare board sits mid-scale because each grid cell paints its
+  // neighbourhood), but "is there a bright ridge under each real placement,
+  // and a bright ridge with NO placement anywhere else" is easy to see -- and
+  // that second case is exactly how a phantom is born.
+  const P=(window.__pr&&window.__pr.placements)||[];
+  hx.strokeStyle='rgba(255,80,80,.95)';hx.lineWidth=1.5;
+  for(const[x,y]of P){hx.beginPath();hx.arc(x,y,Math.max(3,env.min/2),0,7);hx.stroke();}
+}
+document.querySelector('#audit').onclick=()=>{
+  if(!window.__audit){$('#status').textContent='load an image first';return;}
+  const a=window.__audit();
+  $('#read').innerHTML=`<div style="min-width:100%"><b>pose audit — ${a.stuck}/${a.n} placements have a better pose within 8px that the ±1px refiner cannot reach</b>
+    <div style="margin-top:6px;font-size:11.5px;color:var(--dim)">${
+      a.rows.map(r=>`(${r.xy[0]},${r.xy[1]}) q ${r.climb} → ${r.box} ${r.gain>0.05?'<span style="color:#ff6b6b">+'+r.gain+'</span>':''} ${r.at?'@ '+r.at[0]+','+r.at[1]+' '+r.at[2]+'°':''}`).join('<br>')
+    }</div></div>`;
+};
+</script>
