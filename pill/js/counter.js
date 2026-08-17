@@ -1126,6 +1126,7 @@ function suppressThinDarkLines(cv, src, debug) {
 // Pills are solid: any background component fully enclosed by foreground is
 // an artifact (specular highlight, engraving) — fill it.
 function fillHoles(cv, bw, debug) {
+  const md0 = bw.data.slice();          // foreground BEFORE any filling
   const inv = new cv.Mat();
   cv.bitwise_not(bw, inv);
   const lab = new cv.Mat();
@@ -1142,9 +1143,37 @@ function fillHoles(cv, bw, debug) {
     }
     debug({ stage: 'holes', n: sizes.size, sizes: [...sizes.values()].sort((a, b) => b - a).slice(0, 25) });
   }
+  // A COURTYARD IS NOT A HIGHLIGHT. This fills any enclosed background
+  // component, at any size -- but the things it exists to remove (specular
+  // highlights, engraved score lines) are a small fraction of ONE pill, while
+  // pills arranged in a closed loop enclose a hole that is a large fraction
+  // of ALL the pill material in the photo.
+  //
+  // Measured on the adversarial ring (12 pills of R=13 in a circle): the
+  // central courtyard is 4765px against 6122px of foreground -- 78% -- while
+  // the 12 genuine engraving holes are 68-91px, i.e. 1.5%. Filling the
+  // courtyard turned the donut into a solid disc of 11796px, so radiusEst
+  // read 54.6 instead of 13, no scale witness fired, and consolidate merged
+  // the whole ring into ONE pill. The separation between the two classes is
+  // 52x, so the bound does not need to be delicate.
+  //
+  // Scale-free on purpose: fillHoles runs before radiusEst exists, so the
+  // test is a fraction of the photo's own foreground rather than a pill size.
+  let fgCount = 0;
+  for (let i = 0; i < md0.length; i++) if (md0[i]) fgCount++;
+  const holeArea = new Map();
+  for (let i = 0; i < ll.length; i++) {
+    if (ll[i] && !touchesBorder[ll[i]]) holeArea.set(ll[i], (holeArea.get(ll[i]) || 0) + 1);
+  }
+  const tooBig = new Set();
+  for (const [id, a] of holeArea) if (fgCount > 0 && a > 0.25 * fgCount) tooBig.add(id);
+  if (tooBig.size) {
+    debug?.({ stage: 'holes-refused', n: tooBig.size, fg: fgCount,
+      sizes: [...tooBig].map((id) => holeArea.get(id)).sort((a, b) => b - a).slice(0, 5) });
+  }
   const md = bw.data;
   for (let i = 0; i < ll.length; i++) {
-    if (ll[i] && !touchesBorder[ll[i]]) md[i] = 255;
+    if (ll[i] && !touchesBorder[ll[i]] && !tooBig.has(ll[i])) md[i] = 255;
   }
   inv.delete(); lab.delete();
 }
