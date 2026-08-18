@@ -3693,7 +3693,14 @@ export function countPills(cv, source, opts = {}) {
       if (opts.debug) {
         for (const l of blobList) {
           const ax = blobAxis.get(l) || {};
+          // Ship the bounding box too: only the two blobs that reach the
+          // seam router emitted one, so any tool cropping per blob had to
+          // fall back to the whole frame -- which silently showed the WRONG
+          // region rather than nothing (the method arena cropped bare
+          // countertop and labelled it a disputed clump).
+          const bb = blobBox.get(l);
           opts.debug({ stage: 'blobgeo', blob: l, area: blobAreas[l],
+            box: bb ? { x0: bb.x0, y0: bb.y0, x1: bb.x1, y1: bb.y1 } : null,
             massR: +(blobAreas[l] / Math.max(1, unit)).toFixed(2),
             major: +(ax.major || 0).toFixed(1), minor: +(ax.minor || 0).toFixed(1),
             lenR: +((ax.major || 0) / Math.max(1, unitLen)).toFixed(2),
@@ -6912,9 +6919,10 @@ export function countPills(cv, source, opts = {}) {
       // ---- rigid-body relaxation over every placement ----
       const bodies = [];
       for (const g of regions) {
-        if (g.pills) for (const p2 of g.pills) bodies.push({ p: p2, movable: !g.stamp });
+        if (g.pills) for (const p2 of g.pills) bodies.push({ p: p2, movable: !g.stamp, single: false });
         else if ((g.units || 1) === 1 && g.shape)
-          bodies.push({ p: { cx: g.cx, cy: g.cy, theta: g.shape.theta || 0, major: g.shape.major, minor: g.shape.minor }, movable: false });
+          bodies.push({ p: { cx: g.cx, cy: g.cy, theta: g.shape.theta || 0, major: g.shape.major, minor: g.shape.minor },
+            movable: false, single: true, owner: g });
       }
       const closest = (A, B) => {
         const ah = Math.max(0, (A.major - A.minor) / 2), bh = Math.max(0, (B.major - B.minor) / 2);
@@ -6929,6 +6937,36 @@ export function countPills(cv, source, opts = {}) {
         }
         return { d: best, nx, ny };
       };
+      // TWO PINNED PILLS CANNOT BOTH BE RIGHT. A single-pill region's pose is
+      // an ellipse fit to its OWN pixels, which is why it is trusted and never
+      // moved. But when two such regions INTERPENETRATE, at least one of those
+      // fits is wrong, and pinning both leaves physics reporting a collision
+      // it is structurally unable to resolve. Measured on r-f5d11815: 16
+      // bodies, only 3 movable, and 2 of the 3 collisions were pinned-vs-
+      // pinned, so worstAfter came out identical to worstBefore (3.7 -> 3.7).
+      // The same signature appears across the corpus -- physics clears big
+      // overlaps (18 -> 0, 11.2 -> 0) and is completely inert on small ones
+      // (2.2 -> 2.2, 1.7 -> 1.7, 1.3 -> 1.3), which is most of what remains.
+      //
+      // So a single-pill body becomes movable ONLY when its collision partner
+      // is also pinned. Against a movable partner the old behaviour stands:
+      // the trusted fit holds still and the uncertain placement yields.
+      {
+        let freed = 0;
+        for (let i = 0; i < bodies.length; i++) {
+          for (let j = i + 1; j < bodies.length; j++) {
+            if (!bodies[i].single || !bodies[j].single) continue;
+            if (bodies[i].movable && bodies[j].movable) continue;
+            const A = bodies[i].p, B = bodies[j].p;
+            const reach = (A.major + B.major) / 2 + 4;
+            if (Math.abs(A.cx - B.cx) > reach || Math.abs(A.cy - B.cy) > reach) continue;
+            if (closest(A, B).d >= (A.minor + B.minor) / 2 - 0.75) continue;
+            if (!bodies[i].movable) { bodies[i].movable = true; freed++; }
+            if (!bodies[j].movable) { bodies[j].movable = true; freed++; }
+          }
+        }
+        if (freed) opts.debug?.({ stage: 'physics-unpin', freed });
+      }
       let pairsFixed = 0, worstBefore = 0, worstAfter = 0;
       for (let iter = 0; iter < 12; iter++) {
         let worst = 0;
@@ -6978,6 +7016,22 @@ export function countPills(cv, source, opts = {}) {
           if (mA) { cands.push(trial(0, 0, ROT, 0)); cands.push(trial(0, 0, -ROT, 0)); }
           if (mB) { cands.push(trial(0, 0, 0, ROT)); cands.push(trial(0, 0, 0, -ROT)); }
           if (cands.length) {
+            // SEPARATION FIRST, COVERAGE SECOND. `gain` adds the foreground
+            // term to the gap gained, so a rotation that resolves NOTHING but
+            // keeps the pill on more material can outscore the translation
+            // that actually separates the pair. That is why physics clears
+            // large overlaps and is inert on small ones -- measured across the
+            // corpus: 18 -> 0 and 11.2 -> 0, but 3.7 -> 3.7, 2.2 -> 2.2,
+            // 1.7 -> 1.7, 1.3 -> 1.3. At pen 1.3 the rotation's coverage bonus
+            // (2.40) simply beats the translation's (3.22 - its own coverage
+            // loss), so nothing moves and the pair stays interpenetrating.
+            //
+            // Solids may not share pixels, so a candidate that ENDS the
+            // overlap always beats one that does not; coverage only breaks
+            // ties among candidates of the same class.
+            const ends = (c) => closest(c.A2, c.B2).d >= need - 0.75;
+            const clear = cands.filter(ends);
+            if (clear.length) cands.length = 0, cands.push(...clear);
             const bestC = cands.sort((x2, y2) => y2.gain - x2.gain)[0];
             if (mA) { A.cx = bestC.A2.cx; A.cy = bestC.A2.cy; A.theta = bestC.A2.theta; }
             if (mB) { B.cx = bestC.B2.cx; B.cy = bestC.B2.cy; B.theta = bestC.B2.theta; }
@@ -6986,8 +7040,27 @@ export function countPills(cv, source, opts = {}) {
         worstAfter = worst;
         if (worst <= 0.75) break;
       }
+      // `worst` is measured BEFORE this iteration's pushes, so worstAfter has
+      // always reported the penetration going INTO the final pass, never the
+      // state physics actually left behind. That misreading is what made the
+      // stage look inert on small overlaps (3.7 -> 3.7, 2.2 -> 2.2) when it
+      // had in fact resolved them. Re-measure once the loop is done.
+      {
+        let w2 = 0;
+        for (let i = 0; i < bodies.length; i++) {
+          for (let j = i + 1; j < bodies.length; j++) {
+            const A = bodies[i].p, B = bodies[j].p;
+            const reach = (A.major + B.major) / 2 + 4;
+            if (Math.abs(A.cx - B.cx) > reach || Math.abs(A.cy - B.cy) > reach) continue;
+            const pen2 = (A.minor + B.minor) / 2 - closest(A, B).d;
+            if (pen2 > w2) w2 = pen2;
+          }
+        }
+        worstAfter = w2;
+      }
       if (pairsFixed) opts.debug?.({ stage: 'physics', pairs: pairsFixed,
-        worstBefore: +worstBefore.toFixed(1), worstAfter: +worstAfter.toFixed(1) });
+        worstBefore: +worstBefore.toFixed(1), worstAfter: +worstAfter.toFixed(1),
+        bodies: bodies.length, movable: bodies.filter((b) => b.movable).length });
       // settle poses once more after collisions moved anything
       if (pairsFixed && regions.__refinePoses) regions.__refinePoses();
       delete regions.__refinePoses;

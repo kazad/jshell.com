@@ -110,7 +110,10 @@
 </head>
 <body>
   <header>
-    <h1>ValEye Test Bench <a href="./">← app</a> <a href="about.html">how it works</a> <a href="stamp.html" style="color:#e9a13b">stamp tester →</a></h1>
+    <h1>ValEye Test Bench <a href="./">← app</a> <a href="about.html">how it works</a> <a href="stamp.html" style="color:#e9a13b">stamp tester →</a>
+      <a href="lab.html" style="color:#5b9dff">algorithm lab →</a>
+      <a href="arena.html" style="color:#b78bff">method arena →</a>
+      <a href="stampfit.html" style="color:#5ad18c">stamp fit →</a></h1>
     <div id="status">loading engine…</div>
   </header>
   <div class="controls">
@@ -316,6 +319,8 @@
               <a href="#" class="dbg-link" data-file="${file}" style="font-size:11px;color:#7ac">debug trace</a>
               <a href="?auto=0&img=${encodeURIComponent(file)}" style="font-size:11px;color:#7ac">run live</a>
               <a href="stamp.html?img=${encodeURIComponent(file)}&truth=1" style="font-size:11px;color:#3ddc97;font-weight:700">review / annotate →</a>
+              <a href="arena.html?img=${encodeURIComponent(file)}" style="font-size:11px;color:#b78bff">arena</a>
+              <a href="lab.html?img=${encodeURIComponent(file)}" style="font-size:11px;color:#5b9dff">lab</a>
               ${r.stages ? `<a href="#" class="stg-link" data-file="${file}" style="font-size:11px;color:#e9a13b">stages</a>` : ''}
             </div>
           </div>`;

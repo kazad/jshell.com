@@ -1,0 +1,293 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ValEye · method arena</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!--
+  THE METHODS, COMPETING, PER BLOB.
+  Counting a touching clump is a disagreement between five independent
+  witnesses, and today that argument is invisible: the pipeline prints one
+  number. This shows the argument -- every witness's vote, what each one is
+  actually looking at, and which won.
+    watershed  distance-transform markers   (needs a visible neck)
+    mass       area / calibrated unit       (needs a correct unit)
+    crease     intensity-valley cut pieces  (needs a visible seam)
+    erosion    shrink-until-split cores     (needs a separating neck)
+    arc        boundary cap/notch interval  (needs a clean outline)
+    stamp      template match placements    (needs a correct template)
+  A blob where they agree is easy. A blob where they do not is where every
+  miscount in this project has come from.
+-->
+<style>
+:root{--bg:#0d0f13;--panel:#151922;--line:#222836;--ink:#e7e9ee;--dim:#8b93a7;
+ --acc:#5b9dff;--ok:#5ad18c;--bad:#ff6b6b;--warn:#f0b849}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 ui-sans-serif,system-ui,sans-serif}
+header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:center;flex-wrap:wrap;position:sticky;top:0;background:var(--bg);z-index:20}
+h1{font-size:16px;margin:0;font-weight:600}
+.sub{color:var(--dim);font-size:12px}
+select,button{background:#1b2130;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 11px;font:inherit;font-size:13px}
+button{cursor:pointer} button.go{background:var(--acc);border-color:var(--acc);color:#06101f;font-weight:600}
+.status{padding:10px 20px;color:var(--dim);font-size:13px;border-bottom:1px solid var(--line)}
+.status b{color:var(--ink)} .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+.blob{margin:16px 20px;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.blob.disputed{border-color:#4a3550}
+.bh{padding:11px 14px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.bh b{font-size:14px}
+.tag{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--dim)}
+.tag.dis{border-color:var(--bad);color:var(--bad)}
+.tag.agr{border-color:var(--ok);color:var(--ok)}
+.row{display:grid;grid-template-columns:300px 1fr;gap:14px;padding:14px}
+@media(max-width:820px){.row{grid-template-columns:1fr}}
+.crop{background:#000;border-radius:9px;border:1px solid var(--line);width:100%;display:block;cursor:crosshair}
+.votes{display:flex;flex-direction:column;gap:7px}
+.v{display:grid;grid-template-columns:78px 46px 1fr;gap:10px;align-items:center;font-size:12.5px;
+   padding:6px 9px;border-radius:8px;background:#11151d;border:1px solid transparent}
+.v.win{border-color:var(--acc);background:#141d2e}
+.v.out{opacity:.55}
+.v .m{color:var(--dim)} .v .n{font-size:16px;font-variant-numeric:tabular-nums;text-align:right}
+.v .why{color:var(--dim);font-size:11px;line-height:1.4}
+.verdict{padding:9px 14px;border-top:1px solid var(--line);font-size:12.5px;background:#11151d}
+.legend{display:flex;gap:16px;flex-wrap:wrap;padding:10px 20px;font-size:11.5px;color:var(--dim);border-bottom:1px solid var(--line)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+</style>
+<header>
+  <h1>Method arena</h1><span class=sub>every witness's vote on every contested blob</span>
+  <select id=img></select><button class=go id=run>Run</button>
+  <label class=sub><input type=checkbox id=onlyDisputed checked> only disputed blobs</label>
+</header>
+<div class=legend style="color:#f0b849">
+  <span>⚠ This runs the counter IN YOUR BROWSER. Node tools (debug-image, the gates) decode
+  JPEG with jpeg-js and the browser uses its own decoder, so blob IDs and areas differ slightly
+  between them — measured on r-f5d11815, the same clump is blob 2 / 5706px here and blob 1 /
+  5751px in Node. Compare within one environment, never across.</span>
+</div>
+<div class=legend>
+  <span><i class=sw style="background:#5ad18c"></i>final placements</span>
+  <span><i class=sw style="background:#5b9dff"></i>watershed markers</span>
+  <span><i class=sw style="background:#f0b849"></i>arc interval</span>
+  <span><i class=sw style="background:#ff6b6b"></i>this blob's outline</span>
+</div>
+<div class=status id=status>pick an image</div>
+<div id=out></div>
+<script type="module">
+import { loadCV, countPills } from './js/counter.js';
+const $=(s)=>document.querySelector(s);
+const DIRS=['','adv/','approx/','backtest/','bgsweep/','glare/','lined/','onedge/','perspective/','piles/','real/','real19/','real19b/','shiny/'];
+let EXPECTED={},cv=null;
+
+const WHY={
+  ws:'distance-transform markers — needs a visible NECK between pills',
+  mass:'area ÷ calibrated unit — needs a correct UNIT',
+  crease:'intensity-valley cut pieces — needs a visible SEAM',
+  ero:'shrink-until-split cores — needs a separating NECK',
+  arc:'boundary caps and notches — needs a clean OUTLINE',
+};
+
+Promise.all(DIRS.map(d=>fetch(`testdata/${d}expected.json`).then(r=>r.ok?r.json():{})
+  .then(j=>Object.fromEntries(Object.entries(j).map(([k,v])=>[k.includes('/')?k:d+k,v]))).catch(()=>({}))))
+  .then(all=>{EXPECTED=Object.assign({},...all);
+    $('#img').innerHTML=Object.keys(EXPECTED).sort().map(n=>`<option>${n}</option>`).join('');
+    const w=new URLSearchParams(location.search).get('img');
+    if(w&&EXPECTED[w]!==undefined){$('#img').value=w;$('#run').click();}
+    else $('#status').textContent=`${Object.keys(EXPECTED).length} images — pick one and press Run`;});
+
+async function decode(src){const i=new Image();i.crossOrigin='anonymous';
+  await new Promise((a,b)=>{i.onload=a;i.onerror=b;i.src=src;});
+  const c=document.createElement('canvas');c.width=i.naturalWidth;c.height=i.naturalHeight;
+  c.getContext('2d').drawImage(i,0,0);return c.getContext('2d').getImageData(0,0,c.width,c.height);}
+
+$('#run').onclick=async()=>{
+  $('#status').textContent='loading OpenCV…';
+  cv=cv||await loadCV('vendor/opencv.js');
+  const name=$('#img').value;
+  const imgData=await decode('testdata/'+name);
+  const trace=[],stages={};
+  $('#status').textContent='counting…';
+  await new Promise(r=>setTimeout(r,20));
+  // TRUTH, when we have it. Without it this screen invites the wrong
+  // conclusion: on r-f5d11815 blob 2 the votes are ws:12, mass:6, crease:3 and
+  // the tangled outlines make ws look right -- but the truth is 6, so the
+  // panel's choice of mass was correct. A disagreement is not a bug.
+  const base=name.split('/').pop().replace(/\.\w+$/,'');
+  let TRUTH=null;
+  try{const t=await fetch('testdata/centers/'+base+'.json');
+    if(t.ok){const j=await t.json();TRUTH={size:j.size,centers:j.centers};}}catch(e){}
+  const res=countPills(cv,imgData,{maxDim:1280,variant:'consensus',exportProbe:true,
+    debug:e=>trace.push(e),stages:(k,v)=>{stages[k]=v;}});
+  const pr=res.probe;
+  const input=stages['input'];
+  if(!input){$('#status').textContent='no input stage';return;}
+  const W=input.width,H=input.height;
+
+  // gather per-blob evidence out of the trace
+  const byBlob=new Map();
+  const get=(b)=>{if(!byBlob.has(b))byBlob.set(b,{blob:b});return byBlob.get(b);};
+  for(const e of trace){
+    if(e.stage==='panel'&&e.blob!==undefined){const g=get(e.blob);
+      g.votes=e.votes;g.k=e.k;g.agreed=e.agreed;g.base=e.base;g.massFrac=e.massFrac;}
+    if(e.stage==='arc'&&e.blob!==undefined){const g=get(e.blob);g.arcLo=e.arcLo;g.arcHi=e.arcHi;g.caps=e.caps;g.notches=e.notches;}
+    if(e.stage==='blobgeo'&&e.blob!==undefined){const g=get(e.blob);g.area=e.area;g.major=e.major;g.minor=e.minor;g.peak=e.peak;
+      if(e.box)g.box=e.box;}
+    if(e.stage==='seam'&&e.blob!==undefined){const g=get(e.blob);if(!g.box)g.box=e.box;g.seamPts=e.pts;}
+    if(e.stage==='stampblob'&&e.blob!==undefined){const g=get(e.blob);g.stampSc=e.sc;g.stampPc=e.pc;g.stampWin=e.win;g.claimedFrac=e.claimedFrac;}
+  }
+  const phys=trace.find(e=>e.stage==='physics');
+  const cs=trace.find(e=>e.stage==='clustersolve');
+  const fg=trace.find(e=>e.stage==='fitgate');
+
+  const exp=EXPECTED[name];
+  const okCls=exp===undefined?'':res.count===exp?'ok':'bad';
+  $('#status').innerHTML=`<b>${name}</b> — counted <b class="${okCls}">${res.count}</b>`
+    +(exp!==undefined?` / expected <b>${exp}</b>`:'')
+    +` · ${byBlob.size} blobs went to the panel`
+    +(phys?` · physics fixed ${phys.pairs} pair(s), worst ${phys.worstBefore}→${phys.worstAfter}px`:'')
+    +(cs?` · cluster solver re-posed ${cs.clusters}`:'')
+    +(fg?` · fit gate refined ${fg.refined}, flagged ${fg.flagged}`:'');
+
+  // ---- geometry pipeline summary: the stages that MOVE or REMOVE pills ----
+  // Voting decides HOW MANY. These decide WHERE, and each can undo the last:
+  // physics pushes pills apart, the cluster solver enforces non-overlap, the
+  // fit gate re-poses for match quality with no overlap check of its own.
+  $('#out').innerHTML='';
+  const gp=document.createElement('div');
+  gp.className='blob';
+  const stampFired=trace.find(e=>e.stage==='stamp');
+  gp.innerHTML=`<div class=bh><b>geometry pipeline</b>
+     <span class=sub style="color:var(--dim)">who moved the pills, in order</span></div>
+   <div style="padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap">
+    ${[
+      ['stamp arbiter', stampFired
+        ? (stampFired.fired ? `fired — ${stampFired.before} → ${stampFired.after} (${stampFired.reason||''})`
+           : `stood down (${stampFired.reason||''})`)
+        : 'did not run',
+        stampFired&&stampFired.fired&&stampFired.after!==stampFired.before],
+      ['physics', phys ? `${phys.pairs} colliding pair(s), worst ${phys.worstBefore} → ${phys.worstAfter}px`
+        : 'no collisions to resolve', phys&&phys.worstAfter>0.75],
+      ['cluster solver', cs ? `re-posed ${cs.clusters} of ${cs.candidates} illegal cluster(s)`
+        : 'nothing left overlapping', cs&&cs.clusters<cs.candidates],
+      ['fit gate', fg ? `refined ${fg.refined}, improved ${fg.improved}, flagged ${fg.flagged} · q ${fg.qBefore} → ${fg.qAfter}`
+        : 'not calibrated', fg&&fg.flagged>0],
+    ].map(([k,v,warn])=>`<div style="flex:1;min-width:210px;padding:9px 11px;border-radius:9px;
+        background:#11151d;border:1px solid ${warn?'#4a3550':'var(--line)'}">
+        <div style="color:var(--dim);font-size:11px">${k}</div>
+        <div style="font-size:12.5px;margin-top:3px${warn?';color:var(--warn)':''}">${v}</div></div>`).join('')}
+   </div>
+   <div class=verdict>Each of these runs AFTER the vote and can move a pill the
+     previous one placed. The cluster solver runs last precisely because physics
+     and the fit gate re-pose without checking interpenetration.</div>`;
+  $('#out').appendChild(gp);
+
+  const blobs=[...byBlob.values()].filter(g=>g.votes);
+  blobs.sort((a,b)=>{
+    const da=a.votes?Math.max(...a.votes.map(v=>v.v))-Math.min(...a.votes.map(v=>v.v)):0;
+    const db=b.votes?Math.max(...b.votes.map(v=>v.v))-Math.min(...b.votes.map(v=>v.v)):0;
+    return db-da;});
+
+  const out=$('#out');
+  const onlyDis=$('#onlyDisputed').checked;
+  let shown=0;
+  for(const g of blobs){
+    const vals=g.votes.map(v=>v.v);
+    const spread=Math.max(...vals)-Math.min(...vals);
+    const disputed=spread>0||!g.agreed;
+    if(onlyDis&&!disputed)continue;
+    shown++;
+    const el=document.createElement('div');
+    el.className='blob'+(disputed?' disputed':'');
+    // A card with no box would crop the WHOLE FRAME and present it as this
+    // blob -- showing the wrong region is worse than showing none.
+    if(!g.box){shown--;continue;}
+    const box=g.box;
+    el.innerHTML=`<div class=bh>
+      <b>blob ${g.blob}</b>
+      <span class="tag ${g.agreed?'agr':'dis'}">${g.agreed?'agreed':'no agreement'}</span>
+      <span class=tag>chose ${g.k}</span>
+      <span class=tag>baseline ${g.base}</span>
+      ${g.area?`<span class=tag>${g.area}px · peak ${g.peak}</span>`:''}
+      ${spread>0?`<span class="tag dis">spread ${spread}</span>`:''}
+    </div>
+    <div class=row>
+      <canvas class=crop id="c_${g.blob}"></canvas>
+      <div class=votes id="v_${g.blob}"></div>
+    </div>
+    <div class=verdict id="d_${g.blob}"></div>`;
+    out.appendChild(el);
+
+    // crop around this blob, with the evidence drawn on it
+    const pad=24;
+    const x0=Math.max(0,box.x0-pad),y0=Math.max(0,box.y0-pad);
+    const x1=Math.min(W-1,box.x1+pad),y1=Math.min(H-1,box.y1+pad);
+    const cw=x1-x0+1,ch=y1-y0+1;
+    const cvs=el.querySelector('canvas');
+    const SC=Math.min(3,Math.max(1,Math.round(280/Math.max(cw,ch))));
+    cvs.width=cw*SC;cvs.height=ch*SC;
+    const ctx=cvs.getContext('2d');
+    const tmp=document.createElement('canvas');tmp.width=W;tmp.height=H;
+    tmp.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(input.data),W,H),0,0);
+    ctx.imageSmoothingEnabled=false;
+    ctx.drawImage(tmp,x0,y0,cw,ch,0,0,cw*SC,ch*SC);
+    // blob box
+    ctx.strokeStyle='rgba(255,107,107,.85)';ctx.lineWidth=1.5;
+    ctx.strokeRect((box.x0-x0)*SC,(box.y0-y0)*SC,(box.x1-box.x0)*SC,(box.y1-box.y0)*SC);
+    // final placements inside the crop
+    ctx.strokeStyle='#5ad18c';ctx.lineWidth=2;
+    for(const[px,py,pth]of(pr&&pr.placements)||[]){
+      if(px<x0||px>x1||py<y0||py>y1)continue;
+      const a=Math.max(0,(pr.maj-pr.min)/2),r=pr.min/2;
+      ctx.save();ctx.translate((px-x0)*SC,(py-y0)*SC);ctx.rotate(pth||0);ctx.scale(SC,SC);
+      ctx.beginPath();ctx.arc(-a,0,r,Math.PI/2,-Math.PI/2);ctx.lineTo(a,-r);
+      ctx.arc(a,0,r,-Math.PI/2,Math.PI/2);ctx.closePath();ctx.lineWidth=2/SC;ctx.stroke();ctx.restore();
+    }
+    // TRUTH centres: white rings, and the per-blob tally in the verdict
+    let truthIn=null;
+    if(TRUTH&&TRUTH.centers){
+      const gsc=TRUTH.size&&TRUTH.size[0]?(W/TRUTH.size[0]):1;
+      truthIn=0;
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=1.5;
+      for(const[tx0,ty0]of TRUTH.centers){
+        const tx=tx0*gsc,ty=ty0*gsc;
+        if(tx>=box.x0&&tx<=box.x1&&ty>=box.y0&&ty<=box.y1)truthIn++;
+        if(tx<x0||tx>x1||ty<y0||ty>y1)continue;
+        ctx.beginPath();ctx.arc((tx-x0)*SC,(ty-y0)*SC,4,0,7);ctx.stroke();
+      }
+    }
+    g.truthIn=truthIn;
+    // seam survivors: where the crease method thinks the joins are
+    if(g.seamPts){ctx.fillStyle='rgba(240,184,73,.9)';
+      for(const[sx,sy]of g.seamPts.slice(0,40)){
+        if(sx<x0||sx>x1||sy<y0||sy>y1)continue;
+        ctx.fillRect((sx-x0)*SC-1,(sy-y0)*SC-1,3,3);}}
+
+    // votes
+    const vv=el.querySelector(`#v_${g.blob}`);
+    const rows=g.votes.map(v=>({m:v.m,n:v.v,win:v.v===g.k}));
+    if(g.arcLo!==undefined&&(g.arcLo||g.arcHi))
+      rows.push({m:'arc',n:g.arcLo===g.arcHi?g.arcLo:`${g.arcLo}–${g.arcHi}`,win:false,range:true});
+    if(g.stampPc!==undefined)
+      rows.push({m:'stamp',n:g.stampSc,win:g.stampWin==='stamp',
+        extra:`stamp ${g.stampSc} vs pipeline ${g.stampPc} · claimed ${g.claimedFrac} · ${g.stampWin} won`});
+    vv.innerHTML=rows.map(r=>`<div class="v ${r.win?'win':(r.range?'':'out')}">
+      <span class=m>${r.m}</span><span class=n>${r.n}</span>
+      <span class=why>${r.extra||WHY[r.m]||''}</span></div>`).join('');
+
+    // verdict, in words
+    const d=el.querySelector(`#d_${g.blob}`);
+    const win=g.votes.filter(v=>v.v===g.k).map(v=>v.m);
+    const lose=g.votes.filter(v=>v.v!==g.k);
+    const tv=g.truthIn;
+    const truthNote=tv===null||tv===undefined?''
+      :` <b>Truth in this box: ${tv}.</b> `+(()=>{
+        const right=g.votes.filter(v=>v.v===tv).map(v=>v.m);
+        if(g.k===tv)return `The panel got it right${right.length?' ('+right.join('+')+' had it)':''}.`;
+        return right.length?`<span class=bad>${right.join('+')} had it; the panel took ${g.k}.</span>`
+          :`<span class=warn>No witness had it.</span>`;})();
+    d.innerHTML=truthNote+' '+ (g.agreed
+      ? `<span class=ok>✓</span> ${win.join(' + ')||'—'} agreed on <b>${g.k}</b>; the panel adopted it.`
+      : `<span class=bad>✗</span> no qualifying agreement — kept <b>${g.k}</b>`
+        +(lose.length?` over ${lose.map(v=>`${v.m}:${v.v}`).join(', ')}`:'')
+        +`. massFrac ${g.massFrac}.`
+        +(g.area&&pr?` Blob is ${(g.area/(Math.PI*(pr.min/2)*(pr.min/2))).toFixed(1)} template-areas.`:''));
+  }
+  if(!shown)out.innerHTML='<div class=status style="border:none">no disputed blobs — every witness agreed.</div>';
+};
+</script>
