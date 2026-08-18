@@ -7133,7 +7133,7 @@ export function countPills(cv, source, opts = {}) {
           if (!comps.has(r0)) comps.set(r0, []);
           comps.get(r0).push(i);
         }
-        let solved = 0, candidates = 0;
+        let solved = 0, candidates = 0, removed = 0;
         for (const idxs of comps.values()) {
           if (idxs.length < 2) continue;
           if (!idxs.some((k) => !nodes[k].fixed)) continue;   // nothing may move
@@ -7176,23 +7176,23 @@ export function countPills(cv, source, opts = {}) {
           if (!r.pills.length) continue;
           if (r.worstOverlap > 0.75) continue;      // accept only a LEGAL result
           if (r.pills.length > pills.length) continue;   // never invents pills
-          // GEOMETRY ONLY -- THE SOLVER MAY NOT CHANGE THE COUNT.
-          // Running this late, after the panel, the stamp arbiter and the fit
-          // gate have all had their say, a deletion here cannot be verified
-          // against any of the evidence those stages used. Measured on
-          // synth2-cw-light-normal-n60-t25-s300: the solver dropped 2 pills
-          // from a photo that was CLEAN in the baseline, leaving 58
-          // placements behind a count of 60 -- and because the count is
-          // settled elsewhere, the decrement did not even take. The image
-          // went from 0 overlapping pairs to 9.
+          // A DROPPED PLACEMENT MUST ALSO LEAVE THE COUNT.
+          // Deletion was blocked outright after it once left 58 placements
+          // behind a count of 60 on s300 -- but the cause there was ORDERING,
+          // not the deletion itself: the solver ran mid-pipeline and the
+          // count was re-derived downstream, so the decrement was discarded.
+          // It now runs last, after the fit gate, and nothing reassigns count
+          // afterwards, so a decrement sticks.
           //
-          // Deleting a phantom is the right move when the evidence supports
-          // it (and the solver does it correctly in isolation -- see
-          // tools/cluster-test.mjs CROSSED-PHANTOMS and STACKED). It is not
-          // the right move from here. Re-posing is: a pill moved out of its
-          // neighbour is the same pill, so the count is untouched by
-          // construction and the arrangement becomes physically possible.
-          if (r.pills.length !== pills.length) continue;
+          // Blocking it outright is expensive: measured on s111, all THREE
+          // candidate clusters were rejected for wanting to drop a pill, so
+          // the solver fixed nothing on an image with 17 overlapping pairs.
+          // Corpus-wide the block cost roughly half the solver's benefit
+          // (197 -> 80 pairs when deletion was allowed, 197 -> 145 without).
+          //
+          // The invariant that matters is not "never delete" but "the count
+          // and the placements must agree", which is exactly what the
+          // PHANTOM MASS stress check measures.
           // Assign each survivor to the region its nearest original came from:
           // a cluster spans several regions and the result order carries no
           // ownership, so index-matching scrambles them.
@@ -7211,6 +7211,7 @@ export function countPills(cv, source, opts = {}) {
             keepFor.get(owner).push({ cx: np.cx, cy: np.cy, theta: np.th,
               major: np.maj, minor: np.min });
           }
+          removed += pills.length - r.pills.length;
           for (const g2 of new Set(members.map((m) => m.g))) {
             if (!g2.pills) continue;
             const mine = new Set(members.filter((m) => m.g === g2).map((m) => m.p));
@@ -7220,7 +7221,8 @@ export function countPills(cv, source, opts = {}) {
           solved++;
         }
         if (solved) {
-          opts.debug?.({ stage: 'clustersolve', clusters: solved, candidates });
+          opts.debug?.({ stage: 'clustersolve', clusters: solved, candidates, pillsRemoved: removed });
+          if (removed) count -= removed;
         }
       };
 

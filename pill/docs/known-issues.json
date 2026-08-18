@@ -110,6 +110,12 @@
   },
   "geom-baseline-self-overwrites": {
    "note": "Running `node tools/geomgate.mjs <one-image>` REWRITES tools/baselines/geom.json with that single image's numbers, silently replacing the corpus-wide baseline. It happened during the cluster-solver work: a one-image check left images:1 in the file and the next comparison read it as if it covered 219, which made a solver improvement look like a regression. Same class as the regress.mjs counts.json trap. For attribution, do a head-to-head instead: VALEYE_NO_CLUSTER=1 node tools/geomgate.mjs vs the plain run, same build. Measured that way the solver is 197->80 overlapping pairs, 59->16 duplicates, 85.1->39.8px worst penetration."
+  },
+  "compare-only-against-a-fresh-run": {
+   "note": "A stored gate output is a snapshot of the build that produced it, and comparing a new run against a stale one manufactures phantom regressions. Hit TWICE: (1) tools/baselines/geom.json overwritten by a single-image run; (2) /tmp/geom-full.txt from Aug 13 compared against an Aug 17 run, which read as \"physics made it 80 -> 145 overlapping pairs\" until s111 was checked out at the pre-physics commit and measured IDENTICAL (17 pairs, 7 duplicates). Both physics changes were exonerated. Rule: for attribution, run BOTH arms on the SAME build in the same session (VALEYE_NO_CLUSTER=1 vs plain), and never trust a baseline file whose mtime you have not read."
+  },
+  "cluster-solver-measured-three-ways": {
+   "note": "Cluster solver attribution, all three arms run on ONE build (183f7b3): solver OFF = 197 overlapping pairs / 59 duplicates / 85.1px worst over 59 of 219 images; solver ON with deletion BLOCKED = 145 / 44 / 43.1px over 48; solver ON with deletion ALLOWED = 80 / 16 / 39.8px over 45. So the solver is -59% pairs and -73% duplicates, and blocking deletion was silently costing 65 pairs and 28 duplicates. off-pill rises 6 -> 19: separating two stacked placements leaves one off its material, which is a visibly wrong outline traded for an invisible miscount. If a future change makes the solver look weaker, check whether something is rejecting its deletions before concluding the solver regressed."
   }
  }
 }
