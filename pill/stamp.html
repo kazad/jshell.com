@@ -48,6 +48,7 @@
   <button id="showstamp" title="Show the extracted pill, the learned stamp, and where it fits">stamp card</button>
   <span id="status" style="color:var(--dim)"></span>
   <span id="overlapnote" style="color:#ff5a5a;font-weight:600"></span>
+  <span id="ioustat" style="color:var(--dim)"></span>
 </header>
 <!-- WHAT THE STAMP ACTUALLY IS. Shipping only a number for the template size
      hid a real defect for a long time: on the glossy photos the learned stamp
@@ -271,9 +272,33 @@ function draw(cursor) {
     img.data[p+3] = 255;
   }
   ctx.putImageData(img, 0, 0);
-  // counted placements, faint
-  ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(61,220,151,.55)';
-  for (const [px, py, pth] of probe.placements) outline(px, py, pth);
+  // Counted placements, COLOURED BY FILL OVERLAP. A centre dot or a thin
+  // uniform outline hides a bad fit: the owner's screenshot showed outlines at
+  // the wrong angle and outlines straddling two pills, all drawn identically.
+  // IoU against the mask is the "would the filled shape line up" number, and
+  // it separates them -- measured on r-7ff7fd99 it spreads 0.36 to 0.92 where
+  // `cover` reads a flat 0.93 for every one of them.
+  const iouArr = probe.placementIou || [];
+  probe.placements.forEach(([px, py, pth], i) => {
+    const q = iouArr[i];
+    if (q === null || q === undefined) {
+      ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(61,220,151,.55)';
+    } else if (q < 0.45) { ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,80,80,.95)'; }
+    else if (q < 0.60) { ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(240,184,73,.9)'; }
+    else { ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(61,220,151,.6)'; }
+    outline(px, py, pth);
+  });
+  {
+    const vals = iouArr.filter((v) => v !== null && v !== undefined);
+    const el = $('#ioustat');
+    if (el && vals.length) {
+      const bad = vals.filter((v) => v < 0.45).length;
+      const srt = vals.slice().sort((a2, b2) => a2 - b2);
+      el.textContent = `fill overlap: median ${srt[srt.length >> 1].toFixed(2)}`
+        + ` · worst ${srt[0].toFixed(2)}` + (bad ? ` · ${bad} poor fit${bad > 1 ? 's' : ''}` : '');
+      el.style.color = bad ? '#ff5a5a' : 'var(--dim)';
+    }
+  }
   // existing corpus truth as faint reference dots — annotating against a
   // blank image made it easy to skip pills (a 33-vs-34 disagreement turned
   // out to be two missed beads plus one stray mark on bare leather).

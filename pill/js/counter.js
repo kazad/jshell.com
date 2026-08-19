@@ -7922,15 +7922,128 @@ export function countPills(cv, source, opts = {}) {
           // evidence this indirect costs real counts (measured: it breaks
           // previously-exact images) while flagging costs nothing. Rejection
           // stays available through mqBad for a caller that wants it.
-          let nFlag = 0;
+          // FILL OVERLAP (IoU) AGAINST THE MASK.
+          // `cover` is the fraction of the STAMP that lands on foreground, so
+          // it can only see material the stamp wrongly claims -- never mask
+          // the stamp MISSES. A stamp straddling two pills therefore scores
+          // cover 1.0 while sitting over the gap between them, and one at the
+          // wrong angle scores well while its ends hang off the pill.
+          //
+          // Measured on the owner's screenshot case (r-7ff7fd99): cover reads
+          // 0.930 across all 19 placements while IoU reads 0.670, and the
+          // visibly wrong outlines drop to 0.36. On lined-bfdbfef9 a placement
+          // with NO pill under it scores cover 1.000 against IoU 0.439 -- cover
+          // is not merely blind there, it is actively misleading.
+          //
+          // IoU is symmetric: it charges for stamp-on-background AND for
+          // mask-the-stamp-missed, which is exactly what "would the filled
+          // shape line up" means.
+          // fitFg is activeMd > 0 -- the watershed LABEL map, ~98% non-zero --
+          // so measuring against it gives every placement the same meaningless
+          // ~0.29. The binary mask is distBg > otsuThr, the same surface the
+          // probe exports as `surf`.
+          const iouFg = new Uint8Array(w * h);
+          { const db3 = distBg.data;
+            for (let i3 = 0; i3 < w * h; i3++) iouFg[i3] = db3[i3] > otsuThr ? 1 : 0; }
+          const iouOf = (o) => {
+            const th = (o.theta !== undefined ? o.theta : (o.shape ? o.shape.theta : 0)) || 0;
+            const mj = fitEnv.maj, mn = fitEnv.min;
+            const aa = Math.max(0, (mj - mn) / 2), rr = mn / 2;
+            const c2 = Math.cos(th), s2 = Math.sin(th);
+            const R2 = Math.ceil(mj / 2) + 2;
+            let inter = 0, only = 0, missed = 0;
+            for (let dy = -R2; dy <= R2; dy++) {
+              for (let dx = -R2; dx <= R2; dx++) {
+                const x = Math.round(o.cx + dx), y = Math.round(o.cy + dy);
+                if (x < 0 || y < 0 || x >= w || y >= h) continue;
+                const u = dx * c2 + dy * s2, v = -dx * s2 + dy * c2;
+                const du = Math.max(0, Math.abs(u) - aa);
+                const inStamp = du * du + v * v <= rr * rr;
+                const onFg = iouFg[y * w + x] > 0;
+                if (inStamp && onFg) inter++;
+                else if (inStamp) only++;
+                else if (onFg) missed++;
+              }
+            }
+            const uni = inter + only + missed;
+            return uni ? inter / uni : 0;
+          };
+          let nFlag = 0, nIou = 0;
           for (const f of scored) {
             const q = f.qF !== undefined ? f.qF : f.q0;
             const m = f.mF !== undefined ? f.mF : f.m0;
             f.o.mq = +q.toFixed(3);
+            let qi = iouOf(f.o);
+            // IOU-DRIVEN RE-POSE. The refiner above climbs on the photometric
+            // score alone, which is blind to a stamp sitting at the wrong
+            // angle or straddling two pills -- those score well on `cover` and
+            // on q while their filled shape plainly does not line up. A low
+            // IoU says a better pose exists; measured, 16 of 34 placements on
+            // s-eb90778f have one within reach (mean gain 0.089 IoU), and
+            // 2-3 of 19 on the real caplet photos.
+            //
+            // Only run on placements that are actually poor, and only ADOPT a
+            // clear improvement, so a well-fitted pill is never nudged.
+            if (qi < 0.60) {
+              const th0 = (f.o.theta !== undefined ? f.o.theta
+                : (f.o.shape ? f.o.shape.theta : 0)) || 0;
+              const x00 = f.o.cx, y00 = f.o.cy;
+              let bq = qi, bx = x00, by = y00, bt = th0;
+              for (let dth = -6; dth <= 6; dth++) {
+                for (let ox = -3; ox <= 3; ox++) for (let oy = -3; oy <= 3; oy++) {
+                  const nx = x00 + ox * 1.5, ny = y00 + oy * 1.5;
+                  const nt = th0 + dth * Math.PI / 36;
+                  const v = iouOf({ cx: nx, cy: ny, theta: nt });
+                  if (v > bq) { bq = v; bx = nx; by = ny; bt = nt; }
+                }
+              }
+              // A BETTER FIT THAT CREATES AN OVERLAP IS NOT BETTER. Optimising
+              // each placement in isolation pushes pills into their
+              // neighbours: measured, the first version took the geometry gate
+              // from 80 to 89 overlapping pairs and 16 to 24 duplicates. The
+              // cluster solver learned the same lesson; solids may not share
+              // pixels, whatever the score says.
+              const aa2 = Math.max(0, (fitEnv.maj - fitEnv.min) / 2);
+              const nbrs = [];
+              for (const g2 of scored) {
+                if (g2.o === f.o) continue;
+                if (Math.abs(g2.o.cx - x00) > 2 * fitEnv.maj) continue;
+                if (Math.abs(g2.o.cy - y00) > 2 * fitEnv.maj) continue;
+                const ot = (g2.o.theta !== undefined ? g2.o.theta
+                  : (g2.o.shape ? g2.o.shape.theta : 0)) || 0;
+                nbrs.push([g2.o.cx - Math.cos(ot) * aa2, g2.o.cy - Math.sin(ot) * aa2,
+                  g2.o.cx + Math.cos(ot) * aa2, g2.o.cy + Math.sin(ot) * aa2]);
+              }
+              const clash = (nx, ny, nt) => {
+                const sx = nx - Math.cos(nt) * aa2, sy = ny - Math.sin(nt) * aa2;
+                const ex = nx + Math.cos(nt) * aa2, ey = ny + Math.sin(nt) * aa2;
+                const seg = (ax, ay, bx, by, cx2, cy2) => {
+                  const vx = bx - ax, vy = by - ay, L2 = vx * vx + vy * vy;
+                  let t = L2 ? ((cx2 - ax) * vx + (cy2 - ay) * vy) / L2 : 0;
+                  t = t < 0 ? 0 : t > 1 ? 1 : t;
+                  return Math.hypot(cx2 - (ax + t * vx), cy2 - (ay + t * vy));
+                };
+                for (const [ox2, oy2, px2, py2] of nbrs) {
+                  const gap = Math.min(seg(ox2, oy2, px2, py2, sx, sy), seg(ox2, oy2, px2, py2, ex, ey),
+                    seg(sx, sy, ex, ey, ox2, oy2), seg(sx, sy, ex, ey, px2, py2));
+                  if (fitEnv.min - gap > 0.75) return true;
+                }
+                return false;
+              };
+              if (bq > qi + 0.05 && !clash(bx, by, bt)) {
+                f.o.cx = bx; f.o.cy = by;
+                if (f.o.theta !== undefined) f.o.theta = +bt.toFixed(3);
+                else if (f.o.shape) f.o.shape.theta = +bt.toFixed(3);
+                else f.o.theta = +bt.toFixed(3);
+                qi = bq;
+                nIou++;
+              }
+            }
+            f.o.iou = +qi.toFixed(3);
             if (m && m.qRel !== null && m.qRel !== undefined) f.o.mqRel = +m.qRel.toFixed(3);
             if (q < flagBar && canJudge) { f.o.mqBad = 1; f.o.valid = 0; nFlag++; }
           }
-          opts.debug?.({ stage: 'fitgate', pool: fitPool.length, n: scored.length,
+          opts.debug?.({ stage: 'fitgate', iouReposed: nIou, pool: fitPool.length, n: scored.length,
             refineBar: +refineBar.toFixed(3), flagBar: +flagBar.toFixed(3),
             q50: +fitCal.q50.toFixed(3),
             refined: nRef, improved: nImp, flagged: nFlag, canJudge: canJudge ? 1 : 0,
@@ -7982,7 +8095,14 @@ export function countPills(cv, source, opts = {}) {
           span: stampKernelUsed.KSPAN } : null,
         placements: regions.flatMap((g) => (g.pills && g.pills.length)
           ? g.pills.map((p2) => [p2.cx, p2.cy, p2.theta])
-          : (g.shape ? [[g.cx, g.cy, g.shape.theta]] : [])) };
+          : (g.shape ? [[g.cx, g.cy, g.shape.theta]] : [])),
+        // Per-placement fill overlap against the mask, in the same order as
+        // `placements`. This is the "would the filled shape line up" number;
+        // `cover` cannot express it because it only charges for stamp pixels
+        // on background, never for mask the stamp missed.
+        placementIou: regions.flatMap((g) => (g.pills && g.pills.length)
+          ? g.pills.map((p2) => (p2.iou === undefined ? null : p2.iou))
+          : (g.shape ? [g.iou === undefined ? null : g.iou] : [])) };
     }
     if (opts.variant === 'consensus') out.lowConfidence = lowConfidence;
     if (opts.variant === 'consensus' && consensusEligible <= 2 && regions.length) {
