@@ -709,7 +709,24 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
     if (pd[i] > p.peak) p.peak = pd[i];
   }
   preLab.delete(); preDist.delete();
-  const confirmed = [...pre.values()].filter((p) => p.area >= absFloor && p.peak >= 4);
+  // COMPACTNESS, so medA learns from pills rather than from the board.
+  // `confirmed` selects on area >= absFloor and peak >= 4, which a long thin
+  // wood-grain BAND passes as easily as a pill. medA is the median of these
+  // and every bound below is relative to it, so one bad median poisons the
+  // whole stage: measured on the adversarial wood chain, medA came out 4869
+  // against a true pill of ~530 and rescue admitted eight 12k-53k px pieces,
+  // counting 60 for 9.
+  //
+  // A pill's area is close to the disc implied by its own half-thickness
+  // (530px against pi*13^2 = 531, a ratio of 1.0). A band is many times that
+  // -- 12182px against pi*15.8^2 = 784, a ratio of 15.5. The test needs no
+  // scale estimate, only the component's own two measurements. 6x is generous
+  // enough for a touching pair or a short chain to survive.
+  const compactOnly = [...pre.values()].filter((p) => p.area >= absFloor && p.peak >= 4
+    && p.area <= 6 * Math.PI * p.peak * p.peak);
+  const confirmed = compactOnly.length >= 3
+    ? compactOnly
+    : [...pre.values()].filter((p) => p.area >= absFloor && p.peak >= 4);
   if (confirmed.length < 1) return 0;
   // A SHATTERED MASK HAS NO CONFIRMED PILLS TO LEARN FROM.
   // Everything below calibrates on medA, the median CONFIRMED-pill area. On a
