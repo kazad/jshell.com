@@ -4089,6 +4089,18 @@ export function countPills(cv, source, opts = {}) {
             // share a color; a blob well below the population's own median
             // brightness is surface, not product. The margin is wide (0.82)
             // so shadowed or dulled pills are never touched.
+            // TRIED AND REVERTED: exempting pill-sized blobs from this cull,
+            // for SPECULAR pills. The diagnosis is real -- a glossy pill is a
+            // small mirror, so its brightness is set by the angle it lies at,
+            // not by the medication, and on shiny/s-eb90778f five pills are
+            // discarded here, two of them 2773px and 2064px against a median
+            // pill area of 1435. Those are the missing outlines.
+            //
+            // But the exemption cannot be paid for. By SIZE alone it costs 7
+            // corpus images (239 -> 232); adding a length test still costs 3
+            // (239 -> 236), because genuine dark surface marks are frequently
+            // both pill-sized and pill-long. Whatever separates a dark pill
+            // from a dark smudge, it is not size or length.
             if (medLum > 0 && (blobLum.get(l) || 0) < 0.70 * medLum) junk.add(l);
           }
           if (junk.size) {
@@ -4888,10 +4900,30 @@ export function countPills(cv, source, opts = {}) {
           // answer. tools/bakeoff.mjs A/B/C-tests them on one corpus and
           // aborts if A ever diverges from the stored baseline — the seam
           // must be inert by construction.
+          // TRIED AND REVERTED: preferring the watershed marker count on a
+          // PHOTO-SEEDED blob. The evidence for it is strong -- measured over
+          // every photo-seeded blob where base exceeds ws, ws is closer to
+          // truth on 6 of 6 with total error 22 against base 70 (dense board
+          // base 142 / ws 129 / truth 120; hexraft-noise 28 / 7 / 7;
+          // stack-dark 18 / 16 / 8) -- and the COUNTS improve: dense 142 ->
+          // 129, hexraft-noise 42 -> 21, adversarial 35 -> 36 exact with
+          // spurious 170 -> 130.
+          //
+          // But the PICTURE collapses. Lowering k does not re-run the Lloyd
+          // placement for the new count, so the region keeps only a handful
+          // of outlines: dense went from finding 120/120 pills to 7/120, and
+          // adversarial per-pill fell 719 -> 577. That is the CANCELLING
+          // failure in its purest form -- a better number over a far worse
+          // picture. Any future attempt must re-place the region at the new k,
+          // not merely decrement the count.
           const vetoA = ks.length >= 2 && independent && !distancePairVsMass
             && !massContradicts && !belowLenFloor && k >= regs.length
             && (broadAmbiguity || k === a.unitsSum || corroboratedRise
               || corroboratedDescent);
+          // The photo-seeded ws answer is ADOPTED, not put to the vote. Setting
+          // k alone is not enough: ks becomes ['ws'], a single witness, so the
+          // ks.length >= 2 rule discards it and the baseline stands -- measured
+          // on the dense board, k went to 129 and the count still came out 142.
           let agreed = vetoA;
           if (COMBINER !== 'A') {
             // Weighted evidence. Each condition contributes rather than
@@ -7988,13 +8020,21 @@ export function countPills(cv, source, opts = {}) {
               const th0 = (f.o.theta !== undefined ? f.o.theta
                 : (f.o.shape ? f.o.shape.theta : 0)) || 0;
               const x00 = f.o.cx, y00 = f.o.cy;
+              // COARSE THEN FINE. The exhaustive 13 x 7 x 7 sweep is 637 full
+              // stadium rasterisations per poor placement and took the corpus
+              // bake from ~250s to ~380s. Two passes reach the same optimum in
+              // roughly a fifth of the work: a coarse pass at 3px / 15 degrees,
+              // then a fine pass around the winner at 1px / 5 degrees.
               let bq = qi, bx = x00, by = y00, bt = th0;
-              for (let dth = -6; dth <= 6; dth++) {
-                for (let ox = -3; ox <= 3; ox++) for (let oy = -3; oy <= 3; oy++) {
-                  const nx = x00 + ox * 1.5, ny = y00 + oy * 1.5;
-                  const nt = th0 + dth * Math.PI / 36;
-                  const v = iouOf({ cx: nx, cy: ny, theta: nt });
-                  if (v > bq) { bq = v; bx = nx; by = ny; bt = nt; }
+              for (const [step, dang, span] of [[3, Math.PI / 12, 2], [1, Math.PI / 36, 2]]) {
+                const cx0 = bx, cy0 = by, ct0 = bt;
+                for (let dth = -span; dth <= span; dth++) {
+                  for (let ox = -span; ox <= span; ox++) for (let oy = -span; oy <= span; oy++) {
+                    const nx = cx0 + ox * step, ny = cy0 + oy * step;
+                    const nt = ct0 + dth * dang;
+                    const v = iouOf({ cx: nx, cy: ny, theta: nt });
+                    if (v > bq) { bq = v; bx = nx; by = ny; bt = nt; }
+                  }
                 }
               }
               // A BETTER FIT THAT CREATES AN OVERLAP IS NOT BETTER. Optimising
@@ -8014,9 +8054,18 @@ export function countPills(cv, source, opts = {}) {
                 nbrs.push([g2.o.cx - Math.cos(ot) * aa2, g2.o.cy - Math.sin(ot) * aa2,
                   g2.o.cx + Math.cos(ot) * aa2, g2.o.cy + Math.sin(ot) * aa2]);
               }
-              const clash = (nx, ny, nt) => {
+              // How deep is this placement ALREADY embedded? A pill that
+              // starts inside its neighbour can never move if any overlap
+              // disqualifies the move -- measured on r-7ff7fd99, two real
+              // improvements (0.414 -> 0.479 and 0.364 -> 0.478) were both
+              // blocked outright, so iouReposed came out 0 on the very image
+              // the owner is looking at. refinePoses and the cluster solver
+              // both learned this: charge for penetration, never forbid it
+              // absolutely, or the bad arrangements are the ones you freeze.
+              const penOf = (nx, ny, nt) => {
                 const sx = nx - Math.cos(nt) * aa2, sy = ny - Math.sin(nt) * aa2;
                 const ex = nx + Math.cos(nt) * aa2, ey = ny + Math.sin(nt) * aa2;
+                let worstPen = 0;
                 const seg = (ax, ay, bx, by, cx2, cy2) => {
                   const vx = bx - ax, vy = by - ay, L2 = vx * vx + vy * vy;
                   let t = L2 ? ((cx2 - ax) * vx + (cy2 - ay) * vy) / L2 : 0;
@@ -8026,11 +8075,13 @@ export function countPills(cv, source, opts = {}) {
                 for (const [ox2, oy2, px2, py2] of nbrs) {
                   const gap = Math.min(seg(ox2, oy2, px2, py2, sx, sy), seg(ox2, oy2, px2, py2, ex, ey),
                     seg(sx, sy, ex, ey, ox2, oy2), seg(sx, sy, ex, ey, px2, py2));
-                  if (fitEnv.min - gap > 0.75) return true;
+                  const pen = fitEnv.min - gap;
+                  if (pen > worstPen) worstPen = pen;
                 }
-                return false;
+                return worstPen;
               };
-              if (bq > qi + 0.05 && !clash(bx, by, bt)) {
+              const pen0 = penOf(x00, y00, th0);
+              if (bq > qi + 0.05 && penOf(bx, by, bt) <= Math.max(0.75, pen0 + 0.01)) {
                 f.o.cx = bx; f.o.cy = by;
                 if (f.o.theta !== undefined) f.o.theta = +bt.toFixed(3);
                 else if (f.o.shape) f.o.shape.theta = +bt.toFixed(3);

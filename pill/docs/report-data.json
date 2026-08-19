@@ -1,0 +1,58 @@
+[
+ {
+  "f": "adv/adv-hexraft-dark-n19-s26-t100.png",
+  "before": 1,
+  "label": "Hex raft, dark board",
+  "after": 19,
+  "want": 19,
+  "shot": "report-shots/adv-hexraft-dark-n19-s26-t100.png"
+ },
+ {
+  "f": "adv/adv-hexraft-wood-n19-s26-t100.png",
+  "before": 1,
+  "label": "Hex raft, wood board",
+  "after": 19,
+  "want": 19,
+  "shot": "report-shots/adv-hexraft-wood-n19-s26-t100.png"
+ },
+ {
+  "f": "adv/adv-hexraft-dark-n37-s26-t100.png",
+  "before": 1,
+  "label": "37-pill raft, dark",
+  "after": 37,
+  "want": 37,
+  "shot": "report-shots/adv-hexraft-dark-n37-s26-t100.png"
+ },
+ {
+  "f": "adv/adv-cross-noise-n13-s26-t100.png",
+  "before": 261,
+  "label": "Crossed chains, noise",
+  "after": 13,
+  "want": 13,
+  "shot": "report-shots/adv-cross-noise-n13-s26-t100.png"
+ },
+ {
+  "f": "adv/adv-dense-light-n120-s26-t100.png",
+  "before": 41,
+  "label": "120-pill dense board",
+  "after": 142,
+  "want": 120,
+  "shot": "report-shots/adv-dense-light-n120-s26-t100.png"
+ },
+ {
+  "f": "adv/adv-ring-light-n12-s26-t102.png",
+  "before": 1,
+  "label": "Ring (hollow centre)",
+  "after": 12,
+  "want": 12,
+  "shot": "report-shots/adv-ring-light-n12-s26-t102.png"
+ },
+ {
+  "f": "shiny/s-eb90778f.jpg",
+  "before": 49,
+  "label": "Shiny beads (real photo)",
+  "after": 35,
+  "want": 34,
+  "shot": "report-shots/s-eb90778f.png"
+ }
+]

@@ -1,0 +1,222 @@
+[
+ {
+  "base": "r-7ff7fd99",
+  "note": "matte white caplets on brown",
+  "rows": [
+   {
+    "gap": 3,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 2.5,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 2.2,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 2,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 1.9,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 1.8,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 1.7,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   }
+  ]
+ },
+ {
+  "base": "s-eb90778f",
+  "note": "specular beads (gloss varies by angle)",
+  "rows": [
+   {
+    "gap": 3,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 2.5,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 2.2,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 2,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 1.9,
+    "count": 10,
+    "want": 9,
+    "found": 8,
+    "spur": 2
+   },
+   {
+    "gap": 1.8,
+    "count": 10,
+    "want": 9,
+    "found": 8,
+    "spur": 2
+   },
+   {
+    "gap": 1.7,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   }
+  ]
+ },
+ {
+  "base": "r-f5d11815",
+  "note": "speckled caplets",
+  "rows": [
+   {
+    "gap": 3,
+    "count": 10,
+    "want": 9,
+    "found": 9,
+    "spur": 1
+   },
+   {
+    "gap": 2.5,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 2.2,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 2,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 1.9,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 1.8,
+    "count": 10,
+    "want": 9,
+    "found": 9,
+    "spur": 1
+   },
+   {
+    "gap": 1.7,
+    "count": 10,
+    "want": 9,
+    "found": 9,
+    "spur": 1
+   }
+  ]
+ },
+ {
+  "base": "lined-bfdbfef9",
+  "note": "pale pills on ruled paper",
+  "rows": [
+   {
+    "gap": 3,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 2.5,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 2.2,
+    "count": 15,
+    "want": 9,
+    "found": 9,
+    "spur": 6
+   },
+   {
+    "gap": 2,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 1.9,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 1.8,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   },
+   {
+    "gap": 1.7,
+    "count": 9,
+    "want": 9,
+    "found": 9,
+    "spur": 0
+   }
+  ]
+ }
+]
