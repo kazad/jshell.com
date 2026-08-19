@@ -1,0 +1,23 @@
+{
+ "image": "testdata/clumps/s-0bfc44d8-c0-n3.png",
+ "size": [
+  288,
+  233
+ ],
+ "method": "EXACT — cropped from shiny/s-0bfc44d8.jpg truth by tools/gen-clumps.mjs",
+ "count": 3,
+ "centers": [
+  [
+   207.7,
+   80.2
+  ],
+  [
+   151.5,
+   97.1
+  ],
+  [
+   79.9,
+   152.7
+  ]
+ ]
+}

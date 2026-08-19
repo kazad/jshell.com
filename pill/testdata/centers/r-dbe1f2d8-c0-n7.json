@@ -1,0 +1,39 @@
+{
+ "image": "testdata/clumps/r-dbe1f2d8-c0-n7.png",
+ "size": [
+  143,
+  225
+ ],
+ "method": "EXACT — cropped from real/r-dbe1f2d8.jpg truth by tools/gen-clumps.mjs",
+ "count": 7,
+ "centers": [
+  [
+   101,
+   41
+  ],
+  [
+   58,
+   61
+  ],
+  [
+   71,
+   101
+  ],
+  [
+   93,
+   131
+  ],
+  [
+   65,
+   145
+  ],
+  [
+   83,
+   163
+  ],
+  [
+   41,
+   183
+  ]
+ ]
+}

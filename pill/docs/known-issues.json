@@ -116,6 +116,12 @@
   },
   "cluster-solver-measured-three-ways": {
    "note": "Cluster solver attribution, all three arms run on ONE build (183f7b3): solver OFF = 197 overlapping pairs / 59 duplicates / 85.1px worst over 59 of 219 images; solver ON with deletion BLOCKED = 145 / 44 / 43.1px over 48; solver ON with deletion ALLOWED = 80 / 16 / 39.8px over 45. So the solver is -59% pairs and -73% duplicates, and blocking deletion was silently costing 65 pairs and 28 duplicates. off-pill rises 6 -> 19: separating two stacked placements leaves one off its material, which is a visibly wrong outline traded for an invisible miscount. If a future change makes the solver look weaker, check whether something is rejecting its deletions before concluding the solver regressed."
+  },
+  "log-blob-is-not-a-detector": {
+   "note": "TRIED AND REJECTED: Laplacian-of-Gaussian at the known pill radius as a detector. In the region bake-off it posts the highest recall of any technique (97-100% on shiny/lined/real, and it is the ONLY technique that finds anything on lined paper where otsu and dt-peaks both score 0%), which makes it look like the answer. It is not: the ranking is worthless. On shiny/s-eb90778f the worst true pill ranks #4412 of 115328 peaks, so keeping the top 34 peaks recovers 3 of 34 pills. A shape score (disc uniformity x annulus contrast) was tried as a re-ranker and measured WORSE still: 0/34 in the top 34. The high recall is an artefact of generating ~115k candidates for 34 pills -- at that density almost anything is \"found\". Do not revisit without a fundamentally different candidate reduction."
+  },
+  "lone-witness-cannot-win-the-panel": {
+   "note": "RECURRING DEAD END, reached three times from different directions. On lined-bfdbfef9 blob 1 the votes are ws:19 mass:14 crease:10 ero:3; truth is ~14, so mass alone is right, and the panel discards it because ks.length>=2 requires two agreeing methods. The same shape appears on adv-dense-light (ws:126, truth 120, base 139 wins). It is tempting every time. MEASURED ANSWER (tools/panel-audit.mjs, 128 disagreeing blobs): base is closest on 72 blobs, mass on 13, ws on 5. On the wide-divergence slice (base vs mass differ >=1.5x, 20 blobs) base still wins 12 to 8. Letting a lone witness win loses far more than it gains. Note also that k >= regs.length and corroboratedDescent contradict each other -- the floor always wins -- but that is NOT the operative blocker: measured over six failing images, descent-blocked fired 0 times because ks.length>=2 fails first."
   }
  }
 }

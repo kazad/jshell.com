@@ -711,6 +711,34 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
   preLab.delete(); preDist.delete();
   const confirmed = [...pre.values()].filter((p) => p.area >= absFloor && p.peak >= 4);
   if (confirmed.length < 1) return 0;
+  // A SHATTERED MASK HAS NO CONFIRMED PILLS TO LEARN FROM.
+  // Everything below calibrates on medA, the median CONFIRMED-pill area. On a
+  // textured board the "confirmed pills" are grain: measured on the
+  // adversarial noise chain, 1531 components with a median of 21px against a
+  // largest of 5668px, and medA came out 127.5 -- so rUnit, the shadow
+  // polarity margins and the acceptance shape tests were all sized to noise.
+  // Rescue then reinstated hundreds of specks and the image counted 279 for 9.
+  //
+  // The grain purge later drops 1530 of them, but by then the damage is done:
+  // rescue runs at this point, long before any trustworthy scale exists.
+  // Refusing to run at all is the honest response -- rescue exists to recover
+  // pill material the threshold missed, and it cannot do that from a mask
+  // where it cannot tell a pill from the board.
+  {
+    const areas = [...pre.values()].map((q) => q.area).filter((a) => a >= 4).sort((a, b) => a - b);
+    const tot = areas.length;
+    const med = tot ? areas[tot >> 1] : 0;
+    const big = tot ? areas[tot - 1] : 0;
+    // Same two arms as the mask-shattered test later in the pipeline: the
+    // median-to-largest ratio needs a big fused blob to compare against, and a
+    // DENSE board of small pills has none. Measured on adv-dense-noise, 1627
+    // components with a median of 24px against a largest of only 789px, so the
+    // ratio arm alone missed it and rescue ran on pure grain.
+    if ((tot >= 150 && big > 0 && med < 0.02 * big) || tot >= 800) {
+      debug?.({ stage: 'rescue-refused', components: tot, medianArea: med, largest: big });
+      return 0;
+    }
+  }
   const medA = median(confirmed.map((p) => p.area));
   const medP = median(confirmed.map((p) => p.peak));
 
@@ -840,7 +868,18 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
       || (p.area > 2.2 * medA && p.area <= 12 * medA
         && p.peak >= 0.8 * rUnit && p.peak <= 1.35 * rUnit
         && p.lumSum >= (bgLum - 6) * p.newArea
-        && chainDensity(p) >= 0.55))
+        && chainDensity(p) >= 0.55
+        // A LARGE PIECE MUST CONTAIN A CONFIRMED PILL. This arm exists for a
+        // touching CHAIN of pills -- single-pill thickness, multi-unit area --
+        // which by definition already holds confirmed pill material. Nothing
+        // required that, so a wholly-new region qualified on shape alone.
+        // Measured on the adversarial wood chain: rescue admitted eight
+        // pieces of 12k-53k px, every one with newArea == area (no confirmed
+        // pill inside), because medA was 4869 -- itself learned from the wood
+        // GRAIN, so every medA-relative bound inherited the error. The image
+        // counted 60 for 9. Requiring a confirmed seed is scale-free and is
+        // what "extend a pill" already means.
+        && p.oldArea > 0))
     .map(([l]) => l));
   let added = 0;
   if (good.size && good.size <= 500) {
@@ -2278,7 +2317,53 @@ export function countPills(cv, source, opts = {}) {
     // 45.5% -> 81.3%, and every adversarial case whose R comes out correct is
     // EXACT — including a 37-pill hex raft and a 120-pill dense board that
     // previously returned count=1.
+    let shatteredMask = false;
     if (opts.acScale !== false) {
+      // SHATTERED MASK TEST. Board texture segments into hundreds of sub-pill
+      // specks; pills do not. Measured on the adversarial noise raft: 207
+      // components for 19 pills, 183 of them under a fifth of a pill's area,
+      // and the DT ridge reads their grain (4.2) rather than the pills (13).
+      // Only such a mask justifies overriding the ridge with a correlation
+      // pitch -- see the fallthrough in the estimator below.
+      shatteredMask = (() => {
+        const lab = new cv.Mat(), st = new cv.Mat(), ct = new cv.Mat();
+        const n = cv.connectedComponentsWithStats(bw, lab, st, ct);
+        // Judge by COMPONENT COUNT and the area distribution, never against
+        // radiusEst: sizing "tiny" as a fraction of pi*radiusEst^2 is circular
+        // -- the whole point is that radiusEst is measuring grain. Measured on
+        // the noise raft that circularity produced components 1068, tiny 4,
+        // because an 11px threshold derived from a 4.2px ridge is smaller than
+        // the specks themselves.
+        //
+        // A photo of pills has tens of components at most. A thousand-plus
+        // means the board is being segmented, and the giveaway is that the
+        // median component is a tiny fraction of the LARGEST one (the real
+        // pill material), which needs no scale estimate at all.
+        const areas = [];
+        for (let i = 1; i < n; i++) {
+          const a = st.intAt(i, cv.CC_STAT_AREA);
+          if (a >= 4) areas.push(a);
+        }
+        lab.delete(); st.delete(); ct.delete();
+        areas.sort((a, b) => a - b);
+        const tot = areas.length;
+        const med = tot ? areas[tot >> 1] : 0;
+        const big = tot ? areas[tot - 1] : 0;
+        // Two arms, because the median-to-largest ratio assumes a big fused
+        // blob exists to compare against. On a DENSE board of small pills
+        // nothing stands out: measured on adv-dense-noise, 1627 components
+        // with a median of 24px against a largest of only 789px -- ratio
+        // 0.030, just outside the 0.02 bar -- so the mask was NOT flagged and
+        // the image counted 385 for 200 with zero pills found. The noise chain
+        // by contrast has a 5668px raft and passes at 0.0037.
+        //
+        // Sheer count is the arm that survives that: a photo of pills does not
+        // produce a thousand components. Both arms are scale-free.
+        const bad = (tot >= 150 && big > 0 && med < 0.02 * big) || tot >= 800;
+        if (bad) opts.debug?.({ stage: 'mask-shattered', components: tot,
+          medianArea: med, largest: big });
+        return bad;
+      })();
       const acR = (() => {
         const bwd0 = bw.data;
         const w = src.cols, h = src.rows;      // `w`/`h` are declared later
@@ -2297,17 +2382,94 @@ export function countPills(cv, source, opts = {}) {
         for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { mean += lum(x, y); n++; }
         mean /= Math.max(1, n);
         const maxLag = Math.min(60, Math.floor((x1 - x0) / 2));
-        let bestLag = 0, bestV = -Infinity;
+        const curve = [];
+        // Start at lag 4, as the original did. Lags 2-3 are dominated by pure
+        // pixel-to-pixel self-similarity on EVERY photo, so including them
+        // makes the global maximum always land there -- measured, that alone
+        // took the fused hex rafts from 19 back to count=1 because the pitch
+        // came out 1 and fell under the acR > 3 floor.
         for (let lag = 4; lag <= maxLag; lag++) {
           let acc = 0, cnt = 0;
           for (let y = y0; y <= y1; y += 2) for (let x = x0; x + lag <= x1; x++) {
             acc += (lum(x, y) - mean) * (lum(x + lag, y) - mean); cnt++;
           }
-          if (!cnt) continue;
-          const v = acc / cnt;
-          if (v > bestV) { bestV = v; bestLag = lag; }
+          curve.push(cnt ? acc / cnt : 0);            // index i == lag (i + 4)
         }
-        return bestLag / 2;
+        if (curve.length < 6) return 0;
+        // THE PITCH IS A LOCAL PEAK, NOT THE GLOBAL MAXIMUM. On a textured
+        // board the correlation is dominated by the GRAIN, whose period is a
+        // couple of pixels: measured on the adversarial noise raft, the global
+        // maximum gave acR 2 against a true pill radius of 13, which fell
+        // under the acR > 3 floor and was silently discarded -- so the one
+        // witness that could have caught radiusEst 4.2 never spoke, and the
+        // image emitted 274 spurious pills.
+        //
+        // Skip the monotone decay off lag 0, then take the FIRST interior
+        // peak; fall back to the global maximum when no peak exists, so every
+        // image that reads correctly today keeps its answer.
+        let gPeak = -1, gv = -Infinity;
+        for (let i = 0; i < curve.length; i++) if (curve[i] > gv) { gv = curve[i]; gPeak = i; }
+        const gLag = gPeak + 4;
+        // The global maximum is the right answer on a clean board and is what
+        // every currently-passing image relies on. It only fails when board
+        // TEXTURE dominates the correlation, which shows up as a pitch of a
+        // few pixels -- far too small to be a pill. Measured on the
+        // adversarial noise raft: global max gave lag 4 (acR 2) against a true
+        // radius of 13, which fell under the acR > 3 floor and was discarded,
+        // so nothing corrected radiusEst 4.2 and the image emitted 274
+        // spurious pills.
+        //
+        // Only in that degenerate case fall through to the first interior
+        // peak. Applying first-peak everywhere measured WORSE: it over-reads
+        // on clean photos (r-dbe1f2d8 8.4 -> 24, r-cc7a2ada 10.3 -> 22, both
+        // locking onto a pair-spacing rather than the pill) and cost two exact
+        // images, 238 -> 236.
+        // A GLOBAL MAX AT THE VERY FIRST LAG CARRIES NO PITCH INFORMATION.
+        // The search starts at lag 4, so gLag === 4 means the correlation was
+        // still descending from its lag-0 spike -- board texture, not pills.
+        // That is a failure of the estimator whatever the mask looks like, and
+        // it is exactly what the first-interior-peak fallback is for.
+        //
+        // Measured on the dark and wood hex rafts: acR came out 2, failed the
+        // acR > 3 floor, was discarded, and radiusEst stayed at the fused
+        // blob's own peak (51.8 against a true 13) -- so massR read 1 and the
+        // whole raft collapsed to count=1. The light raft of the same geometry
+        // reads acR 13 and counts 19.
+        //
+        // Still not a blanket change: a blanket first-peak measured WORSE
+        // (238 -> 236), because on a clean photo it locks onto a PAIR spacing.
+        // It applies only when the global answer is degenerate or the mask is
+        // shattered -- in both cases there is no valid answer to displace.
+        if (!shatteredMask && gLag > 4) return gLag / 2;
+        // Reaching here means either the mask is shattered or the global
+        // maximum sat at the very first lag -- in both cases the global
+        // answer carries no pitch information, so scan for the first
+        // interior peak instead. Skip the monotone descent off lag 0 first:
+        // measured on the dark hex raft the curve falls from 2600 at lag 4
+        // to a minimum of 201 at lag 20, then peaks at 998 at lag 26 --
+        // exactly the true pitch (2 x R13). Starting the scan before the
+        // descent ends finds nothing.
+        let i0 = 0;
+        while (i0 + 1 < curve.length && curve[i0 + 1] <= curve[i0]) i0++;
+        for (let i = Math.max(1, i0); i + 1 < curve.length; i++) {
+          if (curve[i] > curve[i - 1] && curve[i] >= curve[i + 1]) {
+            const rPeak = (i + 4) / 2;
+            // THE RESCUE IS FOR AN OVER-READING RIDGE, NOT AN UNDER-READING ONE.
+            // A fused raft inflates the DT ridge far above one pill, and the
+            // correlation peak is then much SMALLER than the ridge -- the dark
+            // hex raft reads peak 13 against ridge 51.8 (0.25x), and adopting
+            // it takes the image from count=1 to 19 EXACT.
+            //
+            // When the peak sits well ABOVE the ridge it is a PAIR spacing,
+            // not a pill: r-dbe1f2d8 reads peak 24 against ridge 8.4 (2.9x)
+            // and r-cc7a2ada peak 22 against ridge 10.3 (2.1x). Adopting those
+            // cost both images (238 -> 236). A shattered mask is the one case
+            // where the ridge itself is untrustworthy, so it is exempt.
+            if (!shatteredMask && radiusEst > 0 && rPeak > 1.6 * radiusEst) break;
+            return rPeak;
+          }
+        }
+        return gLag / 2;
       })();
       // Correct in BOTH directions. The ridge under-reads on a low-contrast
       // board (pale pill, thin mask) and grossly OVER-reads on a fully fused
@@ -2320,6 +2482,35 @@ export function countPills(cv, source, opts = {}) {
         opts.debug?.({ stage: 'acscale', from: +radiusEst.toFixed(1), to: +acR.toFixed(1),
           ratio: +(acR / radiusEst).toFixed(2) });
         radiusEst = acR;
+      }
+
+      // GRAIN PURGE. absFloor is a fraction of the IMAGE (0.012 * min side)^2,
+      // computed long before any pill size is known -- 81px on a 1000x750
+      // photo. That is far below a real pill and lets board texture through:
+      // measured on the adversarial noise raft, 207 components survive to the
+      // geometry stage, 117 of them under a quarter of a pill's area, while
+      // exactly ONE is pill-sized. Those specks become 274 spurious pills.
+      //
+      // Once the correlation pitch has corrected radiusEst, a pill-relative
+      // floor is finally available. Scoped to the shattered case so a healthy
+      // mask -- where small components are engraving fragments worth keeping
+      // -- is untouched.
+      if (shatteredMask && radiusEst > 3) {
+        const floor2 = 0.25 * Math.PI * radiusEst * radiusEst;
+        const lab2 = new cv.Mat(), st2 = new cv.Mat(), ct2 = new cv.Mat();
+        const n2 = cv.connectedComponentsWithStats(bw, lab2, st2, ct2);
+        const drop = new Uint8Array(n2 + 1);
+        let dropped = 0;
+        for (let i = 1; i < n2; i++) {
+          if (st2.intAt(i, cv.CC_STAT_AREA) < floor2) { drop[i] = 1; dropped++; }
+        }
+        if (dropped) {
+          const ld = lab2.data32S, bd = bw.data;
+          for (let i = 0; i < ld.length; i++) if (drop[ld[i]]) bd[i] = 0;
+          opts.debug?.({ stage: 'grain-purge', dropped, kept: n2 - 1 - dropped,
+            floor: +floor2.toFixed(0), radiusEst: +radiusEst.toFixed(1) });
+        }
+        lab2.delete(); st2.delete(); ct2.delete();
       }
     }
 
@@ -2424,12 +2615,52 @@ export function countPills(cv, source, opts = {}) {
         if (!singleLayer) {
           const rEq = Math.sqrt(blobAreas[l] / Math.PI);      // radius of equal-area disc
           const compact = peaks[l] >= rEq * 0.72;             // peak ~ inradius => solid, not branched
-          if (compact && capacity >= 6) {
+          // A DISC IS NOT THE ONLY SINGLE LAYER. The compactness test asks
+          // "is this blob a disc?", which a hex raft is and a full BOARD of
+          // pills is not: measured on the adversarial dense case (120 pills
+          // covering the frame), peak 96.4 against a required 115.8, so the
+          // rescue declined and the watershed seeded only 34 markers in a
+          // blob holding 120 pills -- under-called by 86.
+          //
+          // The question that matters is not the outline's shape but whether
+          // the blob is ONE PILL THICK. Pills lying flat in a single layer
+          // cover an area proportional to their number, so area/pillArea
+          // tracks the count; a PILE hides area under the top layer and its
+          // area falls well short. A solid interior (no holes, high fill of
+          // its own bounding box) plus that area agreement is the honest
+          // single-layer signature, and it does not care how wide the sheet
+          // spreads.
+          // blobBox is not built yet at this point, so judge from the two
+          // quantities that are: the medial-axis depth and the area. A wide
+          // single layer has a deep peak BECAUSE it is wide, and its area
+          // still accounts for many whole pills at the measured scale.
+          const sheetLike = capacity >= 20 && radiusEst > 0
+            && peaks[l] >= 2.5 * radiusEst
+            && blobAreas[l] >= 20 * Math.PI * radiusEst * radiusEst;
+          if ((compact || sheetLike) && capacity >= 6) {
             singleLayer = true;
             opts.debug?.({ stage: 'compact-raft', blob: l, peak: +peaks[l].toFixed(1),
-              rEq: +rEq.toFixed(1), capacity: +capacity.toFixed(1) });
+              rEq: +rEq.toFixed(1), capacity: +capacity.toFixed(1),
+              via: compact ? 'disc' : 'sheet' });
           }
         }
+        // The capacity >= 8 floor excluded small rafts outright. Measured on
+        // the 7-pill dark and wood hex rafts: capacity 6.8 with ONE seed --
+        // starved by any reading, since got < capacity/3 holds comfortably --
+        // yet the rescue declined and both collapsed to count=1. A raft that
+        // holds 4+ pills and was seeded with a third of them is the same
+        // failure the rescue exists for, whatever its size.
+        // TRIED AND REVERTED: lowering this floor to admit small rafts. The
+        // 7-pill hex rafts have capacity 6.8 and are excluded here, so they
+        // collapse to count=1 on dark and wood backgrounds. Lowering to 4
+        // fixes all three, but costs r-cc7a2ada (19 -> 21) and no
+        // discriminator separates them: measured side by side, the raft reads
+        // area 3912 / capacity 6.8 / seeds 1 / peak 28 / thickR 2.07 and the
+        // real clump reads 2592 / 7.8 / 1 / 21.8 / 2.12 -- the same on every
+        // field the stage has. Requiring got <= 1 does not separate them
+        // either; both are seeded with exactly one marker.
+        // 1 corpus image is worth more than 2 adversarial ones, so the floor
+        // stays until a real discriminator exists.
         const starved = got < capacity / 3 && singleLayer && capacity >= 8;
         if (starved) sheetBlob.add(l);
         opts.debug?.({ stage: 'sheet', blob: l, area: blobAreas[l], capacity: +capacity.toFixed(1), seeds: got, peak: +peaks[l].toFixed(1), radiusEst: +radiusEst.toFixed(1), thickR: +(peaks[l] / radiusEst).toFixed(2), singleLayer, starved });
@@ -2459,7 +2690,38 @@ export function countPills(cv, source, opts = {}) {
       const W2 = src.cols, H2 = src.rows, sd2 = src.data;
       const lumAt = (x, y) => { const o = (y * W2 + x) * 4;
         return 0.299 * sd2[o] + 0.587 * sd2[o + 1] + 0.114 * sd2[o + 2]; };
-      const rad = Math.max(3, radiusEst);
+      // ISOLATED BLOBS OUTRANK THE DT RIDGE FOR SEED SPACING.
+      // A photo with a big fused clump plus a few pills standing alone has
+      // direct evidence of pill size: the lone blobs ARE single pills. The DT
+      // ridge is a thickness estimate and can be badly low when the mask is
+      // eroded -- measured on lined-bfdbfef9, radiusEst 29.2 against isolated
+      // blobs whose median area implies 42.7, and the pipeline's own later
+      // `unitfix` stage independently lands on 43.7 from the same singles.
+      //
+      // That stage runs long AFTER seeding, so the correction never reaches
+      // it: seeding used 29.2 and picked 43 seeds for a clump holding ~14
+      // pills. Recovering it here costs one median over blobs we already have.
+      let rad = Math.max(3, radiusEst);
+      {
+        const lone = [];
+        for (let l = 1; l < peaks.length; l++) {
+          if (sheetBlob.has(l)) continue;              // the fused clumps
+          const a = blobAreas[l];
+          if (a >= 0.35 * Math.PI * rad * rad && a <= 12 * Math.PI * rad * rad) lone.push(a);
+        }
+        if (lone.length >= 4) {
+          lone.sort((x, y) => x - y);
+          const rLone = Math.sqrt(lone[lone.length >> 1] / Math.PI);
+          // Only when they disagree materially, and only upward: a ridge that
+          // over-reads is the fused-raft case the autocorrelation already
+          // handles, and lowering here would undo it.
+          if (rLone > rad * 1.25) {
+            opts.debug?.({ stage: 'seedscale', from: +rad.toFixed(1),
+              to: +rLone.toFixed(1), lone: lone.length });
+            rad = rLone;
+          }
+        }
+      }
       // box-blur the luminance at a fraction of pill scale: kills sensor grain
       // without merging neighbouring highlights
       const br = Math.max(1, Math.round(rad * 0.22));
@@ -2502,7 +2764,7 @@ export function countPills(cv, source, opts = {}) {
         }
         cand.sort((a2, b2) => b2[2] - a2[2]);
         const picked = [];
-        const sep2 = (rad * 1.55) ** 2;    // solid discs: one diameter apart
+        const sep2 = (rad * 1.55) ** 2;    // solid discs: one diameter apart    // solid discs: one diameter apart
         for (const [x, y] of cand) {
           if (picked.some(([px, py]) => (px - x) ** 2 + (py - y) ** 2 < sep2)) continue;
           picked.push([x, y]);
@@ -3188,7 +3450,27 @@ export function countPills(cv, source, opts = {}) {
       // -- Unit-area calibration (same-medication prior), as in 'mass'. --
       const blobList = [];
       for (let l = 1; l < peaks.length; l++) {
-        if (blobAreas[l] >= absFloor && peaks[l] >= MIN_PEAK) blobList.push(l);
+        // On a SHATTERED mask absFloor is far too permissive: it is
+        // (0.012 * min side)^2 -- 81px on a 1000x750 photo -- fixed before any
+        // pill size is known. Measured on the adversarial noise raft, 207
+        // components clear it and 117 are under a QUARTER of a pill, which is
+        // where its 274 spurious pills come from. radiusEst is trustworthy on
+        // these images now (the correlation pitch corrected it), so a
+        // pill-relative floor is finally available.
+        // Area alone cannot separate grain from pills on a textured board:
+        // measured on the adversarial noise raft, 90 components clear a
+        // quarter-pill floor and only FOUR of them are plausibly a pill (area
+        // >= half a pill AND aspect < 2.2). The other 86 are grain and
+        // streaks, 31 with a median aspect of 2.5 -- long smears no tablet
+        // could be. Each then votes k:1 and becomes a counted pill.
+        //
+        // A quarter-pill floor is what measured best: raising it to HALF made
+        // the noise raft WORSE (289 -> 299), because removing mid-sized blobs
+        // let the remaining ones absorb more area and count higher. Area
+        // thresholds are not the lever for this failure.
+        const floorL = shatteredMask && radiusEst > 3
+          ? Math.max(absFloor, 0.25 * Math.PI * radiusEst * radiusEst) : absFloor;
+        if (blobAreas[l] >= floorL && peaks[l] >= MIN_PEAK) blobList.push(l);
       }
       // Calibrate on pill-sized blobs only. ONE MEDICATION PER PHOTO means
       // every pill is the same size, so blobs a small fraction of the biggest
@@ -7526,7 +7808,24 @@ export function countPills(cv, source, opts = {}) {
           const refineBar = Math.max(
             selfSorted[Math.max(0, Math.floor(0.2 * (selfSorted.length - 1)))],
             0.7 * fitCal.q50);
-          const flagBar = Math.min(selfSorted[0], 0.7 * fitCal.q50);
+          // A POISONED CALIBRATOR CANNOT SET ITS OWN FLOOR. flagBar is the
+          // WORST verified single on the photo, which is right when the pool
+          // really is pills -- that guard exists because a p20 bar condemned
+          // 11 of 48 correct placements on t3-cream-caplets-wood, whose real
+          // singles score as low as 0.030.
+          //
+          // But on a SHATTERED mask the pool is mostly board texture, so its
+          // worst sample is noise and the bar collapses to nothing. Measured
+          // on adv-cross-noise: pool 244, q50 0.724, flagBar 0.02, and ZERO
+          // of 261 placements flagged on an image where 254 are spurious.
+          //
+          // Only in that case fall back to the relative bar (0.7 * q50), which
+          // is derived from the pool's MEDIAN rather than its worst member and
+          // so survives contamination. Healthy photos are untouched: measured,
+          // r-7ff7fd99 also carries a low bar (0.027) and must keep it.
+          const flagBar = shatteredMask
+            ? 0.7 * fitCal.q50
+            : Math.min(selfSorted[0], 0.7 * fitCal.q50);
 
           // CAN THIS PHOTO'S CALIBRATOR ACTUALLY TELL GOOD FROM BAD?
           // Measured against the hand-annotated centres, the metric's ability

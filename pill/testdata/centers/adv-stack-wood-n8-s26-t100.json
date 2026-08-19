@@ -1,0 +1,43 @@
+{
+ "image": "testdata/adv/adv-stack-wood-n8-s26-t100.png",
+ "size": [
+  1000,
+  750
+ ],
+ "method": "EXACT — emitted by tools/gen-adversarial.html (window.__centers)",
+ "count": 8,
+ "centers": [
+  [
+   409,
+   375
+  ],
+  [
+   435,
+   375
+  ],
+  [
+   461,
+   375
+  ],
+  [
+   487,
+   375
+  ],
+  [
+   513,
+   375
+  ],
+  [
+   539,
+   375
+  ],
+  [
+   565,
+   375
+  ],
+  [
+   591,
+   375
+  ]
+ ]
+}

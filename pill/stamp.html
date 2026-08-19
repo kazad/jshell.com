@@ -47,6 +47,7 @@
   <button id="loadtruth" title="Load existing centers for this image">load truth</button>
   <button id="showstamp" title="Show the extracted pill, the learned stamp, and where it fits">stamp card</button>
   <span id="status" style="color:var(--dim)"></span>
+  <span id="overlapnote" style="color:#ff5a5a;font-weight:600"></span>
 </header>
 <!-- WHAT THE STAMP ACTUALLY IS. Shipping only a number for the template size
      hid a real defect for a long time: on the glossy photos the learned stamp
@@ -277,10 +278,51 @@ function draw(cursor) {
   // blank image made it easy to skip pills (a 33-vs-34 disagreement turned
   // out to be two missed beads plus one stray mark on bare leather).
   if (ghost.length && $('#showghost')?.checked) {
-    for (const [gx, gy] of ghost) {
-      ctx.beginPath(); ctx.arc(gx, gy, 5, 0, 6.284);
-      ctx.strokeStyle = 'rgba(120,200,255,.75)'; ctx.lineWidth = 2; ctx.stroke();
+    // DRAW THE FOOTPRINT, NOT A DOT. A bare centre dot carries no size and no
+    // angle, so an impossible arrangement looks fine: two dots can sit on one
+    // caplet and nothing on screen says so. Drawn at the stamp's own maj/min
+    // the intersections are unmissable.
+    const gth = (gx, gy) => {           // borrow the angle of the nearest placement
+      let bth = 0, bd = Infinity;
+      for (const [px, py, pth] of probe.placements) {
+        const d = (px - gx) ** 2 + (py - gy) ** 2;
+        if (d < bd) { bd = d; bth = pth || 0; }
+      }
+      return bth;
+    };
+    const gposes = ghost.map(([gx, gy]) => [gx, gy, gth(gx, gy)]);
+    // capsule-vs-capsule penetration at the DRAWN size: solids cannot share
+    // pixels, so any positive value is a physically impossible pair.
+    const half = Math.max(0, (probe.maj - probe.min) / 2);
+    const spine = (x, y, th) => [x - Math.cos(th) * half, y - Math.sin(th) * half,
+      x + Math.cos(th) * half, y + Math.sin(th) * half];
+    const segDist = (A, B) => {
+      const pt = (px, py, qx, qy, rx, ry) => {
+        const vx = rx - qx, vy = ry - qy, L = vx * vx + vy * vy;
+        let t = L ? ((px - qx) * vx + (py - qy) * vy) / L : 0;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        return Math.hypot(px - (qx + t * vx), py - (qy + t * vy));
+      };
+      return Math.min(pt(A[0], A[1], B[0], B[1], B[2], B[3]), pt(A[2], A[3], B[0], B[1], B[2], B[3]),
+        pt(B[0], B[1], A[0], A[1], A[2], A[3]), pt(B[2], B[3], A[0], A[1], A[2], A[3]));
+    };
+    const bad = new Set();
+    let worst = 0;
+    for (let i = 0; i < gposes.length; i++) for (let j = i + 1; j < gposes.length; j++) {
+      const pen = probe.min - segDist(spine(...gposes[i]), spine(...gposes[j]));
+      if (pen > 1) { bad.add(i); bad.add(j); if (pen > worst) worst = pen; }
     }
+    gposes.forEach(([gx, gy, gt], i) => {
+      ctx.lineWidth = bad.has(i) ? 2.5 : 1.5;
+      ctx.strokeStyle = bad.has(i) ? 'rgba(255,90,90,.95)' : 'rgba(120,200,255,.75)';
+      outline(gx, gy, gt);
+      ctx.beginPath(); ctx.arc(gx, gy, 2.5, 0, 6.284);
+      ctx.fillStyle = ctx.strokeStyle; ctx.fill();
+    });
+    if (bad.size) {
+      const el = $('#overlapnote');
+      if (el) el.textContent = `${bad.size} of ${gposes.length} outlines intersect · worst ${worst.toFixed(1)}px`;
+    } else { const el = $('#overlapnote'); if (el) el.textContent = ''; }
   }
   // placed marks: draggable stamps. Selected one is brighter with end grips.
   marks.forEach((m, i) => {

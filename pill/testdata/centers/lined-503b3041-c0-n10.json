@@ -1,0 +1,51 @@
+{
+ "image": "testdata/clumps/lined-503b3041-c0-n10.png",
+ "size": [
+  476,
+  380
+ ],
+ "method": "EXACT — cropped from lined/lined-503b3041.jpg truth by tools/gen-clumps.mjs",
+ "count": 10,
+ "centers": [
+  [
+   257,
+   55
+  ],
+  [
+   329,
+   112
+  ],
+  [
+   274,
+   158
+  ],
+  [
+   329,
+   205
+  ],
+  [
+   79,
+   290
+  ],
+  [
+   162,
+   285
+  ],
+  [
+   211,
+   300
+  ],
+  [
+   246,
+   283
+  ],
+  [
+   292,
+   280
+  ],
+  [
+   396,
+   272
+  ]
+ ]
+}
