@@ -175,6 +175,13 @@
     "next-iteration": "tighten the cut: require components to touch the blob rim AND border background (a cast shadow lies between pill and board); try min component 8% and cap 40%; diagnose t3 (+4 suggests the cut SPLIT blobs into extra pieces) before re-attempting.",
     "t3-diagnosis": "DIAGNOSED: t3 is white tablets heaped on a BRIGHT YELLOW board. Inter-pill shadow seams are dark (<0.45 p75) and board-hued (dC>=20 from the white body), so both gates passed and the cut deleted the seams BETWEEN touching pills -- splitting fused blobs and double-counting contacts (+4). Refinement confirmed: a candidate component may only be cut if a majority of its boundary touches BACKGROUND (peripheral lobe), never when it borders pill material on both sides (seam). Seams must stay in the mask; the watershed owns them."
    }
+  },
+  "0bfc-half-bead-calibration": {
+   "date": "2026-08-20",
+   "verdict": "OPEN \u2014 diagnosed",
+   "what": "s-0bfc44d8 (-2): glare splits every bead lengthwise; region medSingle calibrates to a HALF-bead (whole beads read 2.0-2.07x medSingle at units=1), so the region-level unit is half the truth",
+   "measured": "splotchkill wholesale-refused (14/37 doomed, population inversion). Misses at blobs 1/9/13 (areas 0.65-1.02 x blob-unit); spurious from blob 56 (massR 1.52) raised to units=2 by arc. The blob-level unit (~2600) is right; the REGION-level medSingle (~1283) is the half.",
+   "next": "Reconcile region medSingle against blob-level unit: when regions systematically read ~0.5 x the blob unit on a population whose blobs are single (massR ~1), the watershed is splitting on glare seams -- merge half-regions along the glare axis before counting. Same lengthwise-glare signature the advil photos carry."
   }
  }
 }

@@ -3312,6 +3312,7 @@ export function countPills(cv, source, opts = {}) {
           return 255 * (Math.abs(a2.r / t2 - 1 / 3) + Math.abs(a2.g / t2 - 1 / 3)
             + Math.abs(a2.b / t2 - 1 / 3)) >= 45;
         };
+        let regLum = null, popLumS = 0;
         const kept = [];
         for (const r of regions) {
           const sh = shapes[io[Math.round(r.cy) * w + Math.round(r.cx)] || 0];
@@ -3337,10 +3338,47 @@ export function countPills(cv, source, opts = {}) {
           // room above the splotch, and 0.85 breaks nothing across 267 images.
           const misshapen = sh && (sh.solidity < 0.85 || sh.circularity < 0.50);
           const undersized = sh && sh.area < 0.75 * medGood;
-          if (misshapen && undersized && !overReach && !regionColoured(r)) {
+          const isoD2 = (() => {
+            let best = Infinity;
+            for (const r2 of regions) {
+              if (r2 === r) continue;
+              const d = Math.hypot(r2.cx - r.cx, r2.cy - r.cy);
+              if (d < best) best = d;
+            }
+            return best;
+          })();
+          // LUMINANCE-BAND RESCUE. Among this stage's doomed, glare-shredded
+          // PILLS read at the population's own body luminance while board-
+          // glare streaks -- which pass every shape, size, isolation, and
+          // hue test (all measured on s-eb90778f) -- are the bright marks
+          // that segmented in the first place. Sample each region's
+          // interior; a doomed region inside [0.65, 1.35] x the kept
+          // population's median is product.
+          if (regLum === null) {
+            const sdL = src.data, chL = src.channels();
+            regLum = (rr) => {
+              const rad = Math.max(3, 0.4 * Math.sqrt((rr.area || 200) / Math.PI));
+              let sum = 0, n = 0;
+              for (let dy = -rad; dy <= rad; dy += 2) for (let dx = -rad; dx <= rad; dx += 2) {
+                if (dx * dx + dy * dy > rad * rad) continue;
+                const x = Math.round(rr.cx + dx), y = Math.round(rr.cy + dy);
+                if (x < 0 || y < 0 || x >= w || y >= h) continue;
+                const o = (y * w + x) * chL;
+                sum += (sdL[o] + sdL[o + 1] + sdL[o + 2]) / 3; n++;
+              }
+              return n ? sum / n : 0;
+            };
+            const all = regions.map((rr) => regLum(rr)).sort((q, r2) => q - r2);
+            popLumS = all.length ? all[all.length >> 1] : 0;
+          }
+          const rl = regLum(r);
+          const lumBand = popLumS > 0 && rl >= 0.65 * popLumS && rl <= 1.35 * popLumS;
+          if (misshapen && undersized && !overReach && !regionColoured(r)
+            && !lumBand) {
             opts.debug?.({ stage: 'splotchkill', arm: 'shape', cx: r.cx, cy: r.cy,
               area: sh.area, sol: +sh.solidity.toFixed(3), circ: +sh.circularity.toFixed(3),
-              medGood: +medGood.toFixed(0) });
+              medGood: +medGood.toFixed(0), isoD: +isoD2.toFixed(0),
+              rl: +rl.toFixed(0), pop: +popLumS.toFixed(0) });
             count -= r.units; continue; } // splotch
           // SIZE-ONLY veto. One photo holds ONE medication, so every pill is
           // the same size; a blob far below the population's area is not a
@@ -3354,10 +3392,11 @@ export function countPills(cv, source, opts = {}) {
           // LENGTH but projects only ~2/3 the area. 0.45 sits well below
           // that 0.67 so on-edge pills are never touched, while the
           // measured splotches (0.34x on r-96e5f08f) fall clearly outside.
-          if (sh && sh.area < 0.45 * medGood && !overReach && !regionColoured(r)) {
+          if (sh && sh.area < 0.45 * medGood && !overReach && !regionColoured(r)
+            && !(lumBand && sh.area >= 0.3 * medGood)) {
             opts.debug?.({ stage: 'splotchkill', arm: 'size', cx: r.cx, cy: r.cy,
               area: sh.area, sol: +sh.solidity.toFixed(3), circ: +sh.circularity.toFixed(3),
-              medGood: +medGood.toFixed(0) });
+              medGood: +medGood.toFixed(0), isoD: +isoD2.toFixed(0) });
             count -= r.units; continue; }
           kept.push(r);
         }
@@ -5763,9 +5802,29 @@ export function countPills(cv, source, opts = {}) {
             // s112 blob 10 (hV=circOn=8, kFinal0h=9, massFrac 8.11 — 9
             // markers on 8 pills, +1); in both photos the image-level census
             // equalled the true count exactly (120 circles for 120 pills).
+            // ...and the blob's own SEAMS must not certify the higher
+            // answer. The census being complete IMAGE-wide (s258 runs
+            // 119/120, censusStrong) says nothing about one crowded blob:
+            // there the census found 5 of 6 true centres, mass read 4.99
+            // for six small tight-masked pills, and this arm deleted a real
+            // pill. The blob's luma relief is the independent witness the
+            // sibling arm below already consults -- a genuine k-clump holds
+            // k-1 deep merge events (measured here: five events at 67-86
+            // against a 19 floor, an emphatic refusal), while a split
+            // single has nothing to show at its phantom seam.
+            let hdSeamOk = true;
             if (!arcTo && !agreed && circOn >= 1 && hV === circOn
               && kFinal0h === circOn + 1
               && Math.abs(massFrac - circOn) < 0.25) {
+              if (!seam && a.box) seam = seamSpectrum(src.data, w, h, bl, w, l, a.box);
+              const iqrH = seam ? Math.max(1, seam.p75 - seam.p25) : 0;
+              hdSeamOk = !(seam && kFinal0h >= 2
+                && seam.events.length >= kFinal0h - 1
+                && seam.events[kFinal0h - 2].v >= 0.67 * iqrH);
+            }
+            if (!arcTo && !agreed && circOn >= 1 && hV === circOn
+              && kFinal0h === circOn + 1
+              && Math.abs(massFrac - circOn) < 0.25 && hdSeamOk) {
               arcTo = circOn;
               opts.debug?.({ stage: 'houghdesc', blob: l, from: kFinal0h,
                 to: circOn, massFrac: +massFrac.toFixed(2) });
@@ -5973,8 +6032,17 @@ export function countPills(cv, source, opts = {}) {
               // require clumpUnitFired: here the raise must additionally be
               // seam-certified below, so the blanket-relaxation hazard that
               // motivated the narrow scope there does not arise.
-              const capPeakS = (ridgePk > 0 && peaks[l] > 1.5 * ridgePk)
-                ? ridgePk : peaks[l];
+              // The 1.5x junction test is a knife-edge that decides this
+              // gate: s140 blob 12 (a true 6-clump) reads peak 22.8 against
+              // ridge 15.4 -- 1.48x, junction-inflated by pills abreast --
+              // missed the test by 0.3px, so capacity came out 5 and the
+              // correct 6 was filtered before the partition could be built.
+              // The ridge median IS one pill's half-width, so when it was
+              // measured it is the honest denominator; allow the blob's own
+              // peak only the 15% of headroom a genuinely thicker pill
+              // needs, and fall back to the peak when no ridge exists.
+              const capPeakS = ridgePk > 0
+                ? Math.min(peaks[l], 1.15 * ridgePk) : peaks[l];
               const capacityS = peaks[l] >= MIN_PEAK
                 ? Math.max(1, Math.floor((2 * blobAreas[l]) / (Math.PI * capPeakS * capPeakS)))
                 : Infinity;
@@ -6035,10 +6103,24 @@ export function countPills(cv, source, opts = {}) {
                   // a second ring inside one pill. Round templates only:
                   // capsule medications legitimately produce elongated cells
                   // (the r-cc7a2ada / c-2448027d wins live there).
+                  // ...judged on the POPULATION, not the worst cell. One
+                  // medication means the cells must look like that pill in
+                  // the main, and a basin partition always leaves its
+                  // boundary cells slightly stretched: s140 blob 12 is a
+                  // true 6-clump whose split scored five cells at 1.03-1.18
+                  // and one at 1.77, and that single cell vetoed the whole
+                  // (correct) partition. The advil-2 failure this rule was
+                  // built for had HALF its cells over the bar (1.7 and 1.54
+                  // of 3), so a majority test still refuses it. Any cell
+                  // beyond 2.2x the template stays an outright veto -- that
+                  // is a fragment, not a stretched basin.
                   if (ok && cells && template && template.aspect <= 1.25) {
+                    let over = 0;
                     for (const cl of cells) {
-                      if (cl.aspect > template.aspect * 1.35) { photoOk = false; break; }
+                      if (cl.aspect > template.aspect * 2.2) { photoOk = false; break; }
+                      if (cl.aspect > template.aspect * 1.35) over++;
                     }
+                    if (photoOk && over > cells.length / 3) photoOk = false;
                   }
                   opts.debug?.({ stage: 'seamcells', blob: l, k: kAcc,
                     valid: ok, photoOk,
