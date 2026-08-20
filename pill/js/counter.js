@@ -8094,6 +8094,10 @@ export function countPills(cv, source, opts = {}) {
             if (m && m.qRel !== null && m.qRel !== undefined) f.o.mqRel = +m.qRel.toFixed(3);
             if (q < flagBar && canJudge) { f.o.mqBad = 1; f.o.valid = 0; nFlag++; }
           }
+          // Stash the scorer for a final backfill: the cluster solver runs
+          // AFTER this gate and its write-back creates fresh pill objects, so
+          // a backfill here still leaves nulls (measured: 4 on s-0bfc44d8).
+          regions.__iouOf = iouOf;
           opts.debug?.({ stage: 'fitgate', iouReposed: nIou, pool: fitPool.length, n: scored.length,
             refineBar: +refineBar.toFixed(3), flagBar: +flagBar.toFixed(3),
             q50: +fitCal.q50.toFixed(3),
@@ -8106,6 +8110,7 @@ export function countPills(cv, source, opts = {}) {
 
     if (deferredGeometry) { try { deferredGeometry(); } catch { /* debug only */ } }
 
+
     const out = { count, regions, scale, boundaries, width: w, height: h, unitArea, thr: otsuThr };
     if (out2Template) out.templateInfo = out2Template;
     // For the interactive stamp tester (/pill/stamp): the exact shape and
@@ -8117,6 +8122,28 @@ export function countPills(cv, source, opts = {}) {
     // measured on s261, running the solver before them left 0 overlapping
     // pairs and those two stages put 3 back at 19.1px.
     if (regions.__runClusterSolve) { regions.__runClusterSolve(); delete regions.__runClusterSolve; }
+
+    // NO PLACEMENT ESCAPES SCORING. An unscored placement carries a null
+    // IoU: drawn in the neutral colour, never flagged, never re-posed -- the
+    // owner found one sitting on pure black. This is the last point where
+    // placements can change, so every survivor gets a real number here.
+    if (regions.__iouOf) {
+      const f2 = regions.__iouOf;
+      for (const g3 of regions) {
+        if (g3.pills) {
+          for (const p3 of g3.pills) {
+            if (p3.iou === undefined) p3.iou = +f2(p3).toFixed(3);
+          }
+        } else if (g3.shape && g3.iou === undefined) {
+          // ANY shape region exports a placement, not only single-unit ones --
+          // the probe emits [cx, cy, theta] whenever g.shape exists. The four
+          // null-IoU placements on s-0bfc44d8 were multi-unit badge regions
+          // that a units === 1 condition here skipped.
+          g3.iou = +f2({ cx: g3.cx, cy: g3.cy, theta: g3.shape.theta || 0 }).toFixed(3);
+        }
+      }
+      delete regions.__iouOf;
+    }
 
     if (opts.exportProbe) {
       // Self-contained: the probe must NOT depend on the template card
