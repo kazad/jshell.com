@@ -1,0 +1,43 @@
+{
+ "image": "testdata/adv/adv-shadowlone-wood-n8-s26-t100.png",
+ "size": [
+  1000,
+  750
+ ],
+ "method": "EXACT — emitted by tools/gen-adversarial.html (window.__centers)",
+ "count": 8,
+ "centers": [
+  [
+   140,
+   150
+  ],
+  [
+   370,
+   150
+  ],
+  [
+   600,
+   150
+  ],
+  [
+   830,
+   150
+  ],
+  [
+   140,
+   360
+  ],
+  [
+   370,
+   360
+  ],
+  [
+   600,
+   360
+  ],
+  [
+   830,
+   360
+  ]
+ ]
+}

@@ -1,0 +1,39 @@
+{
+ "image": "testdata/adv/adv-shadowchain-wood-n7-s26-t100.png",
+ "size": [
+  1000,
+  750
+ ],
+ "method": "EXACT — emitted by tools/gen-adversarial.html (window.__centers)",
+ "count": 7,
+ "centers": [
+  [
+   130,
+   375
+  ],
+  [
+   146.5,
+   383.1
+  ],
+  [
+   163,
+   391.3
+  ],
+  [
+   179.5,
+   399.4
+  ],
+  [
+   195.9,
+   407.6
+  ],
+  [
+   212.4,
+   415.7
+  ],
+  [
+   228.9,
+   423.9
+  ]
+ ]
+}

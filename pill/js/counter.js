@@ -1305,7 +1305,9 @@ function blobAxes(bl, w, l, box) {
   const tr = cxx + cyy, det = cxx * cyy - cxy * cxy;
   const disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
   const l1 = tr / 2 + disc, l2 = Math.max(0, tr / 2 - disc);
-  return { major: 4 * Math.sqrt(Math.max(0, l1)), minor: 4 * Math.sqrt(l2) };
+  // principal-axis angle: eigenvector of the larger eigenvalue
+  const theta = Math.atan2(l1 - cxx, cxy) || 0;
+  return { major: 4 * Math.sqrt(Math.max(0, l1)), minor: 4 * Math.sqrt(l2), theta };
 }
 
 // -- SHAPE CLASSIFICATION (one medication => one shape) ---------------------
@@ -2193,12 +2195,15 @@ export function countPills(cv, source, opts = {}) {
       for (let i = 0; i < lp.length; i++) {
         if (!lp[i]) continue;
         let s = st.get(lp[i]);
-        if (!s) { s = { a: 0, mx: 0, pk: 0, r: 0, g: 0, b: 0, edge: 0 }; st.set(lp[i], s); }
+        if (!s) { s = { a: 0, mx: 0, pk: 0, r: 0, g: 0, b: 0, edge: 0,
+          x0: W, y0: H, x1: 0, y1: 0 }; st.set(lp[i], s); }
         s.a++;
         if (dbv[i] > s.mx) s.mx = dbv[i];
         if (dp[i] > s.pk) s.pk = dp[i];
         const x = i % W, y = (i / W) | 0;
         if (x === 0 || y === 0 || x === W - 1 || y === H - 1) s.edge++;
+        if (x < s.x0) s.x0 = x; if (x > s.x1) s.x1 = x;
+        if (y < s.y0) s.y0 = y; if (y > s.y1) s.y1 = y;
         const q = i * 4;
         s.r += sdp[q]; s.g += sdp[q + 1]; s.b += sdp[q + 2];
       }
@@ -2209,10 +2214,37 @@ export function countPills(cv, source, opts = {}) {
       // border have tiny contact runs.
       {
         const mdp = bw.data;
+        let fgAll = 0;
+        for (const s of st.values()) fgAll += s.a;
         for (const [l, s] of st) {
-          if (s.edge >= 0.2 * Math.max(W, H) && s.a > 4 * Math.PI * s.pk * s.pk) {
+          // The pk arm fails exactly on the strips it exists for: a band
+          // hugging the border has its DT inflated by the OPEN border side
+          // (shiny/s-eb90778f: a 45px-wide white strip reads pk 46, so
+          // 4pi*pk^2 = 26.6k exceeds its 8.9k area and removal is refused --
+          // that strip became 8 spurious pills). The second arm keys on the
+          // blob's own bounding box: a strip is THIN (45x371 here, 8.2:1), a
+          // pill pile is not. area/edge thickness was tried first and it
+          // DELETED A 120-PILL RAFT: a frame-filling blob touches all four
+          // borders, its summed contact (1148px) dwarfs area/edge, and the
+          // whole board went to count 0. Contact length alone cannot tell a
+          // band from a raft; the bbox aspect can. Pills tangent to the
+          // border touch it a few px each and never accumulate the 20%
+          // contact run, so isolated pills and chains stay out of reach.
+          const bwid = s.x1 - s.x0 + 1, bhei = s.y1 - s.y0 + 1;
+          const thin = Math.min(bwid, bhei) < 0.15 * Math.max(bwid, bhei);
+          // ...and the band must be a MINOR part of the foreground. On the
+          // dense 120-pill adversarial board the fused top of the raft plus
+          // its lighting band forms a 1000x101 blob holding over half the
+          // scene's foreground; bbox thinness alone deleted it and the whole
+          // board went to count 0. A genuine second-background strip (the
+          // white sliver on s-eb90778f: 8.9k of ~65k fg, 14%) never owns the
+          // scene.
+          if (s.edge >= 0.2 * Math.max(W, H)
+            && (s.a > 4 * Math.PI * s.pk * s.pk
+              || (thin && s.a < 0.3 * fgAll))) {
             for (let i = 0; i < lp.length; i++) if (lp[i] === l) mdp[i] = 0;
-            opts.debug?.({ stage: 'strip', a: s.a, pk: s.pk, edge: s.edge });
+            opts.debug?.({ stage: 'strip', a: s.a, pk: s.pk, edge: s.edge,
+              box: [s.x0, s.y0, s.x1, s.y1] });
             st.delete(l);
           }
         }
@@ -2477,12 +2509,23 @@ export function countPills(cv, source, opts = {}) {
             // hex raft reads peak 13 against ridge 51.8 (0.25x), and adopting
             // it takes the image from count=1 to 19 EXACT.
             //
-            // When the peak sits well ABOVE the ridge it is a PAIR spacing,
-            // not a pill: r-dbe1f2d8 reads peak 24 against ridge 8.4 (2.9x)
-            // and r-cc7a2ada peak 22 against ridge 10.3 (2.1x). Adopting those
-            // cost both images (238 -> 236). A shattered mask is the one case
-            // where the ridge itself is untrustworthy, so it is exempt.
-            if (!shatteredMask && radiusEst > 0 && rPeak > 1.6 * radiusEst) break;
+            // When the peak sits ABOVE the ridge it is a PAIR spacing or the
+            // board's own period, not a pill: r-dbe1f2d8 reads peak 24 against
+            // ridge 8.4 (2.9x) and r-cc7a2ada peak 22 against ridge 10.3
+            // (2.1x). Adopting those cost both images (238 -> 236).
+            //
+            // The exemption used to be shatteredMask -- wrong discriminator.
+            // On lined-69204ff4, one-quantum jitter shatters the mask, the
+            // exemption opens, and the scan adopts 21.5 against a 14.2 ridge
+            // (ratio 1.51: the RULED-LINE spacing of the paper), collapsing
+            // the count from 22 to 13 against truth 20. What actually marks
+            // the legitimate rescue is the ridge reading GRAIN: the dark hex
+            // raft's shattered mask gives ridge 4.2 against true pill 13. So
+            // exempt on ridge implausibility (< 8px is texture, not a pill),
+            // and when the ridge IS pill-plausible refuse any above-adoption
+            // peak (1.25x, the same bar the adoption below uses) no matter
+            // what the mask looks like.
+            if (radiusEst >= 8 && rPeak > 1.25 * radiusEst) break;
             return rPeak;
           }
         }
@@ -2786,6 +2829,19 @@ export function countPills(cv, source, opts = {}) {
           if (picked.some(([px, py]) => (px - x) ** 2 + (py - y) ** 2 < sep2)) continue;
           picked.push([x, y]);
         }
+        // CLAMP TO CAPACITY. The spacing rule alone admits every candidate a
+        // diameter apart, which on lined-bfdbfef9 picks 20 seeds into a blob
+        // whose area holds 13.6 pills. The six extra markers start a partition
+        // that downstream merging must undo, and WHICH merges happen flips on
+        // one-quantum input noise: jittered counts ran [18,18,28,29,19,18,20].
+        // Capacity is area / (pi rad^2) -- stable across jitter (13.6 vs 13.8
+        // measured) -- and the candidates are already sorted by strength, so
+        // keeping the strongest ceil(capacity) is both more accurate and far
+        // less brittle than keeping everything the spacing admits.
+        {
+          const capN = Math.ceil(blobAreas[l] / (Math.PI * rad * rad)) + 1;
+          if (picked.length > capN) picked.length = capN;
+        }
         opts.debug?.({ stage: 'photoseed-try', blob: l, cand: cand.length,
           picked: picked.length, rad: +rad.toFixed(1) });
         if (picked.length > 1) {
@@ -3048,6 +3104,51 @@ export function countPills(cv, source, opts = {}) {
             regions: regions.length, doomed: doomed.length,
             wellFormed: wellFormed.length, medGood: +medGood.toFixed(0) });
         }
+        // NEUTRAL-BOARD COLOR EXEMPTION -- the same rule lenjunk ships (and
+        // the OPPOSITE of the population-matching version measured and
+        // reverted on s-eb90778f, where the brown leather's glare streaks
+        // are red-brown too). On a NEUTRAL board every shadow and stain is
+        // neutral, so a strongly colored region is product: s298's blob 39
+        // is a dark-green half-capsule whose region (583.5px) sits 4px under
+        // the 0.45x size floor. The board gate keeps every saturated-board
+        // photo (wood, kraft, leather) out of reach.
+        let bgSatK = 255;
+        {
+          const sdK = src.data, chK = src.channels();
+          const rsK = [], gsK = [], bsK = [];
+          for (let x = 0; x < w; x += 4) {
+            for (const y of [0, h - 1]) {
+              const o = (y * w + x) * chK;
+              rsK.push(sdK[o]); gsK.push(sdK[o + 1]); bsK.push(sdK[o + 2]);
+            }
+          }
+          const rK = median(rsK), gK = median(gsK), bK = median(bsK);
+          const tK = Math.max(1, rK + gK + bK);
+          bgSatK = 255 * (Math.abs(rK / tK - 1 / 3) + Math.abs(gK / tK - 1 / 3)
+            + Math.abs(bK / tK - 1 / 3));
+        }
+        const chromCache = new Map();
+        const regionColoured = (r) => {
+          if (bgSatK >= 20) return false;
+          const si = io[Math.round(r.cy) * w + Math.round(r.cx)] || 0;
+          if (!si) return false;
+          if (chromCache.size === 0) {
+            const sdK = src.data, chK = src.channels();
+            for (let i = 0; i < w * h; i++) {
+              const s2 = io[i];
+              if (!s2) continue;
+              let a2 = chromCache.get(s2);
+              if (!a2) { a2 = { r: 0, g: 0, b: 0 }; chromCache.set(s2, a2); }
+              const o = i * chK;
+              a2.r += sdK[o]; a2.g += sdK[o + 1]; a2.b += sdK[o + 2];
+            }
+          }
+          const a2 = chromCache.get(si);
+          if (!a2) return false;
+          const t2 = Math.max(1, a2.r + a2.g + a2.b);
+          return 255 * (Math.abs(a2.r / t2 - 1 / 3) + Math.abs(a2.g / t2 - 1 / 3)
+            + Math.abs(a2.b / t2 - 1 / 3)) >= 45;
+        };
         const kept = [];
         for (const r of regions) {
           const sh = shapes[io[Math.round(r.cy) * w + Math.round(r.cx)] || 0];
@@ -3073,7 +3174,7 @@ export function countPills(cv, source, opts = {}) {
           // room above the splotch, and 0.85 breaks nothing across 267 images.
           const misshapen = sh && (sh.solidity < 0.85 || sh.circularity < 0.50);
           const undersized = sh && sh.area < 0.75 * medGood;
-          if (misshapen && undersized && !overReach) {
+          if (misshapen && undersized && !overReach && !regionColoured(r)) {
             opts.debug?.({ stage: 'splotchkill', arm: 'shape', cx: r.cx, cy: r.cy,
               area: sh.area, sol: +sh.solidity.toFixed(3), circ: +sh.circularity.toFixed(3),
               medGood: +medGood.toFixed(0) });
@@ -3090,7 +3191,7 @@ export function countPills(cv, source, opts = {}) {
           // LENGTH but projects only ~2/3 the area. 0.45 sits well below
           // that 0.67 so on-edge pills are never touched, while the
           // measured splotches (0.34x on r-96e5f08f) fall clearly outside.
-          if (sh && sh.area < 0.45 * medGood && !overReach) {
+          if (sh && sh.area < 0.45 * medGood && !overReach && !regionColoured(r)) {
             opts.debug?.({ stage: 'splotchkill', arm: 'size', cx: r.cx, cy: r.cy,
               area: sh.area, sol: +sh.solidity.toFixed(3), circ: +sh.circularity.toFixed(3),
               medGood: +medGood.toFixed(0) });
@@ -3540,6 +3641,7 @@ export function countPills(cv, source, opts = {}) {
       // the area-derived unit by more than 2x, believe the geometry. Guarded
       // to that gross disagreement so healthy photos, where the two already
       // agree, are untouched.
+      let raftUnitFired = false;
       if (opts.acScale !== false && radiusEst > 0) {
         const geomUnit = Math.PI * radiusEst * radiusEst;
         if (unit > geomUnit * 2) {
@@ -3547,6 +3649,7 @@ export function countPills(cv, source, opts = {}) {
             to: Math.round(geomUnit), radiusEst: +radiusEst.toFixed(1),
             blobs: calList.length });
           unit = geomUnit;
+          raftUnitFired = true;
         }
       }
 
@@ -3871,8 +3974,32 @@ export function countPills(cv, source, opts = {}) {
           // 2x. On clean photos the two agree closely and this never fires.
           const contradicted = tplArea > 0 && tplPool.length >= 5
             && (unitSingle < 0.5 * tplArea || unitSingle > 2 * tplArea);
+          // CIRCULAR-EVIDENCE VETO. When raft-unit has already overruled
+          // the blob-area calibration with the autocorrelation anchor, the
+          // "singles" pool here is the SAME population that miscalibrated:
+          // on the shadow-pair board every blob is a bridged pair, so the
+          // pool's median is a pair again and unitfix reverted a correct
+          // 824 to 1971 (12 pills counted 6). After a raft fire, only the
+          // shape template -- vouched by convexity, which a bridged pair
+          // fails -- may testify for a larger unit.
+          // The template CANNOT arbitrate here: a shadow-bridged pair is a
+          // smooth convex peanut, so on the all-pairs board the template
+          // pool is the same circular evidence (measured: tplArea ~ the
+          // pair area, exemption opened, 12 pills stayed 6). After a raft
+          // fire the only witness not derived from blob areas is the
+          // autocorrelation radius, so the fix may not exceed 2x its unit.
+          // ...and only for ROUND populations (unitLen ~ diameter), where
+          // pi*r^2 IS the pill's area model. On capsule/tablet populations
+          // the geometric unit understates a real pill several-fold and the
+          // blanket version of this veto cost 13 corpus images (244 -> 231).
+          const raftBlocked = raftUnitFired && radiusEst > 0
+            && unitLen > 0 && unitLen < 2.7 * radiusEst
+            && unitSingle > 2 * Math.PI * radiusEst * radiusEst;
           if (contradicted) {
             opts.debug?.({ stage: 'unitfix-veto', proposed: unitSingle, tplArea, unit });
+          } else if (raftBlocked) {
+            opts.debug?.({ stage: 'unitfix-raftveto', proposed: +unitSingle.toFixed(0),
+              unit: +unit.toFixed(0), tplArea: +(tplArea || 0).toFixed(0) });
           } else if (unitSingle >= absFloor && Math.abs(unitSingle - unit) > 0.15 * unitSingle) {
             opts.debug?.({ stage: 'unitfix', from: unit, to: unitSingle, singles: singleAreas.length });
             unit = unitSingle;
@@ -4053,7 +4180,51 @@ export function countPills(cv, source, opts = {}) {
           // see it. What it cannot fake is BEING A PILL'S COLOR — the pills
           // are markedly brighter than the board. Comparing each blob to the
           // population's own brightness keeps this illumination-independent.
+          // p75, NOT mean. A blob that fuses a pill with its own cast
+          // shadow (s233 blob 7: massR 2.04, half pink tablet, half black
+          // shadow on wood) has a dark MEAN but a bright top quartile; a
+          // genuine smudge is dark at every percentile. The mean version
+          // killed that pill outright -- the only isolated-pill miss in the
+          // corpus.
           const blobLum = new Map();
+          {
+            const sd = src.data, ch = src.channels();
+            const hists = new Map();
+            for (let i = 0; i < bl.length; i++) {
+              const l = bl[i];
+              if (!l) continue;
+              const o = i * ch;
+              const v = (sd[o] + sd[o + 1] + sd[o + 2]) / 3;
+              let hst = hists.get(l);
+              if (!hst) { hst = new Float64Array(64); hists.set(l, hst); }
+              hst[Math.min(63, v >> 2)]++;
+            }
+            for (const [l, hst] of hists) {
+              let n = 0;
+              for (let t = 0; t < 64; t++) n += hst[t];
+              let acc = 0, p75 = 0;
+              for (let t = 0; t < 64; t++) {
+                acc += hst[t];
+                if (acc >= 0.75 * n) { p75 = (t + 0.5) * 4; break; }
+              }
+              blobLum.set(l, p75);
+            }
+          }
+          const lums = blobList.map((l) => blobLum.get(l) || 0).filter((v) => v > 0);
+          const medLum = median(lums);
+
+          // COLOR EXEMPTION. Rule (a) profiles a half-capsule exactly like a
+          // splotch (s298: two-tone pairs touch light-half in shadow, the
+          // mask keeps only the dark half -- maj 35.6 vs unitLen 70.5,
+          // aspect 1.54, area 0.46x unit -- and lenjunk removed 3 REAL half
+          // pills). Rule (b)'s own comment says size and length cannot
+          // separate a dark pill from a dark smudge. COLOR can, but only
+          // when the medication is distinctly colored: a blob sharing the
+          // pill population's own non-neutral chromaticity is product, not
+          // surface. When pills are white/beige the population reads neutral
+          // and this exemption never opens (a gray smudge matching a white
+          // population must still die), so shiny-board behavior is unchanged.
+          const blobChrom = new Map();
           {
             const sd = src.data, ch = src.channels();
             const sum = new Map();
@@ -4061,15 +4232,43 @@ export function countPills(cv, source, opts = {}) {
               const l = bl[i];
               if (!l) continue;
               const o = i * ch;
-              const v = (sd[o] + sd[o + 1] + sd[o + 2]) / 3;
-              let s = sum.get(l);
-              if (!s) { s = { v: 0, n: 0 }; sum.set(l, s); }
-              s.v += v; s.n++;
+              let s2 = sum.get(l);
+              if (!s2) { s2 = { r: 0, g: 0, b: 0 }; sum.set(l, s2); }
+              s2.r += sd[o]; s2.g += sd[o + 1]; s2.b += sd[o + 2];
             }
-            for (const [l, s] of sum) blobLum.set(l, s.v / Math.max(1, s.n));
+            for (const [l, s2] of sum) {
+              const t = Math.max(1, s2.r + s2.g + s2.b);
+              blobChrom.set(l, [s2.r / t, s2.g / t, s2.b / t]);
+            }
           }
-          const lums = blobList.map((l) => blobLum.get(l) || 0).filter((v) => v > 0);
-          const medLum = median(lums);
+          // Population matching fails on TWO-TONE capsules (the surviving
+          // half's chromaticity differs from the population mean, which
+          // blends both halves), so the test is absolute instead: on a
+          // NEUTRAL board, shadows and surface marks are neutral too, so a
+          // strongly colored blob can only be product. On a colored board
+          // (wood, kraft) the gate stays closed and nothing changes.
+          const satOf = (c) => 255 * (Math.abs(c[0] - 1 / 3)
+            + Math.abs(c[1] - 1 / 3) + Math.abs(c[2] - 1 / 3));
+          let bgSatC = 255;
+          {
+            const sd = src.data, ch = src.channels();
+            const W2 = src.cols, H2 = src.rows;
+            const rs = [], gs = [], bs = [];
+            const take = (x, y) => {
+              const o = (y * W2 + x) * ch;
+              rs.push(sd[o]); gs.push(sd[o + 1]); bs.push(sd[o + 2]);
+            };
+            for (let x = 0; x < W2; x += 4) { take(x, 0); take(x, H2 - 1); }
+            for (let y = 0; y < H2; y += 4) { take(0, y); take(W2 - 1, y); }
+            const r = median(rs), g = median(gs), b = median(bs);
+            const t = Math.max(1, r + g + b);
+            bgSatC = satOf([r / t, g / t, b / t]);
+          }
+          const sameColorAsPills = (l) => {
+            if (bgSatC >= 20) return false;
+            const c = blobChrom.get(l);
+            return !!c && satOf(c) >= 45;
+          };
 
           const junk = new Set();
           for (const l of blobList) {
@@ -4084,7 +4283,7 @@ export function countPills(cv, source, opts = {}) {
             const shortAxis = maj < 0.80 * unitLen;
             const stubby = min > 0 && maj / min < 1.6;
             const lightMass = unitOk && blobAreas[l] < 0.8 * unit;
-            if (shortAxis && stubby && lightMass) { junk.add(l); continue; }
+            if (shortAxis && stubby && lightMass && !sameColorAsPills(l)) { junk.add(l); continue; }
             // (b) Too dark to be one of these pills. Pills of one medication
             // share a color; a blob well below the population's own median
             // brightness is surface, not product. The margin is wide (0.82)
@@ -4101,7 +4300,8 @@ export function countPills(cv, source, opts = {}) {
             // (239 -> 236), because genuine dark surface marks are frequently
             // both pill-sized and pill-long. Whatever separates a dark pill
             // from a dark smudge, it is not size or length.
-            if (medLum > 0 && (blobLum.get(l) || 0) < 0.70 * medLum) junk.add(l);
+            if (medLum > 0 && (blobLum.get(l) || 0) < 0.70 * medLum
+              && !sameColorAsPills(l)) junk.add(l);
           }
           if (junk.size) {
             const before = regions.length;
@@ -4516,8 +4716,265 @@ export function countPills(cv, source, opts = {}) {
           opts.debug?.({ stage: 'census-strength', vEff: vN, count, strong: censusStrong });
         }
 
+        // TWO-TONE POPULATION WITNESS (precompute; debug-measured before it
+        // gates anything). Two-tone capsules meeting light-half to light-half
+        // in shadow lose the seam AND the light material: the fused blob's
+        // mass under-reads and every seam-family method sees nothing. But
+        // each capsule carries exactly ONE dark half and ONE light half, so
+        // the number of same-tone segments inside a blob floors its units.
+        // The population must certify two-tonedness first: most confirmed
+        // singles split bimodally at their own Otsu with balanced halves
+        // (0.3-0.7) and a wide gap (>=30 lum). Glare highlights fail the
+        // balance test, so shiny populations never open this gate.
+        let twoTone = null;
+        if (unitOk) {
+          const singlesTT = new Set(blobList.filter((l2) =>
+            Math.abs(blobAreas[l2] / unit - 1) <= 0.25));
+          if (singlesTT.size >= 4) {
+            const sd4 = src.data, ch4 = src.channels();
+            const lumsBy = new Map();
+            for (let i = 0; i < bl.length; i += 2) {
+              const l2 = bl[i];
+              if (!l2 || !singlesTT.has(l2)) continue;
+              let arr = lumsBy.get(l2);
+              if (!arr) { arr = []; lumsBy.set(l2, arr); }
+              const o = i * ch4;
+              arr.push([(sd4[o] + sd4[o + 1] + sd4[o + 2]) / 3,
+                sd4[o], sd4[o + 1], sd4[o + 2], i % w, (i / w) | 0]);
+            }
+            let bimodal = 0, tested = 0, halfLike = 0;
+            const thrs = [], darkSat = [], dChroms = [], lChroms = [];
+            const dLums = [], dFracs = [];
+            const lumKey = new Map();
+            for (const [lKey, arr] of lumsBy) {
+              lumKey.set(arr, lKey);
+              if (arr.length < 80) continue;
+              tested++;
+              const hist = new Float64Array(64);
+              for (const v of arr) hist[Math.min(63, v[0] >> 2)]++;
+              let sumAll = 0;
+              const tot = arr.length;
+              for (let t = 0; t < 64; t++) sumAll += t * hist[t];
+              let wB = 0, sumB = 0, best = 0, thr = 0;
+              for (let t = 0; t < 64; t++) {
+                wB += hist[t]; if (!wB) continue;
+                const wF = tot - wB; if (!wF) break;
+                sumB += t * hist[t];
+                const mB = sumB / wB, mF = (sumAll - sumB) / wF;
+                const v = wB * wF * (mB - mF) * (mB - mF);
+                if (v > best) { best = v; thr = t; }
+              }
+              let loN = 0, loS = 0, hiN = 0, hiS = 0;
+              for (let t = 0; t <= thr; t++) { loN += hist[t]; loS += t * 4 * hist[t]; }
+              for (let t = thr + 1; t < 64; t++) { hiN += hist[t]; hiS += t * 4 * hist[t]; }
+              const loFrac = loN / tot;
+              const gap = hiN && loN ? hiS / hiN - loS / loN : 0;
+              if (loFrac >= 0.3 && loFrac <= 0.7 && gap >= 30) {
+                bimodal++; thrs.push((thr + 0.5) * 4);
+                // chromaticity of BOTH modes of this single
+                let dr = 0, dg = 0, db2 = 0, lr = 0, lg = 0, lb2 = 0;
+                for (const v of arr) {
+                  if (v[0] < (thr + 0.5) * 4) { dr += v[1]; dg += v[2]; db2 += v[3]; }
+                  else { lr += v[1]; lg += v[2]; lb2 += v[3]; }
+                }
+                const dt = Math.max(1, dr + dg + db2);
+                const lt3 = Math.max(1, lr + lg + lb2);
+                darkSat.push(255 * (Math.abs(dr / dt - 1 / 3)
+                  + Math.abs(dg / dt - 1 / 3) + Math.abs(db2 / dt - 1 / 3)));
+                dChroms.push([dr / dt, dg / dt, db2 / dt]);
+                lChroms.push([lr / lt3, lg / lt3, lb2 / lt3]);
+                let dn = 0, dls = 0;
+                for (const v of arr) if (v[0] < (thr + 0.5) * 4) { dn++; dls += v[0]; }
+                if (dn) dLums.push(dls / dn);
+                dFracs.push(dn / arr.length);
+                // Where does the LIGHT mode sit? A capsule's light HALF is
+                // offset to one end along the axis; a glare streak (shiny
+                // pills also read bimodal) is centred on the pill. Project
+                // the light centroid's offset from the blob centroid onto
+                // the major axis, in units of the major length.
+                let cxA = 0, cyA = 0, lxA = 0, lyA = 0, lnA = 0;
+                for (const v of arr) {
+                  cxA += v[4]; cyA += v[5];
+                  if (v[0] >= (thr + 0.5) * 4) { lxA += v[4]; lyA += v[5]; lnA++; }
+                }
+                cxA /= arr.length; cyA /= arr.length;
+                if (lnA) {
+                  lxA /= lnA; lyA /= lnA;
+                  const axS = blobAxis.get(lumKey.get(arr)) || {};
+                  const th4 = axS.theta || 0;
+                  const proj = Math.abs((lxA - cxA) * Math.cos(th4)
+                    + (lyA - cyA) * Math.sin(th4));
+                  if (axS.major > 0 && proj / axS.major >= 0.15) halfLike++;
+                }
+              }
+            }
+            // THE DARK MODE MUST BE CHROMATIC. Shadow forges dark segments
+            // but cannot forge COLOR: on s302 (green/light-green capsules)
+            // the dark halves are saturated and a third dark segment in a
+            // 2-unit blob is real material (raise 2 -> 3 correct); on s300
+            // (white/white capsules, thr 214) the dark mode is just dimmer
+            // white, a shadow pocket read as a fourth segment, and the same
+            // raise minted a pill (60 -> 61). A neutral dark mode leaves
+            // shadow and product indistinguishable, so the witness stands
+            // down for white populations.
+            darkSat.sort((q, r2) => q - r2);
+            const dSat = darkSat.length ? darkSat[darkSat.length >> 1] : 0;
+            if (tested >= 4 && bimodal >= 0.6 * tested && dSat >= 30
+              && halfLike >= 0.6 * bimodal) {
+              thrs.sort((q, r2) => q - r2);
+              const medC = (cs) => [0, 1, 2].map((c) => median(cs.map((v) => v[c])));
+              twoTone = { thr: thrs[thrs.length >> 1],
+                dc: medC(dChroms), lc: medC(lChroms),
+                dLum: median(dLums), dFrac: median(dFracs) };
+              opts.debug?.({ stage: 'twotone-pop', thr: +twoTone.thr.toFixed(0),
+                bimodal, tested, darkSat: +dSat.toFixed(0), halfLike });
+            }
+          }
+        }
+        // Count same-tone segments of a blob (each >= 0.15 unit). Returns
+        // [darkSegs, lightSegs].
+        const toneSegs = (l2, thrOv) => {
+          const box = blobBox.get(l2);
+          if (!box || !twoTone) return [0, 0, 0, []];
+          const bx0 = box.x0, by0 = box.y0;
+          const bw2 = box.x1 - box.x0 + 1, bh2 = box.y1 - box.y0 + 1;
+          const mode = new Uint8Array(bw2 * bh2);
+          const sd4 = src.data, ch4 = src.channels();
+          for (let y = by0; y <= box.y1; y++) for (let x = bx0; x <= box.x1; x++) {
+            const gi = y * w + x;
+            if (bl[gi] !== l2) continue;
+            const o = gi * ch4;
+            if (thrOv === 'chroma') {
+              // classify by nearer population tone chroma; hue survives the
+              // shadow that equalizes luminance
+              const t3 = Math.max(1, sd4[o] + sd4[o + 1] + sd4[o + 2]);
+              const c0 = sd4[o] / t3, c1 = sd4[o + 1] / t3, c2 = sd4[o + 2] / t3;
+              const dd = Math.abs(c0 - twoTone.dc[0]) + Math.abs(c1 - twoTone.dc[1])
+                + Math.abs(c2 - twoTone.dc[2]);
+              const dl = Math.abs(c0 - twoTone.lc[0]) + Math.abs(c1 - twoTone.lc[1])
+                + Math.abs(c2 - twoTone.lc[2]);
+              mode[(y - by0) * bw2 + (x - bx0)] = dd <= dl ? 1 : 2;
+            } else {
+              const v = (sd4[o] + sd4[o + 1] + sd4[o + 2]) / 3;
+              mode[(y - by0) * bw2 + (x - bx0)] = v < (thrOv || twoTone.thr) ? 1 : 2;
+            }
+          }
+          const seen = new Uint8Array(bw2 * bh2);
+          const stack = new Int32Array(bw2 * bh2);
+          const out = [0, 0, 0, []];
+          for (let i = 0; i < mode.length; i++) {
+            if (!mode[i] || seen[i]) continue;
+            const m = mode[i];
+            let sp = 0, area = 0, sxT = 0, syT = 0;
+            stack[sp++] = i; seen[i] = 1;
+            while (sp > 0) {
+              const c = stack[--sp];
+              area++; sxT += c % bw2; syT += (c / bw2) | 0;
+              const x = c % bw2, y = (c / bw2) | 0;
+              if (x > 0 && mode[c - 1] === m && !seen[c - 1]) { seen[c - 1] = 1; stack[sp++] = c - 1; }
+              if (x < bw2 - 1 && mode[c + 1] === m && !seen[c + 1]) { seen[c + 1] = 1; stack[sp++] = c + 1; }
+              if (y > 0 && mode[c - bw2] === m && !seen[c - bw2]) { seen[c - bw2] = 1; stack[sp++] = c - bw2; }
+              if (y < bh2 - 1 && mode[c + bw2] === m && !seen[c + bw2]) { seen[c + bw2] = 1; stack[sp++] = c + bw2; }
+            }
+            if (area >= 0.15 * unit) {
+              out[m - 1]++; out[2] += area;
+              out[3].push({ m, area, cx: bx0 + sxT / area, cy: by0 + syT / area });
+            }
+          }
+          out[2] = blobAreas[l2] > 0 ? out[2] / blobAreas[l2] : 0;
+          return out;
+        };
+
+        // Elbow measurement on CLEAR blobs (debug-only): a fused blob made
+        // of two DIFFERENT pills' halves passes every clear test (s298 blob
+        // 46: 0.95 mass, one ws region). For a genuine two-tone single the
+        // tone-centroid axis aligns with the blob's major axis; an elbow
+        // does not. Measure before gating anything.
+        if (twoTone) {
+          const ambL = new Set(ambiguous.map((a2) => a2.l));
+          for (const l2 of blobList) {
+            if (ambL.has(l2) || !unitOk) continue;
+            const mass2 = blobAreas[l2] / unit;
+            if (mass2 < 0.7 || mass2 > 1.45) continue;
+            const [dk2, lt2, cov2, segs2] = toneSegs(l2);
+            if (dk2 !== 1 || lt2 !== 1) {
+              // ALL-DARK pill-sized blob: the population threshold cannot
+              // see inside it (a shadowed light half reads dark too). Split
+              // it at its OWN Otsu and measure the sub-tone axis the same
+              // way -- a genuine capsule's halves stay collinear however
+              // deep the shadow; an elbow of two different pills' halves
+              // does not.
+              let sub = null;
+              if (dk2 === 1 && lt2 === 0 && cov2 >= 0.85) {
+                // An ALL-DARK blob at near-unit mass cannot be one capsule:
+                // a genuine single always carries a light half, and the one
+                // exception -- a whole pill sunk in cast shadow -- reads far
+                // DARKER than the population's dark mode. When the blob's
+                // own luminance sits AT the dark mode, its material is dark-
+                // half product in ordinary light, so it holds
+                // round(mass / population dark fraction) pills whose light
+                // halves the shadow swallowed elsewhere (s298 blob 46: mass
+                // 0.91, all-dark, lum at mode; 0.91 / 0.47 = 1.94 -> 2, the
+                // image's exact deficit).
+                const box2 = blobBox.get(l2);
+                const sd5 = src.data, ch5 = src.channels();
+                let ls = 0, ln2 = 0;
+                for (let y = box2.y0; y <= box2.y1; y++) for (let x = box2.x0; x <= box2.x1; x++) {
+                  const gi = y * w + x;
+                  if (bl[gi] !== l2) continue;
+                  const o = gi * ch5;
+                  ls += (sd5[o] + sd5[o + 1] + sd5[o + 2]) / 3; ln2++;
+                }
+                const mLum = ln2 ? ls / ln2 : 0;
+                const kD = twoTone.dFrac > 0.2
+                  ? Math.round(mass2 / twoTone.dFrac) : 0;
+                sub = { mLum: +mLum.toFixed(0), dLum: +twoTone.dLum.toFixed(0),
+                  dFrac: +twoTone.dFrac.toFixed(2), kD };
+                // Apply: one conservative step, only when the blob's own
+                // luminance sits AT the dark mode (a wholly shadowed pill
+                // reads far darker and abstains).
+                if (kD === 2 && Math.abs(mLum - twoTone.dLum) <= 15) {
+                  const regsC = regByBlob.get(l2) || [];
+                  const uNow = regsC.reduce((q, r2) => q + r2.units, 0);
+                  if (uNow === 1) {
+                    for (const r2 of regions) {
+                      if ((labelBlob.get(r2.label) || 0) === l2 && r2.units === 1) {
+                        r2.units = 2; count += 1;
+                        opts.debug?.({ stage: 'twotone-darkmass', blob: l2,
+                          mass: +mass2.toFixed(2), kD, mLum: +mLum.toFixed(0) });
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+              opts.debug?.({ stage: 'twotone-odd', blob: l2, dark: dk2,
+                light: lt2, cover: +cov2.toFixed(2), mass: +mass2.toFixed(2), sub });
+              continue;
+            }
+            const dSeg = segs2.find((g) => g.m === 1), lSeg = segs2.find((g) => g.m === 2);
+            if (!dSeg || !lSeg || dSeg.area < 0.25 * unit || lSeg.area < 0.25 * unit) continue;
+            const ax = blobAxis.get(l2) || {};
+            const vAng = Math.atan2(lSeg.cy - dSeg.cy, lSeg.cx - dSeg.cx);
+            let dAng = ax.theta != null
+              ? Math.abs(((vAng - ax.theta) % Math.PI + Math.PI) % Math.PI) : -1;
+            if (dAng > Math.PI / 2) dAng = Math.PI - dAng;
+            opts.debug?.({ stage: 'twotone-elbow', blob: l2,
+              mass: +mass2.toFixed(2), dA: dSeg.area, lA: lSeg.area,
+              ang: dAng >= 0 ? +(dAng * 180 / Math.PI).toFixed(1) : null,
+              theta: ax.theta != null ? +ax.theta.toFixed(2) : null });
+          }
+        }
+
         for (const a of ambiguous) {
           const { l, regs } = a;
+          if (twoTone) {
+            const [dk, lt, cov] = toneSegs(l);
+            opts.debug?.({ stage: 'twotone', blob: l, dark: dk, light: lt,
+              cover: +cov.toFixed(2),
+              base: a.unitsSum, massFrac: unitOk ? +(blobAreas[l] / unit).toFixed(2) : 0 });
+            a.__tt = [dk, lt, cov];
+          }
           // A single pill of this blob's thickness can cover at most ~4*pi*peak^2
           // px. When crease-cut or erosion answers "1" for a blob far beyond
           // that, they did not measure one pill — they hit their documented
@@ -4979,7 +5436,17 @@ export function countPills(cv, source, opts = {}) {
             const kFinal0 = agreed ? k : a.unitsSum;
             const elong = template ? template.aspect >= 1.35 : arcS.capFrac < 0.75;
             const treeish = kMass <= arcS.clusters + 2;
-            if (kFinal0 < arcLo && kMass >= arcLo) {
+            // Mass is not the only admissible corroboration. A blob whose
+            // mask is STARVED under-reads mass exactly when pills chain
+            // end-to-end through shadow (s301 blob 8: two capsules elbow to
+            // elbow read massFrac 0.90 -> kMass 1, yet the blob is 1.87
+            // unit-LENGTHS long and the boundary shows a clean [2,2]). One
+            // convex pill cannot be two pill-lengths long, so length
+            // certifies the floor as physically as mass does. Rafts cannot
+            // fake it: their major axis never reaches (arcLo-0.2) unit
+            // lengths, so this arm only opens for chains.
+            const kLen = unitLen > 0 && majL > 0 ? majL / unitLen : 0;
+            if (kFinal0 < arcLo && (kMass >= arcLo || kLen >= arcLo - 0.2)) {
               arcTo = arcLo;
             } else if (kFinal0 > arcHi && treeish && elong) {
               arcTo = kMass > arcHi
@@ -5140,6 +5607,33 @@ export function countPills(cv, source, opts = {}) {
               opts.debug?.({ stage: 'houghdesc', blob: l, from: kFinal0h,
                 to: circOn, massFrac: +massFrac.toFixed(2) });
             }
+            // SHADOW-LOBE DESCENT -- the mass window above is what a deep
+            // cast shadow defeats: s233 blob 7 is one pink tablet plus an
+            // equal-area shadow (massFrac 2.04), one verified circle, and
+            // the watershed's second region sits ON the shadow. A true pair
+            // at massFrac 2 verifies BOTH circles (hV = 2) and never enters
+            // this arm. Requirements: complete census (censusStrong), the
+            // settled answer exactly one above the verified circles, and
+            // the blob's own seam spectrum REFUSING the settled answer --
+            // a pill|shadow boundary is a step into darkness, not a valley
+            // between two bright domes, so it certifies nothing.
+            const effKS = arcTo || kFinal0h;
+            if (circOn >= 1 && hV === circOn
+              && effKS === circOn + 1 && censusStrong
+              && massFrac > circOn + 0.25) {
+              if (!seam && a.box) seam = seamSpectrum(src.data, w, h, bl, w, l, a.box);
+              const iqrS = seam ? Math.max(1, seam.p75 - seam.p25) : 0;
+              const certifies = !!seam && effKS >= 2
+                && seam.events.length >= effKS - 1
+                && seam.events[effKS - 2].v >= 0.67 * iqrS;
+              if (!certifies) {
+                arcTo = circOn;
+                opts.debug?.({ stage: 'shadowlobe', blob: l, from: effKS,
+                  to: circOn, massFrac: +massFrac.toFixed(2),
+                  ev: seam && seam.events[effKS - 2]
+                    ? +seam.events[effKS - 2].v.toFixed(1) : null });
+              }
+            }
             // MASS-RAISE CENSUS UNDO — the `agreed` counterpart of the
             // descent above, scoped to exactly one pathology: a soft
             // contact-shadow bloats the mask, mass reads ~k+1, and
@@ -5200,6 +5694,33 @@ export function countPills(cv, source, opts = {}) {
                 opts.debug?.({ stage: 'houghdesc-mo', blob: l, from: kFinal0h,
                   to: moFrom, massFrac: +massFrac.toFixed(2) });
               }
+            }
+          }
+
+          // TWO-TONE RECONCILIATION. Each capsule of a two-tone population
+          // carries exactly one dark and one light half, so a blob holding
+          // three >= 0.15-unit dark segments holds three pills whatever mass
+          // says -- mass under-reads precisely when the light halves drown
+          // in shadow (s302 blob 3: dark 3 / light 2, massFrac 1.82, panel
+          // settled 2, truth 3). Guards, each measured:
+          //   - tone counts within 1 of each other (a capsule population
+          //     cannot produce 3 dark and 1 light without a lost half);
+          //   - segments tile >= 70% of the blob (capsule halves tile; the
+          //     glare/shadow pockets of a shiny population -- which also
+          //     certifies bimodal, 21/22 on s-eb90778f -- do not);
+          //   - mass corroborates loosely (massFrac >= 0.6 * k: a single
+          //     shiny pill with two pockets reads ~1.0 and is blocked from
+          //     claiming 2).
+          if (!arcTo && twoTone && a.__tt) {
+            const [dk, lt, cov] = a.__tt;
+            const kTT = Math.max(dk, lt);
+            const kF0 = agreed ? k : a.unitsSum;
+            if (kTT > kF0 && kTT >= 2 && Math.abs(dk - lt) <= 1
+              && cov >= 0.7 && massFrac >= 0.6 * kTT) {
+              arcTo = kTT;
+              opts.debug?.({ stage: 'twotonerec', blob: l, from: kF0, to: kTT,
+                dark: dk, light: lt, cover: +cov.toFixed(2),
+                massFrac: +massFrac.toFixed(2) });
             }
           }
 
