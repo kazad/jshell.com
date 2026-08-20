@@ -182,6 +182,18 @@
    "what": "s-0bfc44d8 (-2): glare splits every bead lengthwise; region medSingle calibrates to a HALF-bead (whole beads read 2.0-2.07x medSingle at units=1), so the region-level unit is half the truth",
    "measured": "splotchkill wholesale-refused (14/37 doomed, population inversion). Misses at blobs 1/9/13 (areas 0.65-1.02 x blob-unit); spurious from blob 56 (massR 1.52) raised to units=2 by arc. The blob-level unit (~2600) is right; the REGION-level medSingle (~1283) is the half.",
    "next": "Reconcile region medSingle against blob-level unit: when regions systematically read ~0.5 x the blob unit on a population whose blobs are single (massR ~1), the watershed is splitting on glare seams -- merge half-regions along the glare axis before counting. Same lengthwise-glare signature the advil photos carry."
+  },
+  "r-7ff7fd99-shingled-pair": {
+   "date": "2026-08-20",
+   "verdict": "OPEN \u2014 diagnosed, no fix yet",
+   "what": "r-7ff7fd99 (-1): blob 11 holds 4 truth pills but the watershed yields 3 pill-SIZED regions, and mass reads 3.16 because shingled caplets hide area under each other. The clear test accepts (mass ~= wsCount ~= unitsSum, every piece 1.0-1.19x unit) so the blob never reaches the panel.",
+   "measured": "truth (222.5,302.5) and (205.5,295.5) both map to one region at (211,298); region areas 601-727 against unit 657 -- all sane. A piece-size sanity gate was written and REVERTED as dead code: the fused pair looks exactly like one healthy pill.",
+   "why-hard": "Every area-based witness agrees with the wrong answer here. The pair is only distinguishable by its OUTLINE (a fused shingle is longer than one caplet along its major axis: blob 11 lenR 1.62 vs a template of 1.0) or by the seam spectrum, neither of which the clear test consults.",
+   "next": "REFUTED by measurement: length cannot separate this case either. Blob 11 (4 true pills, k0=3) spans 1.62 unitLens; normalised by sqrt(k) for 2-D packing that is 0.94, BELOW the single pills on the same photo (blob 13 at 1.08, typical single 1.05). A shingled pair hides length exactly as it hides area -- the pills overlap ALONG their axes. Both area and outline witnesses are therefore blind here. What remains untested: the seam spectrum (does the fused pair show a merge event the singles lack?) and the arc/cap witness on the pair outline. Any future attempt must measure those two BEFORE writing a gate; two gates have now been written and reverted as dead or backwards.",
+   "tried-and-reverted": [
+    "piece-size sanity band (pieces look healthy: 601-727 vs unit 657)",
+    "major-axis bound, both linear (k+0.35)/2 and sqrt(k) forms -- flags true singles, clears the shingle"
+   ]
   }
  }
 }
