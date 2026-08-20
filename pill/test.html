@@ -110,11 +110,44 @@
 </head>
 <body>
   <header>
-    <h1>ValEye Test Bench <a href="./">← app</a> <a href="about.html">how it works</a> <a href="stamp.html" style="color:#e9a13b">stamp tester →</a>
-      <a href="lab.html" style="color:#5b9dff">algorithm lab →</a>
-      <a href="arena.html" style="color:#b78bff">method arena →</a>
-      <a href="stampfit.html" style="color:#5ad18c">stamp fit →</a></h1>
+    <h1>ValEye Test Bench <a href="./">← app</a> <a href="about.html">how it works</a></h1>
     <div id="status">loading engine…</div>
+    <!-- ALGO EXPLORER. One card per diagnostic surface, so "why did this image
+         count wrong" starts from a purpose-built view instead of raw logs.
+         Every page accepts ?img= and most auto-run. -->
+    <nav style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;
+        margin:14px 0 6px;padding:14px;background:#12161d;border:1px solid #232a35;border-radius:12px">
+      <div style="grid-column:1/-1;font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+          color:#8b93a7;font-weight:600">Algorithm explorer — see what each stage and witness is doing</div>
+      <a href="lab.html" style="display:block;padding:10px 12px;background:#1a212c;border-radius:8px;
+          border:1px solid #2a3242;color:#5b9dff;text-decoration:none">
+        <b>Algorithm lab</b><br><span style="font-size:12px;color:#8b93a7">every pipeline stage of one
+        run side by side, with live toggles (acScale, clusterSolve, stamp) and the full debug trace</span></a>
+      <a href="arena.html" style="display:block;padding:10px 12px;background:#1a212c;border-radius:8px;
+          border:1px solid #2a3242;color:#b78bff;text-decoration:none">
+        <b>Method arena</b><br><span style="font-size:12px;color:#8b93a7">the witnesses' votes per
+        contested blob — watershed vs mass vs crease vs arc — scored against truth</span></a>
+      <a href="stampfit.html" style="display:block;padding:10px 12px;background:#1a212c;border-radius:8px;
+          border:1px solid #2a3242;color:#5ad18c;text-decoration:none">
+        <b>Stamp fit</b><br><span style="font-size:12px;color:#8b93a7">click to drop the stamp and watch
+        it settle; every score term broken out, plus the whole-photo fit surface</span></a>
+      <a href="stamp.html" style="display:block;padding:10px 12px;background:#1a212c;border-radius:8px;
+          border:1px solid #2a3242;color:#e9a13b;text-decoration:none">
+        <b>Stamp overlay</b><br><span style="font-size:12px;color:#8b93a7">outlines coloured by fill
+        overlap, truth footprints, intersection warnings — the review surface</span></a>
+      <a href="clumps.html?auto=1" style="display:block;padding:10px 12px;background:#1a212c;border-radius:8px;
+          border:1px solid #2a3242;color:#78c8ff;text-decoration:none">
+        <b>Clump corpus</b><br><span style="font-size:12px;color:#8b93a7">24 touching clusters cut from
+        real trouble photos, each counted on its own so nothing cancels</span></a>
+      <a href="docs/algorithms.html" style="display:block;padding:10px 12px;background:#1a212c;border-radius:8px;
+          border:1px solid #2a3242;color:#e7e9ee;text-decoration:none">
+        <b>Algorithm ledger</b><br><span style="font-size:12px;color:#8b93a7">every technique tried —
+        where it works, where it fails, what it taught — with the measurement attached</span></a>
+      <a href="docs/report.html" style="display:block;padding:10px 12px;background:#1a212c;border-radius:8px;
+          border:1px solid #2a3242;color:#e7e9ee;text-decoration:none">
+        <b>Failure ledger</b><br><span style="font-size:12px;color:#8b93a7">before/after on the clusters
+        that used to break the counter, the separation sweep, and what still fails</span></a>
+    </nav>
   </header>
   <div class="controls">
     <button id="run" disabled>Run all</button>
