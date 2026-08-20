@@ -1,0 +1,150 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ValEye · clump stress corpus</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!--
+  THE CLUMPS THAT HAVE COST THIS PROJECT TIME, each scored on its own.
+  A whole-photo count hides clump failures: a missed pill in one cluster
+  cancels a phantom in another, so the total reads correct while the picture
+  is wrong twice. One cluster cannot cancel -- it is right or it is wrong.
+  Crops come from tools/gen-clumps.mjs, cut around every group of 3+ touching
+  pills in the real photos, with truth carried over from the parent.
+-->
+<style>
+:root{--bg:#0d0f13;--panel:#151922;--line:#222836;--ink:#e7e9ee;--dim:#8b93a7;
+ --acc:#5b9dff;--ok:#5ad18c;--bad:#ff6b6b;--warn:#f0b849}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 ui-sans-serif,system-ui,sans-serif}
+header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:center;flex-wrap:wrap;position:sticky;top:0;background:var(--bg);z-index:20}
+h1{font-size:16px;margin:0;font-weight:600}
+.sub{color:var(--dim);font-size:12px}
+button{background:#1b2130;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 11px;font:inherit;font-size:13px;cursor:pointer}
+button.go{background:var(--acc);border-color:var(--acc);color:#06101f;font-weight:600}
+.tot{padding:11px 20px;border-bottom:1px solid var(--line);font-size:13px;color:var(--dim)}
+.tot b{color:var(--ink)} .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;padding:16px 20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.card.wrong{border-color:#4a2530}
+.card h2{margin:0;padding:9px 12px;font-size:12px;font-weight:600;border-bottom:1px solid var(--line);
+ display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.card h2 em{font-style:normal;font-weight:400}
+canvas{width:100%;display:block;background:#000}
+.legend{display:flex;gap:16px;flex-wrap:wrap;padding:9px 20px;font-size:11.5px;color:var(--dim);border-bottom:1px solid var(--line)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.note{padding:8px 12px;font-size:11.5px;color:var(--dim);border-top:1px solid var(--line)}
+</style>
+<header>
+  <h1>Clump stress corpus</h1>
+  <span class=sub>every touching cluster from the photos that have caused trouble</span>
+  <button class=go id=run>Run all</button>
+</header>
+<div class=legend>
+  <span><i class=sw style="background:#5ad18c"></i>counted, fill overlap good</span>
+  <span><i class=sw style="background:#f0b849"></i>fill overlap marginal</span>
+  <span><i class=sw style="background:#ff6b6b"></i>fill overlap poor (&lt;0.45)</span>
+  <span><i class=sw style="background:#78c8ff"></i>truth centre</span>
+</div>
+<div class=tot id=tot>press Run all — each crop is counted independently</div>
+<div class=grid id=grid></div>
+<script type="module">
+import { loadCV, countPills } from './js/counter.js';
+const $=(s)=>document.querySelector(s);
+let cv=null;
+
+const EXP = await fetch('testdata/clumps/expected.json').then(r=>r.json()).catch(()=>({}));
+const names = Object.keys(EXP).sort();
+$('#tot').textContent = `${names.length} clump crops — press Run all`;
+// ?auto=1 runs on load, so the page can be linked or screenshotted directly.
+if (new URLSearchParams(location.search).get('auto')) setTimeout(() => $('#run').click(), 60);
+
+async function decode(src){const i=new Image();i.crossOrigin='anonymous';
+  await new Promise((a,b)=>{i.onload=a;i.onerror=b;i.src=src;});
+  const c=document.createElement('canvas');c.width=i.naturalWidth;c.height=i.naturalHeight;
+  c.getContext('2d').drawImage(i,0,0);
+  return c.getContext('2d').getImageData(0,0,c.width,c.height);}
+
+function stadium(ctx,x,y,th,maj,min){
+  const a=Math.max(0,(maj-min)/2), rho=min/2, c=Math.cos(th), s=Math.sin(th);
+  ctx.beginPath();
+  for(let k=0;k<=72;k++){
+    const phi=k*6.283185/72, cc=Math.abs(Math.cos(phi)), ss=Math.abs(Math.sin(phi));
+    let R;
+    if(ss<1e-6) R=a+rho;
+    else{const r1=rho/ss; R=(r1*cc<=a)?r1:a*cc+Math.sqrt(Math.max(0,a*a*cc*cc-a*a+rho*rho));}
+    const lx=Math.cos(phi)*R, ly=Math.sin(phi)*R;
+    const px=x+lx*c-ly*s, py=y+lx*s+ly*c;
+    k?ctx.lineTo(px,py):ctx.moveTo(px,py);
+  }
+  ctx.closePath(); ctx.stroke();
+}
+
+$('#run').onclick=async()=>{
+  $('#tot').textContent='loading OpenCV…';
+  cv=cv||await loadCV('vendor/opencv.js');
+  const grid=$('#grid'); grid.innerHTML='';
+  let exact=0, done=0, totMiss=0, totSpur=0, totPoor=0;
+  for(const name of names){
+    const want=EXP[name];
+    const img=await decode('testdata/clumps/'+name);
+    let r;
+    try{ r=countPills(cv,img,{maxDim:1280,variant:'consensus',exportProbe:true}); }
+    catch(e){ continue; }
+    const pr=r.probe;
+    done++;
+    // truth, scaled to the working resolution
+    let truth=[];
+    try{
+      const T=await fetch('testdata/centers/'+name.replace(/\.png$/,'.json')).then(x=>x.json());
+      const g=T.size&&T.size[0]?pr.w/T.size[0]:1;
+      truth=T.centers.map(([x,y])=>[x*g,y*g]);
+    }catch(e){}
+    // match
+    const used=new Set(); let m=0;
+    for(const [tx,ty] of truth){
+      let bi=-1,bd=pr.min*0.75;
+      pr.placements.forEach((p,i)=>{ if(used.has(i))return;
+        const d=Math.hypot(p[0]-tx,p[1]-ty); if(d<bd){bd=d;bi=i;} });
+      if(bi>=0){used.add(bi);m++;}
+    }
+    const miss=truth.length-m, spur=pr.placements.length-m;
+    totMiss+=miss; totSpur+=spur;
+    const ious=pr.placementIou||[];
+    const poor=ious.filter(v=>v!==null&&v!==undefined&&v<0.45).length;
+    totPoor+=poor;
+    const right=r.count===want;
+    if(right) exact++;
+
+    const el=document.createElement('div');
+    el.className='card'+(right?'':' wrong');
+    el.innerHTML=`<h2>${name.replace(/\.png$/,'')}
+      <em class="${right?'ok':'bad'}">${r.count}/${want}</em></h2>
+      <canvas></canvas>
+      <div class=note>miss ${miss} · spurious ${spur}${poor?` · <span class="bad">${poor} poor fit${poor>1?'s':''}</span>`:''}</div>`;
+    grid.appendChild(el);
+
+    const cvs=el.querySelector('canvas');
+    cvs.width=pr.w; cvs.height=pr.h;
+    const ctx=cvs.getContext('2d');
+    // draw the crop at working resolution
+    const tmp=document.createElement('canvas'); tmp.width=img.width; tmp.height=img.height;
+    tmp.getContext('2d').putImageData(img,0,0);
+    ctx.drawImage(tmp,0,0,img.width,img.height,0,0,pr.w,pr.h);
+    // placements, coloured by fill overlap
+    pr.placements.forEach(([px,py,pth],i)=>{
+      const q=ious[i];
+      ctx.lineWidth = (q!==null&&q!==undefined&&q<0.45)?3:2;
+      ctx.strokeStyle = (q===null||q===undefined)?'rgba(90,209,140,.9)'
+        : q<0.45 ? 'rgba(255,107,107,.95)' : q<0.60 ? 'rgba(240,184,73,.95)' : 'rgba(90,209,140,.9)';
+      stadium(ctx,px,py,pth||0,pr.maj,pr.min);
+    });
+    // truth centres
+    ctx.fillStyle='rgba(120,200,255,.95)';
+    for(const [tx,ty] of truth){ ctx.beginPath(); ctx.arc(tx,ty,3,0,6.284); ctx.fill(); }
+    $('#tot').innerHTML=`<b>${exact}/${done}</b> exact so far · ${totMiss} missed · ${totSpur} spurious · ${totPoor} poor fits`;
+    await new Promise(r2=>setTimeout(r2,0));
+  }
+  $('#tot').innerHTML=`<b class="${exact===done?'ok':'bad'}">${exact}/${done}</b> crops exact`
+    +` · ${totMiss} missed · ${totSpur} spurious · ${totPoor} poor fits`
+    +` <span class=sub>— each crop counted independently, so nothing can cancel</span>`;
+};
+</script>

@@ -139,15 +139,212 @@
           border:1px solid #2a3242;color:#78c8ff;text-decoration:none">
         <b>Clump corpus</b><br><span style="font-size:12px;color:#8b93a7">24 touching clusters cut from
         real trouble photos, each counted on its own so nothing cancels</span></a>
-      <a href="docs/algorithms.html" style="display:block;padding:10px 12px;background:#1a212c;border-radius:8px;
+      <a href="#algo-ledger" onclick="document.getElementById('algo-ledger').open=true"
+          style="display:block;padding:10px 12px;background:#1a212c;border-radius:8px;
           border:1px solid #2a3242;color:#e7e9ee;text-decoration:none">
         <b>Algorithm ledger</b><br><span style="font-size:12px;color:#8b93a7">every technique tried —
         where it works, where it fails, what it taught — with the measurement attached</span></a>
-      <a href="docs/report.html" style="display:block;padding:10px 12px;background:#1a212c;border-radius:8px;
+      <a href="failures.html" style="display:block;padding:10px 12px;background:#1a212c;border-radius:8px;
           border:1px solid #2a3242;color:#e7e9ee;text-decoration:none">
         <b>Failure ledger</b><br><span style="font-size:12px;color:#8b93a7">before/after on the clusters
         that used to break the counter, the separation sweep, and what still fails</span></a>
     </nav>
+    <details id="algo-ledger" style="margin:6px 0 10px">
+      <summary style="cursor:pointer;padding:10px 14px;background:#12161d;border:1px solid #232a35;
+          border-radius:10px;color:#e7e9ee;font-weight:600">Algorithm ledger — every technique tried,
+        with its measurement <span style="color:#8b93a7;font-weight:400">(9 shipped · 5 reverted · 4 dead ends)</span></summary>
+      <div style="padding:6px 16px 12px;background:#10141a;border:1px solid #232a35;border-top:none;
+          border-radius:0 0 10px 10px" class="ledger-body">
+      <style>
+        .ledger-body article{border-bottom:1px solid #232a35;padding:16px 0}
+        .ledger-body h3{margin:0;font-size:16px;color:#e7e9ee;display:inline}
+        .ledger-body .ahead{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}
+        .ledger-body .tag{font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;
+          text-transform:uppercase;padding:3px 7px;border:1px solid currentColor;border-radius:4px}
+        .ledger-body .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+        .ledger-body .cols h4{font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.1em;
+          text-transform:uppercase;color:#8b93a7;margin:0 0 5px}
+        .ledger-body .cols p{margin:0;font-size:13px;color:#c9ced8;line-height:1.5}
+        .ledger-body .ev{margin:9px 0 0;font:500 11px/1.5 ui-monospace,Menlo,monospace;color:#8b93a7}
+        .ledger-body .meta{border-left:3px solid #5b9dff;padding:2px 0 2px 14px;margin:18px 0 6px}
+        .ledger-body .meta h4{margin:0 0 5px;font-size:14px;color:#e7e9ee}
+        .ledger-body .meta p{margin:0;color:#8b93a7;font-size:13px}
+        @media (max-width:760px){.ledger-body .cols{grid-template-columns:1fr}}
+      </style>
+<article class="algo">
+  <div class="ahead"><h3>Autocorrelation scale</h3><span class="tag" style="color:var(--good)">shipped</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Fused rafts and repeating layouts — reads the pill pitch off the photo itself, immune to a mask that merged everything.</p></div>
+    <div><h4>Fails</h4><p>Small crops (needs many repeats), rings (reads chord not arc), single pills.</p></div>
+    <div><h4>Lesson</h4><p>The DT ridge is only as good as the mask; the photo carries an independent scale witness. Search from lag 4 and take the first interior peak only when the ridge over-reads (peak < ridge) — a peak above the ridge is a pair spacing.</p></div>
+  </div>
+  <p class="ev">Hexrafts 1→19/19, 1→37/37. Blanket first-peak cost 2 real photos; ridge-comparison discriminator recovered both.</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Photo seeding</h3><span class="tag" style="color:var(--good)">shipped</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Starved single-layer sheets: luminance maxima + Hough votes give one seed per pill where the DT has no signal.</p></div>
+    <div><h4>Fails</h4><p>Needs singleLayer detection to admit the blob first; seeds ~7% high on 120-pill boards.</p></div>
+    <div><h4>Lesson</h4><p>When the mask is one lump, the photo still shows every pill. Seed from the image, not the mask.</p></div>
+  </div>
+  <p class="ev">19 clean markers on the hex raft; dense per-pill 38/120→120/120 after the sheet test was widened.</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Sheet test: one pill THICK, not disc-shaped</h3><span class="tag" style="color:var(--good)">shipped</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Wide single-layer boards that are nothing like a disc.</p></div>
+    <div><h4>Fails</h4><p>—</p></div>
+    <div><h4>Lesson</h4><p>Compactness asked the wrong question. A wide sheet has a deep medial axis because it is wide.</p></div>
+  </div>
+  <p class="ev">Dense board 41→142 counted, 0 missed; adversarial per-pill 314→427, biggest single jump.</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Cluster solver (set-level search)</h3><span class="tag" style="color:var(--good)">shipped</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Overlapping/duplicated placements: delete, merge, separate — moves a per-pill refiner cannot make.</p></div>
+    <div><h4>Fails</h4><p>Cannot invent counts; needs obstacles or it shoves pills into neighbours.</p></div>
+    <div><h4>Lesson</h4><p>Overlap is a hard constraint, not a penalty. Validity is a destination: escaping moves must be legal from an illegal start. Deletion must be judged on score, not overlap-reduction.</p></div>
+  </div>
+  <p class="ev">Geometry 197→80 pairs, 59→16 duplicates, measured three ways on one build. Self-test 6/6.</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Rescue stand-down on shattered masks</h3><span class="tag" style="color:var(--good)">shipped</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Noise boards where "confirmed pills" are grain and medA poisons every bound.</p></div>
+    <div><h4>Fails</h4><p>Needs the count arm too — a dense board of small pills has no big blob for the ratio arm.</p></div>
+    <div><h4>Lesson</h4><p>A stage that calibrates on the mask must first ask whether the mask is credible.</p></div>
+  </div>
+  <p class="ev">cross-noise 261→13 EXACT; spurious 1929→536→170.</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Fill overlap (IoU) per placement</h3><span class="tag" style="color:var(--good)">shipped</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Sees what cover cannot: a stamp straddling two pills scores cover 1.0 and IoU 0.44.</p></div>
+    <div><h4>Fails</h4><p>Cannot separate dense-board phantoms (a phantom between two pills still covers material, IoU identical).</p></div>
+    <div><h4>Lesson</h4><p>cover charges only for stamp-on-background, never for mask the stamp missed. Symmetric measures or nothing. And EVERY placement must be scored — an unscored one escapes all quality control.</p></div>
+  </div>
+  <p class="ev">r-7ff7fd99: cover flat 0.93, IoU spreads 0.36–0.92 matching the visibly bad outlines.</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Courtyard guard on hole filling</h3><span class="tag" style="color:var(--good)">shipped</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Ring layouts: a hole that is 78% of the foreground is a courtyard, not an engraving.</p></div>
+    <div><h4>Fails</h4><p>—</p></div>
+    <div><h4>Lesson</h4><p>The two classes are 52× apart (engravings ≤1.5% of fg). Scale-free bound, since it runs before any radius exists.</p></div>
+  </div>
+  <p class="ev">Ring 1→12/12 EXACT, 0 spurious.</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Unit ceiling from the correlation pitch</h3><span class="tag" style="color:var(--good)">shipped</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Dense rafts where 3 crease fragments set the unit 17.5× too big.</p></div>
+    <div><h4>Fails</h4><p>—</p></div>
+    <div><h4>Lesson</h4><p>A floor without a ceiling is half a guard. There were TWO identical unit=unit2 sites; the first edit landed on the dead copy.</p></div>
+  </div>
+  <p class="ev">Dense massFrac 8.72→153 (truth 120); count 20→41 at the time.</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Greedy overlap peel</h3><span class="tag" style="color:var(--warn)">reverted — measured</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>In isolation: dense 142→124 with all 120 pills kept — no threshold can do this (real pills reach 24.7px penetration).</p></div>
+    <div><h4>Fails</h4><p>Costs 20 corpus images unscoped; 2 even when scoped by packed-fraction — genuinely dense boards look identical to phantom-filled ones.</p></div>
+    <div><h4>Lesson</h4><p>The greedy re-measure beats any fixed cut, but the trigger does not exist yet. Three traps recorded: run before out-capture; single-pill regions carry no pills array; regions may legally empty.</p></div>
+  </div>
+  <p class="ev">guard: dense-board-overlap-peel</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Prefer watershed on photo-seeded blobs</h3><span class="tag" style="color:var(--warn)">reverted — measured</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>The counts: ws closer than base on 6/6 such blobs (error 22 vs 70); adversarial 35→36.</p></div>
+    <div><h4>Fails</h4><p>The picture: lowering k does not re-place the region — dense fell from 120/120 found to 7/120.</p></div>
+    <div><h4>Lesson</h4><p>Count and placements are computed in different places; moving one without the other is the CANCELLING failure. Fix must re-place at the new k.</p></div>
+  </div>
+  <p class="ev">guard: dense-board-count-vs-picture</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Bright-percentile cue for wood</h3><span class="tag" style="color:var(--warn)">reverted — measured</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Diagnosis solid: wood histogram is trimodal, Otsu splits grain-vs-grain; a p99 cut recovers 9/9, 19/19, 8/8.</p></div>
+    <div><h4>Fails</h4><p>Binary broke the gradient pipeline (rafts 19→15); graded cost 10 corpus images — coherence let it win where the default was fine.</p></div>
+    <div><h4>Lesson</h4><p>A mask can be right and still unusable if downstream reads gradient. Needs a texture-specific trigger.</p></div>
+  </div>
+  <p class="ev">guard: bright-percentile-cue-costs-ten-images</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Gloss exemption from the darkness cull</h3><span class="tag" style="color:var(--warn)">reverted — measured</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Diagnosis solid: a shiny pill is a mirror; discarded blobs were 2773px/2064px vs median 1435 — plainly pills.</p></div>
+    <div><h4>Fails</h4><p>Size exemption cost 7 images, size+length still 3: dark smudges are frequently pill-sized AND pill-long.</p></div>
+    <div><h4>Lesson</h4><p>Whatever separates a dark pill from a dark smudge, it is not size or shape. Likely colour.</p></div>
+  </div>
+  <p class="ev">commit 9ba7bc9, chain recorded in place</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Small-raft capacity floor</h3><span class="tag" style="color:var(--warn)">reverted — measured</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Fixes all three 7-pill rafts (capacity 6.8 vs floor 8).</p></div>
+    <div><h4>Fails</h4><p>Costs r-cc7a2ada 19→21; the raft and the real clump are identical on every field the stage has.</p></div>
+    <div><h4>Lesson</h4><p>1 corpus image outweighs 2 adversarial. No discriminator yet.</p></div>
+  </div>
+  <p class="ev">commit 063edda</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>LoG blob detection</h3><span class="tag" style="color:var(--bad)">dead end — do not retry</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Highest recall of anything tried (97–100%), only technique to find pills on lined paper.</p></div>
+    <div><h4>Fails</h4><p>The ranking is noise: worst true pill ranks #4412 of 115,328 peaks. Top-34 recovers 3/34. Shape re-ranking scored WORSE (0/34).</p></div>
+    <div><h4>Lesson</h4><p>Recall from 115k candidates for 34 pills means nothing. Do not revisit without a fundamentally different candidate reduction.</p></div>
+  </div>
+  <p class="ev">guard: log-blob-is-not-a-detector</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Lone-witness panel override</h3><span class="tag" style="color:var(--bad)">dead end — do not retry</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Tempting on every image where one method is right (mass:14 on lined, truth 14).</p></div>
+    <div><h4>Fails</h4><p>Measured over 128 disagreeing blobs: base closest 72, mass 13, ws 5. Reached three times from different directions.</p></div>
+    <div><h4>Lesson</h4><p>One vivid example is not a rule. The panel exists to stop exactly this.</p></div>
+  </div>
+  <p class="ev">guard: lone-witness-cannot-win-the-panel</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>IoU / penetration threshold for phantoms</h3><span class="tag" style="color:var(--bad)">dead end — do not retry</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>—</p></div>
+    <div><h4>Fails</h4><p>Dense phantoms have IDENTICAL IoU to real pills (0.509 both); penetration separates 4× at the median but overlaps at the tails (cut at 4px drops 50 real pills).</p></div>
+    <div><h4>Lesson</h4><p>A phantom between two real pills covers real material. Only set-level reasoning (greedy peel, solver) can see it.</p></div>
+  </div>
+  <p class="ev">guard: dense-board-count-vs-picture</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Glare fill by brightness</h3><span class="tag" style="color:var(--bad)">dead end — do not retry</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>—</p></div>
+    <div><h4>Fails</h4><p>The lost material is the SHADOW flank, not the highlight: missed pixels median 75 vs board 77 — indistinguishable by luminance. Adding bright pixels changed nothing (59%→59%).</p></div>
+    <div><h4>Lesson</h4><p>Specular pills need a COLOUR cue. Matte pills keep 93% of their footprint; shiny 74–79%, worst 37%.</p></div>
+  </div>
+  <p class="ev">commit 17fffaa</p>
+ </article>
+<article class="algo">
+  <div class="ahead"><h3>Separation sweep (method, kept)</h3><span class="tag" style="color:var(--good)">shipped</span></div>
+  <div class="cols">
+    <div><h4>Works</h4><p>Answered the central question: matte caplets never break down to 1.7× spacing; speckled fail at 3.0× fully separated; two curves non-monotonic.</p></div>
+    <div><h4>Fails</h4><p>—</p></div>
+    <div><h4>Lesson</h4><p>Proximity is NOT the failure driver. The open cases are surface/board problems wearing a clustering costume.</p></div>
+  </div>
+  <p class="ev">tools/gen-separation.mjs, commit ef6747d</p>
+ </article>
+
+<div class="meta">
+ <h4>The pattern across all of it</h4>
+ <p>Nearly every real gain came from finding a witness the failure could not corrupt: the photo's
+ own pitch when the mask fused, the photo's own pixels when the DT starved, component counts when
+ the scale was the broken thing. And nearly every reverted idea failed the same way — a rule
+ learned from one vivid image, paid for by twenty quiet ones. The corpus gate is the only
+ arbiter that never lied.</p>
+</div>
+
+      </div>
+    </details>
   </header>
   <div class="controls">
     <button id="run" disabled>Run all</button>
