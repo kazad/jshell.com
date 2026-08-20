@@ -2281,6 +2281,151 @@ export function countPills(cv, source, opts = {}) {
         opts.debug?.({ stage: 'purge', fg, bigA: big.a, bigMx: big.mx, bigPk: big.pk, dropped: drop.size });
       }
     }
+    // SHADOW CUT v2. Deep cast shadow in the mask corrupts every
+    // population-relative calibration at once (ledger: shadow-in-mask-root-
+    // cause in docs/known-issues.json). v1 proved the diagnosis (s229 went
+    // exact with perfect per-pill, s-eb90778f hit 33/34) and taught three
+    // refusals, each now built in:
+    //   - the reference band for "pill hue" is the BODY (0.55-0.95 x p75):
+    //     the top of a specular bead's histogram is white glare;
+    //   - a component may only be cut when a MAJORITY of its border with
+    //     the rest of the blob-or-world is BACKGROUND: a cast shadow lobe
+    //     hangs off the pill into the board, while the shadow SEAM between
+    //     two touching pills borders pill material on both sides -- v1
+    //     deleted t3's seams and split fused blobs (+4). Seams belong to
+    //     the watershed.
+    //   - refuse a cut over 40% of the blob outright.
+    {
+      const w3 = src.cols, h3 = src.rows, n3 = w3 * h3;
+      const md3 = bw.data, sd3 = src.data, ch3 = src.channels();
+      const lbl3 = new Int32Array(n3);
+      const stack3 = new Int32Array(n3);
+      let nb3 = 0;
+      const blobPx = [];
+      for (let i0 = 0; i0 < n3; i0++) {
+        if (!md3[i0] || lbl3[i0]) continue;
+        nb3++;
+        const px3 = [];
+        let sp3 = 0;
+        stack3[sp3++] = i0; lbl3[i0] = nb3;
+        while (sp3 > 0) {
+          const c = stack3[--sp3];
+          px3.push(c);
+          const x = c % w3, y = (c / w3) | 0;
+          if (x > 0 && md3[c - 1] && !lbl3[c - 1]) { lbl3[c - 1] = nb3; stack3[sp3++] = c - 1; }
+          if (x < w3 - 1 && md3[c + 1] && !lbl3[c + 1]) { lbl3[c + 1] = nb3; stack3[sp3++] = c + 1; }
+          if (y > 0 && md3[c - w3] && !lbl3[c - w3]) { lbl3[c - w3] = nb3; stack3[sp3++] = c - w3; }
+          if (y < h3 - 1 && md3[c + w3] && !lbl3[c + w3]) { lbl3[c + w3] = nb3; stack3[sp3++] = c + w3; }
+        }
+        blobPx.push(px3);
+      }
+      const lum3 = (c) => { const o = c * ch3; return (sd3[o] + sd3[o + 1] + sd3[o + 2]) / 3; };
+      let cutTotal = 0, blobsCut = 0;
+      for (const px3 of blobPx) {
+        if (px3.length < 200) continue;
+        const h64 = new Float64Array(64);
+        for (const c of px3) h64[Math.min(63, lum3(c) >> 2)]++;
+        let acc = 0, p75 = 0;
+        for (let t = 0; t < 64; t++) { acc += h64[t]; if (acc >= 0.75 * px3.length) { p75 = (t + 0.5) * 4; break; } }
+        const thr3 = 0.45 * p75;
+        const cand = new Set();
+        for (const c of px3) if (lum3(c) < thr3) cand.add(c);
+        // A real caster's shadow is a large SHARE of its blob (s229: the
+        // lobe is ~a third of pill+shadow). A many-pill heap's rim pockets
+        // are individually large in absolute terms but a small share of the
+        // heap -- and cutting them re-shapes contacts the watershed owns
+        // (t3 went +7 with them cut, exact with them kept).
+        if (cand.size < 0.15 * px3.length) continue;
+        if (cand.size > 0.4 * px3.length) continue;
+        // body-band hue reference
+        let br3 = 0, bg3 = 0, bb3 = 0, bn3 = 0;
+        for (const c of px3) {
+          const v = lum3(c);
+          if (v < 0.55 * p75 || v > 0.95 * p75) continue;
+          const o = c * ch3;
+          br3 += sd3[o]; bg3 += sd3[o + 1]; bb3 += sd3[o + 2]; bn3++;
+        }
+        if (bn3 < 30) {
+          for (const c of px3) {
+            if (lum3(c) < 0.8 * p75) continue;
+            const o = c * ch3;
+            br3 += sd3[o]; bg3 += sd3[o + 1]; bb3 += sd3[o + 2]; bn3++;
+          }
+        }
+        const bt3 = Math.max(1, br3 + bg3 + bb3);
+        const bc3 = [br3 / bt3, bg3 / bt3, bb3 / bt3];
+        const seen3 = new Set();
+        const toCut = [];
+        for (const c0 of cand) {
+          if (seen3.has(c0)) continue;
+          const comp = [c0];
+          seen3.add(c0);
+          let bgB = 0, pillB = 0;
+          for (let qi = 0; qi < comp.length; qi++) {
+            const c = comp[qi];
+            const x = c % w3, y = (c / w3) | 0;
+            for (const d of [-1, 1, -w3, w3]) {
+              if (d === -1 && x === 0) continue;
+              if (d === 1 && x === w3 - 1) continue;
+              if (d === -w3 && y === 0) continue;
+              if (d === w3 && y === h3 - 1) continue;
+              const c2 = c + d;
+              if (cand.has(c2)) {
+                if (!seen3.has(c2)) { seen3.add(c2); comp.push(c2); }
+              } else if (md3[c2]) pillB++;
+              else bgB++;
+            }
+          }
+          if (comp.length < 0.08 * px3.length) continue;
+          // MAJORITY-BACKGROUND BOUNDARY: a lobe hangs into the board; a
+          // seam is walled by pill on both sides. Only lobes may go.
+          if (bgB <= pillB) continue;
+          // TOPOLOGY VETO -- the decisive form of the seam rule. The bg/pill
+          // border ratio is a knife-edge (t3's pockets snake through heap
+          // gaps at ~1-2x, s229's lobes hug their caster at ~1.5x). What a
+          // seam does that a lobe cannot is HOLD THE BLOB TOGETHER: if
+          // removing the component splits the blob, it was load-bearing and
+          // the watershed owns it. Never change topology, only trim.
+          {
+            const inComp = new Set(comp);
+            let seed = -1;
+            for (const c of px3) if (!inComp.has(c)) { seed = c; break; }
+            if (seed >= 0) {
+              const remain = px3.length - comp.length;
+              const vis = new Set([seed]);
+              const q3 = [seed];
+              for (let qi = 0; qi < q3.length; qi++) {
+                const c = q3[qi];
+                const x = c % w3, y = (c / w3) | 0;
+                for (const d of [-1, 1, -w3, w3]) {
+                  if (d === -1 && x === 0) continue;
+                  if (d === 1 && x === w3 - 1) continue;
+                  if (d === -w3 && y === 0) continue;
+                  if (d === w3 && y === h3 - 1) continue;
+                  const c2 = c + d;
+                  if (md3[c2] && !inComp.has(c2) && !vis.has(c2)) { vis.add(c2); q3.push(c2); }
+                }
+              }
+              if (vis.size < 0.95 * remain) continue;   // it splits: seam, keep
+            }
+          }
+          let cr3 = 0, cg3 = 0, cb3 = 0;
+          for (const c of comp) {
+            const o = c * ch3;
+            cr3 += sd3[o]; cg3 += sd3[o + 1]; cb3 += sd3[o + 2];
+          }
+          const ct3 = Math.max(1, cr3 + cg3 + cb3);
+          const dC3 = 255 * (Math.abs(cr3 / ct3 - bc3[0])
+            + Math.abs(cg3 / ct3 - bc3[1]) + Math.abs(cb3 / ct3 - bc3[2]));
+          if (dC3 < 20) continue;   // pill-hued: shaded pill material stays
+          toCut.push(...comp);
+        }
+        if (!toCut.length) continue;
+        for (const c of toCut) md3[c] = 0;
+        cutTotal += toCut.length; blobsCut++;
+      }
+      if (cutTotal) opts.debug?.({ stage: 'shadowcut', cut: cutTotal, blobs: blobsCut });
+    }
     if (emit) emit('mask-final', grayToStage(bw));
 
     // Sure background: dilated mask. Sure foreground: distance-transform peaks.
@@ -3097,7 +3242,25 @@ export function countPills(cv, source, opts = {}) {
           return (sh.solidity < 0.85 || sh.circularity < 0.50) && sh.area < 0.75 * medGood
             ? true : sh.area < 0.45 * medGood;
         });
-        const overReach = regions.length >= 6 && doomed.length > 0.33 * regions.length;
+        let overReach = regions.length >= 6 && doomed.length > 0.33 * regions.length;
+        // Second refusal arm: doomed regions that are PILL-SCALE. True
+        // splotches sit far below the population (0.34x medGood measured on
+        // r-96e5f08f); a doomed cluster whose median is half a pill or more
+        // is the population itself photographing badly (s-0bfc44d8's glare-
+        // shredded beads run 0.45-0.69x). Matters once the shadow cut
+        // cleans MOST outlines: the doomed count then drops below the 33%
+        // inversion bar while the remaining doomed are still real beads.
+        if (!overReach && doomed.length >= 3) {
+          const dAreas = doomed.map((r) => (shOf(r) || {}).area || 0)
+            .filter((v) => v > 0).sort((q, r2) => q - r2);
+          const dMed = dAreas.length ? dAreas[dAreas.length >> 1] : 0;
+          if (dMed >= 0.5 * medGood) {
+            overReach = true;
+            opts.debug?.({ stage: 'splotch-refused', kind: 'pill-scale',
+              doomed: doomed.length, dMed: +dMed.toFixed(0),
+              medGood: +medGood.toFixed(0) });
+          }
+        }
         if (overReach) {
           splotchRefused = true;
           opts.debug?.({ stage: 'splotch-refused', kind: 'population',

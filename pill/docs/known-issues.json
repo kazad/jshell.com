@@ -151,6 +151,30 @@
    "what": "Exempt splotchkill victims whose chromaticity matches the (non-neutral) pill population median, to save glare-shredded fragments",
    "measured": "On shiny/s-eb90778f the board is saturated brown leather and its glare streaks are red-brown: the exemption spared 7 of 9 kills (junk included), the surviving ragged fragments fractured placement, and the count moved 31->30 of 34 (wrong direction).",
    "lesson": "Population-color matching needs a hue GAP between board and medication. Works for lenjunk only because that gate additionally requires a NEUTRAL board (bgSatC<20). Any color-based rescue must first verify the board/pill chroma separation on the image itself."
+  },
+  "shadow-in-mask-root-cause": {
+   "date": "2026-08-20",
+   "verdict": "OPEN \u2014 next major project",
+   "what": "Deep cast shadow enters the mask and corrupts EVERY downstream calibration at once",
+   "measured": {
+    "unit": "s229/shadowpair: pair- and shadow-bloated blobs push unit to ~2x a true single; raft-unit catches >2x but a pair sits at exactly ~2.0 and slips under",
+    "unitLen": "s229: isolated pill + shadow lobe reads major 61-64 vs true diameter 27, so unitLen=44.7 and every length-based gate (incl. roundness unitLen < 2.7r) is blind",
+    "unitfix": "derives from the same corrupted blob population; after raft-unit corrects the unit, unitfix reverts it (fixed for round pops via the circular-evidence veto, commit 32b2d440)",
+    "template": "a shadow-bridged pair is a smooth convex peanut and poisons tplPool too",
+    "mask-shatter": "shadowchain at depth 0.65 fragments pills into 134px crescents; medSingle collapses and one region mints units=23",
+    "unitfix-veto-dead": "confirmed by the committed-state adversarial baseline (39/56): the round scope (unitLen < 2.7r) closes exactly on pair-dominated boards because unitLen reads pair length -- shadowpair back to 0/2. The veto protects the corpus but cannot fire where needed. Same lesson: no length gate works until the mask stops swallowing shadow."
+   },
+   "countermeasures_shipped": "shadow-lobe descent (census+seam), p75 lenjunk, round-scoped unitfix veto, two-tone dark-mass witness",
+   "next": "Mask-level shadow segmentation: per-blob, cut peripheral components with lum < ~0.5 x blob p75; gate on cut size and verify against shiny (dark pills) + lined (shaded flanks) before trusting. The round-raft-unit 1.55x rescue is written but DEAD because its unitLen gate is itself shadow-corrupted -- do not re-add without an uncorrupted length witness.",
+   "attempt-2026-08-20-shadowcut": {
+    "verdict": "REVERTED at 241/253 (from 244) \u2014 promising but 3 casualties",
+    "design": "At mask-final, per blob >=200px: p75 lum reference; candidates lum < 0.45 x p75; components >= 3% of blob cut; refuse if total > 60% of blob; hue guard (cut only components whose chroma differs >= 20 from the 0.55-0.95 x p75 BODY band -- the top of the histogram is glare on specular beads). Plus a splotchkill pill-scale refusal arm: >= 3 doomed with median area >= 0.5 x medGood = the population itself, refuse the stage.",
+    "wins": "s229 12/12 EXACT per-pill (unit/unitLen uncorrupted at last); s-eb90778f 31->33 of 34 (best ever); s233/s298/s302-family held",
+    "casualties": "approx/t3-white-round-yellow-2 +4 (was exact), real/r-f5d11815 -1 (was exact), synthetic-noise-25 -2 (was exact), shiny/s-0bfc44d8 -1 -> -2",
+    "coupling": "the pill-scale refusal ONLY works after the cut has removed junk shadow regions; alone it would wholesale-refuse eb90778f splotchkill and keep 6 genuine junk kills",
+    "next-iteration": "tighten the cut: require components to touch the blob rim AND border background (a cast shadow lies between pill and board); try min component 8% and cap 40%; diagnose t3 (+4 suggests the cut SPLIT blobs into extra pieces) before re-attempting.",
+    "t3-diagnosis": "DIAGNOSED: t3 is white tablets heaped on a BRIGHT YELLOW board. Inter-pill shadow seams are dark (<0.45 p75) and board-hued (dC>=20 from the white body), so both gates passed and the cut deleted the seams BETWEEN touching pills -- splitting fused blobs and double-counting contacts (+4). Refinement confirmed: a candidate component may only be cut if a majority of its boundary touches BACKGROUND (peripheral lobe), never when it borders pill material on both sides (seam). Seams must stay in the mask; the watershed owns them."
+   }
   }
  }
 }
