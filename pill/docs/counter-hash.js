@@ -1,1 +1,1 @@
-window.__counterHash = "643d245a6a00";
+window.__counterHash = "928477b61cbe";

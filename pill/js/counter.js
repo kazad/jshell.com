@@ -1845,10 +1845,16 @@ function seamSpectrum(srcData, srcW, srcH, bl, w, l, box) {
 // using the same oriented-extent convention as the per-region geometry pass
 // at the end of countPills — so a cell's `err` is directly comparable to the
 // photo's own single-pill residuals.
-function seamCells(seam, k) {
+function seamCells(seam, k, skip, extra) {
   const { relief: g, rw, rx0, ry0, px } = seam;
   const markers = [seam.survivor.p];
-  for (let i = 0; i < k - 1 && i < seam.events.length; i++) markers.push(seam.events[i].p);
+  if (extra) for (const p of extra) if (markers.length < k) markers.push(p);
+  const usedEv = [];
+  for (let i = 0; markers.length < k && i < seam.events.length; i++) {
+    if (skip && skip.has(i)) continue;
+    markers.push(seam.events[i].p);
+    usedEv.push(i);
+  }
   if (markers.length < k) return null;
   const lab = new Map();
   const heap = [];
@@ -1913,7 +1919,7 @@ function seamCells(seam, k) {
     if (pp < a.pLo) a.pLo = pp; if (pp > a.pHi) a.pHi = pp;
     if (qq < a.qLo) a.qLo = qq; if (qq > a.qHi) a.qHi = qq;
   }
-  return acc.map((a) => {
+  const out = acc.map((a) => {
     if (a.n < 20 || a.th === undefined) return { n: a.n, err: Infinity, fill: 0, aspect: 0, cx: 0, cy: 0, theta: 0, major: 0, minor: 0 };
     const e1 = a.pHi - a.pLo + 1, e2 = a.qHi - a.qLo + 1;
     const major = Math.max(e1, e2), minor = Math.max(1, Math.min(e1, e2));
@@ -1924,6 +1930,11 @@ function seamCells(seam, k) {
     return { n: a.n, cx: rx0 + a.mx, cy: ry0 + a.my, fill, aspect,
       err: fitPrimitive(fill, aspect).err, theta, major, minor };
   });
+  out.usedEv = usedEv;   // which event indices supplied markers (after extras)
+  out.lab = lab;         // pixel -> cell id, for partition repair
+  out.markers = markers;
+  out.nExtra = extra ? extra.length : 0;
+  return out;
 }
 
 // Photometric validation of one pill hypothesis (owner's render-and-verify
@@ -6186,6 +6197,38 @@ export function countPills(cv, source, opts = {}) {
               && !(massW && massW.v >= arcHi)) {
               cands.push({ v: arcHi, conf: 'low' });
             }
+            // A4: the relief's own event count, for the k that NEITHER mass
+            // nor the arcs can name. A halo-bloated cluster reads massV 14
+            // for ~11 true beads over a settled 8: massV is a lie, arcHi is
+            // buried, and no candidate between 8 and 14 was ever offered --
+            // truth was structurally unreachable. The relief knows: k pills
+            // leave k-1 merge events above the same 0.67 x IQR floor the
+            // certification below already trusts, so offer
+            // kSeam = 1 + count(deep events) directly.
+            //
+            // Scope, each edge measured elsewhere: only blobs already
+            // holding >= 2 pills (the arcHi casualties were all k0=1 lone
+            // pills); only when mass reads at least that much material
+            // (kSeam <= massV, so a phantom event cannot mint a pill the
+            // pixels cannot back); and the partition-validity + photometric
+            // acceptance backstops below still judge the resulting cells.
+            // The old kSeam-as-counter refutation was about IMAGE-level
+            // thresholds not transferring; this floor is per-blob IQR.
+            if (kFinal0 >= 2 && massW && seam == null && a.box) {
+              seam = seamSpectrum(src.data, w, h, bl, w, l, a.box);
+            }
+            if (kFinal0 >= 2 && massW && seam && seam.events.length) {
+              const iqrK = Math.max(1, seam.p75 - seam.p25);
+              const fK = 0.67 * iqrK;
+              let kSeam = 1;
+              for (const e of seam.events) { if (e.v >= fK) kSeam++; else break; }
+              opts.debug?.({ stage: 'kseam', blob: l, kSeam, kFinal0,
+                massV: massW.v });
+              if (kSeam > kFinal0 && kSeam <= massW.v
+                && !cands.some((cd) => cd.v === kSeam)) {
+                cands.push({ v: kSeam, conf: 'low' });
+              }
+            }
             if (massW && arcS && arcHi >= 1 && massW.v > arcHi && arcHi > kFinal0) {
               // mass overshoots the boundary interval: also offer the
               // boundary's own ceiling, per the arcrec philosophy ("no
@@ -6237,35 +6280,128 @@ export function countPills(cv, source, opts = {}) {
                   // pill+webbing-fragment split measures far beyond it).
                   // Measured on the accepted design-set fires: worst cell
                   // residual 0.103 vs bar 0.30, worst size ratio 1.37.
-                  const kAcc = okC[0].v;
-                  const cells = seamCells(seam, kAcc);
                   const residBar = template
                     ? Math.max(0.30, 4 * template.residual + 0.12) : 0.30;
-                  let ok = !!cells && cells.length === kAcc;
-                  if (ok) {
-                    let nLo = Infinity, nHi = 0;
-                    for (const cl of cells) {
-                      if (cl.n < 20 || cl.err > residBar) { ok = false; break; }
-                      if (cl.n < nLo) nLo = cl.n;
-                      if (cl.n > nHi) nHi = cl.n;
+                  // Evaluate one hypothesised k. Extracted so the DESCENT
+                  // below can retry: the relief may certify one or two more
+                  // events than there are pills (a halo-filled gap forges a
+                  // valley), and when the partition at the certified k fails
+                  // the cell-shape bar, the truth may sit just below it --
+                  // 0bfc blob 50 certifies 13, truth is ~11, and k=13's
+                  // cells fail shape while nothing ever tried 12 or 11.
+                  // Certification transfers downward for free: the events
+                  // are sorted by depth, so if events[k-2] clears the floor
+                  // then events[k'-2] does for every k' < k.
+                  const evalK = (kTry) => {
+                    // A DEGENERATE BASIN MUST NOT DOOM THE PARTITION. On the
+                    // 0bfc cluster one high-persistence maximum is a glare
+                    // spark whose basin holds 18px; it stole a slot at EVERY
+                    // k, so k=13..10 all failed while ten real cells sat
+                    // healthy. Replace such a marker with the next-ranked
+                    // event and re-grow (bounded), instead of failing k.
+                    const skip = new Set();
+                    const extra = [];
+                    let cells2 = seamCells(seam, kTry, skip);
+                    for (let r2 = 0; r2 < 4 && cells2; r2++) {
+                      // Two repairs, same principle -- a marker earns its
+                      // slot by the basin it grows, not by its persistence
+                      // rank. (a) A basin far below the median (a glare
+                      // spark, an 806px sliver) forfeits its event. (b) When
+                      // a basin runs far ABOVE the median, its missing
+                      // sibling's maximum is WEAKER than junk elsewhere, so
+                      // persistence ranking can never find it: plant the
+                      // replacement at that cell's own interior relief
+                      // maximum, well away from its existing marker -- the
+                      // k-means++ step. Measured on 0bfc blob 50 (truth 13):
+                      // the 8321px double-bead basin never split under
+                      // rank-based replacement through four rounds.
+                      const ns2 = cells2.map((cl) => cl.n).sort((q, r3) => q - r3);
+                      const medN2 = ns2[ns2.length >> 1] || 0;
+                      const dj = cells2.findIndex((cl) => cl.n < 20
+                        || (medN2 > 200 && cl.n < 0.45 * medN2));
+                      if (dj >= 1) {
+                        const evIdx = dj - 1 - cells2.nExtra;
+                        const ev = evIdx >= 0 && cells2.usedEv
+                          ? cells2.usedEv[evIdx] : null;
+                        if (ev == null) break;
+                        skip.add(ev);
+                        // is there also an oversized cell? split it instead
+                        // of pulling the next (junk) event
+                        let bigId = -1, bigN = 0;
+                        cells2.forEach((cl, ci) => {
+                          if (medN2 > 200 && cl.n > 1.8 * medN2 && cl.n > bigN) {
+                            bigId = ci; bigN = cl.n;
+                          }
+                        });
+                        if (bigId >= 0 && cells2.lab && cells2.markers) {
+                          const g2 = seam.relief, rw2 = seam.rw;
+                          const mk = cells2.markers[bigId];
+                          const mx2 = mk % rw2, my2 = (mk / rw2) | 0;
+                          const minD = 0.55 * Math.sqrt(bigN);
+                          let bestP = -1, bestV = -Infinity;
+                          for (const [pp, id2] of cells2.lab) {
+                            if (id2 !== bigId) continue;
+                            const dx2 = pp % rw2 - mx2, dy2 = ((pp / rw2) | 0) - my2;
+                            if (dx2 * dx2 + dy2 * dy2 < minD * minD) continue;
+                            if (g2[pp] > bestV) { bestV = g2[pp]; bestP = pp; }
+                          }
+                          if (bestP >= 0) extra.push(bestP);
+                        }
+                        cells2 = seamCells(seam, kTry, skip, extra);
+                        continue;
+                      }
+                      break;
                     }
-                    if (ok && nHi > 2.2 * nLo) ok = false;
-                  }
-                  // PHOTOMETRIC ACCEPTANCE (the second, independent half of
-                  // the render-and-verify test): each hypothesized pill's
-                  // interior must be MADE of pill pixels, not just shaped
-                  // like one. Sampled on the distance-from-background map;
-                  // the bar is the photo's own Otsu segmentation cut, so it
-                  // is constant-free. Only meaningful when the mask came
-                  // from color distance in the first place.
-                  let photoOk = true;
-                  if (ok && cells) {
-                    const dd8 = distBg.data;
-                    for (const cl of cells) {
-                      cl.photo = pillPhotoScore(dd8, w, h, cl);
-                      if (usedColorDist && cl.photo < otsuThr) photoOk = false;
+                    let ok2 = !!cells2 && cells2.length === kTry;
+                    if (ok2) {
+                      // Residual judged like aspect: on the POPULATION, not
+                      // the worst cell. A basin partition leaves boundary
+                      // cells slightly rough -- 0bfc's k=12 has eleven cells
+                      // at 0.012-0.30 and one at 0.305, vetoed by 1.7%.
+                      // Tolerate a minority (<= k/4) within 1.25x the bar;
+                      // beyond 1.25x stays an outright veto (a fragment).
+                      let nLo = Infinity, nHi = 0, soft = 0;
+                      for (const cl of cells2) {
+                        if (cl.n < 20 || cl.err > 1.25 * residBar) { ok2 = false; break; }
+                        if (cl.err > residBar) soft++;
+                        if (cl.n < nLo) nLo = cl.n;
+                        if (cl.n > nHi) nHi = cl.n;
+                      }
+                      if (ok2 && soft > kTry / 4) ok2 = false;
+                      if (ok2 && nHi > 2.2 * nLo) ok2 = false;
                     }
+                    // PHOTOMETRIC ACCEPTANCE (the second, independent half
+                    // of the render-and-verify test): each hypothesized
+                    // pill's interior must be MADE of pill pixels, not just
+                    // shaped like one. Sampled on the distance-from-
+                    // background map; the bar is the photo's own Otsu cut.
+                    let photoOk2 = true;
+                    if (ok2 && cells2) {
+                      const dd8 = distBg.data;
+                      for (const cl of cells2) {
+                        cl.photo = pillPhotoScore(dd8, w, h, cl);
+                        if (usedColorDist && cl.photo < otsuThr) photoOk2 = false;
+                      }
+                    }
+                    opts.debug?.({ stage: 'evalk', blob: l, k: kTry,
+                      ok: ok2, cells: cells2 ? cells2.map((cl) => ({ n: cl.n,
+                        err: +cl.err.toFixed(3), a: +cl.aspect.toFixed(2) })) : null,
+                      bar: +residBar.toFixed(3) });
+                    return { cells: cells2, ok: ok2, photoOk: photoOk2 };
+                  };
+                  let kAcc = okC[0].v;
+                  let resK = evalK(kAcc);
+                  let descents = 0;
+                  while (!(resK.ok && resK.photoOk) && descents < 3
+                    && kAcc - 1 > kFinal0) {
+                    descents++;
+                    kAcc--;
+                    opts.debug?.({ stage: 'seamdesc', blob: l, try: kAcc });
+                    resK = evalK(kAcc);
                   }
+                  const cells = resK.cells;
+                  let ok = resK.ok;
+                  let photoOk = resK.photoOk;
                   // TEMPLATE-ASPECT CONSISTENCY. One medication means the
                   // cells of a re-partition must look like THAT medication.
                   // Measured (advil-2 recount): a seam raise 2 -> 3 shipped

@@ -244,7 +244,33 @@
     "edge AND board-at-3px-standoff": "fixed shiny direction (eb90778f adopted chroma: 34/34 per-pill, every bead found for the first time) but broke lined adoption (low-contrast beige-on-white boundary gradient < 12).",
     "fragmentation-led (nB <= nA-2, no precision)": "CATASTROPHE: 227/253. Correct on all 5 probe cases, wrong corpus-wide -- the chroma candidate has fewer components on most real towel photos (blur merges), and adoption exploded counts +12/+14. Fragmentation is a veto, never the positive signal. THE five-probe-cases trap in its purest form."
    },
-   "shiny-lead": "Under the edge+standoff judge the chroma-residual mask (the truth-generator method) was adopted on both shiny images: eb90778f measured 34/34 per-pill -- the mask is RIGHT -- but 18-20 components hold 34 beads, so it trades shredded disease for fused disease and counts land -4/+4. Coverage stays capped at 1.8x until the fused machinery is tuned on that mask. That is the door to the last shiny failures."
+   "shiny-lead": "Under the edge+standoff judge the chroma-residual mask (the truth-generator method) was adopted on both shiny images: eb90778f measured 34/34 per-pill -- the mask is RIGHT -- but 18-20 components hold 34 beads, so it trades shredded disease for fused disease and counts land -4/+4. Coverage stays capped at 1.8x until the fused machinery is tuned on that mask. That is the door to the last shiny failures.",
+   "shiny-probe-2026-08-21": {
+    "setup": "chroma-residual candidate force-adopted under the shredded-incumbent signature (nC*2 <= nA, covRatio 1.5-2.5), bake-off moved BEFORE the strip/purge/shadowcut cleanups so they apply to the winner.",
+    "measured": {
+     "eb90778f": "34/34 per-pill, +4 -> +2 after the reorder (the two strip spurious die when strip-removal runs on the adopted mask). Remaining +2 is over-split INSIDE the dense cluster (blob ws 15 / mass 14.28 / k 14 vs ~13 true).",
+     "0bfc44d8": "-4. NOT a unit error: aspect-filtered single beads genuinely measure ~3640px on the chroma mask (halo included), so unit 3718 is right FOR THAT MASK. The deficit is the big cluster: mass bloats to 14.19 units (chroma halo fills inter-bead gaps) for ~11 true beads, ws finds 8, panel rightly distrusts the bloated mass and settles 8. Cluster arbitration on halo-bloated masks is the open problem.",
+     "reorder-alone-cost": "bake-off-before-cleanups + aspect-matched unitfix pool, WITHOUT chroma adoption, measured 247/253 within1 249 (from 248/251) -- two changes bundled, net negative in the shipped configuration. Reverted. The reorder belongs WITH chroma adoption, not before it."
+    },
+    "next": "One focused change-set, landed together or not at all: (1) chroma adoption under the shredded signature, (2) bake-off before cleanups, (3) cluster arbitration that discounts mass on halo-bloated masks -- e.g. erode the adopted chroma mask by the halo width (compare single-bead area on chroma vs incumbent mask: 3640 vs ~2600 implies ~1-2px halo) before counting, which fixes mass bloat at the source."
+   },
+   "changeset-2026-08-21": {
+    "verdict": "REFUTED in all measured compositions; reverted to the 248/251 sat-only judge",
+    "matrix": {
+     "shipped (no chroma adoption)": "eb -1 (33/34), 0bfc -2 (31/34)",
+     "adoption alone": "eb +2 (34/34 matched!), 0bfc -4 (27/34)",
+     "adoption + 2px erode + reorder": "eb +12 (erosion fragments beads), 0bfc -2 but 28/34; reorder re-broke lined-bfdbfef9 +3 (pre-cleanup nA inflated, sat adoption fired where rightly refused)",
+     "adoption + 1px erode + inline strip, shipped position": "eb +3 (33/34), 0bfc -3 (26/34) -- even 1px erosion inverts the eb gain"
+    },
+    "conclusion": "Mask surgery cannot fix 0bfc: its dense cluster arbitrates WORSE on the halo mask (mass 14.19 units, ws 8, truth ~11) than on the shredded one. eb-like boards win under raw adoption; 0bfc-like boards lose. The router cannot separate them at the mask level.",
+    "next-altitude": "Fix CLUSTER ARBITRATION on halo masks before any adoption ships: the seam re-partition only tries the mass vote and arcHi as candidates, so a blob at kFinal0=8 with massV=14 and truth 11 never has 11 offered. Candidate to try: kSeam = 1 + count(events >= 0.67*IQR), offered when kFinal0 < kSeam <= min(massV, capacityS) -- still subject to the partition-validity and photometric acceptance backstops. NOTE the old kSeam-as-counter refutation (no global threshold transfers across images) is about IMAGE-level thresholds; this is per-blob self-calibrated with validation gates. Measure on 0bfc blob 50 under forced adoption first."
+   },
+   "adoption-probe-v2-2026-08-21": {
+    "state": "eb 36/34 (+2, 34/34 matched, 2 cluster over-splits), 0bfc 35/34 (+1, blob 50 resolves 8->13 EXACT via the partition repairs)",
+    "eb-overcounts": "blob 3: truth 1, ws+ero split it 2 with mass 1.02 (consolidation did not fire -- investigate why a 1.02-mass convex bead is exempt). blob 32: truth 13, ws AND mass both vote 15 (halo bloat + unit ~10% low), panel agrees at 15.",
+    "kseam-inflation": "The relief LIES on eb: kSeam reads 18 for truth 13 (blob 32), 6 for truth 3 (blob 7), 2 for truth 1 (blob 3) -- glare bands along the bead axis forge merge events. On 0bfc the same floor read 13 = truth exactly. kSeam transfers between boards no better than any other single witness; it is a CANDIDATE, never a verdict (the A4 design already treats it so).",
+    "surviving-lead": "The 15-in-13 placement set on eb blob 32 must contain 2 overlapping or unsupported placements. The cluster solver (overlap as hard constraint, delete moves) and the IoU fit gate exist for exactly this and reported pillsRemoved: 0 -- find out why they tolerate it. That is mask-independent work: fix it on the SHIPPED configuration first, where blob 32-like over-splits also exist."
+   }
   }
  }
 }
