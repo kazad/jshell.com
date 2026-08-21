@@ -9372,6 +9372,124 @@ export function countPills(cv, source, opts = {}) {
     // pairs and those two stages put 3 back at 19.1px.
     if (regions.__runClusterSolve) { regions.__runClusterSolve(); delete regions.__runClusterSolve; }
 
+    // FINAL PHYSICS AUDIT. Pills may touch, never overlap -- a DEEP
+    // interpenetration between two drawn placements is proof one of them is
+    // false, by scope invariant rather than by score. Measured on the
+    // production failure set: 9 of 11 failing images ship impossible
+    // geometry, worst r-90dbe20e where a 0.33x-area conf-low phantom runs
+    // 122px through a real tablet.
+    //
+    // Deletion demands BOTH physics and relative evidence, never score
+    // alone (the fit-gate refutation): penetration > 0.5 x the smaller
+    // width, AND the victim materially weaker than its partner (area
+    // < 0.6x, or confidence 'low' against a non-low partner). Two similar
+    // pills drawn overlapping because the template is over-scaled (the
+    // lined disease, advil's gel pairs) select NO victim and are left for
+    // the scale work -- deleting either would be wrong.
+    {
+      // Audit at CLAIMED size, not measured size: every counted unit claims
+      // a pill-sized footprint (that is what the overlay draws and what the
+      // scope invariant is about). r-90dbe20e's phantom measures only
+      // 17x21px itself, but its claim -- one pill -- runs 122px through the
+      // neighbouring tablet.
+      const rawMaj = [], rawMin = [];
+      for (const g of regions) {
+        if (g.pills && g.pills.length) {
+          for (const p2 of g.pills) {
+            if (p2.minor > 0) { rawMaj.push(p2.major); rawMin.push(p2.minor); }
+          }
+        } else if ((g.units || 1) === 1 && g.shape && g.shape.minor > 0) {
+          rawMaj.push(g.shape.major); rawMin.push(g.shape.minor);
+        }
+      }
+      const med2 = (a2) => { const s2 = a2.slice().sort((x, y) => x - y);
+        return s2.length ? s2[s2.length >> 1] : 0; };
+      const drawnDims = { maj: med2(rawMaj), min: med2(rawMin) };
+      const claimMaj = (v) => Math.max(v || 0, drawnDims.maj || 0);
+      const claimMin = (v) => Math.max(v || 0, drawnDims.min || 0);
+      const nodesP = [];
+      for (const g of regions) {
+        if (g.pills && g.pills.length) {
+          for (const p2 of g.pills) {
+            if (p2.minor > 0) nodesP.push({ cx: p2.cx, cy: p2.cy,
+              th: p2.theta || 0, maj: claimMaj(p2.major), min: claimMin(p2.minor),
+              g, pill: p2, area: 0, conf: g.confidence });
+          }
+        } else if ((g.units || 1) === 1 && g.shape && g.shape.minor > 0) {
+          nodesP.push({ cx: g.cx, cy: g.cy, th: g.shape.theta || 0,
+            maj: claimMaj(g.shape.major), min: claimMin(g.shape.minor),
+            g, pill: null, area: g.area || 0, conf: g.confidence });
+        }
+      }
+      const segPen = (A, B) => {
+        const segd = (q) => {
+          const a2 = Math.max(0, (q.maj - q.min) / 2);
+          return [q.cx - Math.cos(q.th) * a2, q.cy - Math.sin(q.th) * a2,
+            q.cx + Math.cos(q.th) * a2, q.cy + Math.sin(q.th) * a2];
+        };
+        const pt = (px2, py2, qx, qy, rx, ry) => {
+          const vx = rx - qx, vy = ry - qy, L2 = vx * vx + vy * vy;
+          let t = L2 ? ((px2 - qx) * vx + (py2 - qy) * vy) / L2 : 0;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          return Math.hypot(px2 - (qx + t * vx), py2 - (qy + t * vy));
+        };
+        const a3 = segd(A), b3 = segd(B);
+        const d = Math.min(
+          pt(a3[0], a3[1], b3[0], b3[1], b3[2], b3[3]),
+          pt(a3[2], a3[3], b3[0], b3[1], b3[2], b3[3]),
+          pt(b3[0], b3[1], a3[0], a3[1], a3[2], a3[3]),
+          pt(b3[2], b3[3], a3[0], a3[1], a3[2], a3[3]));
+        return (A.min + B.min) / 2 - d;
+      };
+      const medArea = med2(nodesP.map((n) => n.area).filter((a2) => a2 > 0));
+      const dead = new Set();
+      let killedUnits = 0;
+      const pairs = [];
+      for (let i = 0; i < nodesP.length; i++) {
+        for (let j = i + 1; j < nodesP.length; j++) {
+          const pen = segPen(nodesP[i], nodesP[j]);
+          if (pen > 0.5 * Math.min(nodesP[i].min, nodesP[j].min)) {
+            pairs.push([pen, i, j]);
+          }
+        }
+      }
+      pairs.sort((a2, b2) => b2[0] - a2[0]);
+      let killed = 0;
+      for (const [pen, i, j] of pairs) {
+        if (killed >= 3) break;
+        const A = nodesP[i], B = nodesP[j];
+        if (dead.has(A) || dead.has(B)) continue;
+        // Conviction requires BOTH the confidence asymmetry AND a
+        // fragment-sized body. Area-ratio alone executed a real conf-high
+        // pill on f5d11815 (18 -> 17 against truth 19); conf-low alone
+        // executed ~2 full-size pills in each dense small-pill synth
+        // (Node bake 248 -> 238). The r-90dbe20e phantom is both: conf
+        // low against a high partner AND 0.33x the median single area.
+        let victim = null;
+        const aArea = A.area || 0, bArea = B.area || 0;
+        const frag = (n) => n.area > 0 && medArea > 0 && n.area < 0.5 * medArea;
+        if (A.conf === 'low' && B.conf !== 'low' && frag(A)) victim = A;
+        else if (B.conf === 'low' && A.conf !== 'low' && frag(B)) victim = B;
+        if (!victim || victim.pill) continue;   // v1: whole single regions only
+        dead.add(victim);
+        killed++;
+        killedUnits += victim.g.units || 1;
+        count -= victim.g.units || 1;
+        const idx = regions.indexOf(victim.g);
+        if (idx >= 0) regions.splice(idx, 1);
+        opts.debug?.({ stage: 'physaudit', pen: +pen.toFixed(1),
+          cx: Math.round(victim.cx), cy: Math.round(victim.cy),
+          area: victim.area, partnerArea: victim === A ? bArea : aArea,
+          conf: victim.conf });
+      }
+      // `out` snapshots count before the solver and this audit run.
+      // Propagate ONLY this audit's kills: the solver's own `count -=
+      // removed` has been dead code since it was moved after out-creation,
+      // and making it live re-broke 10 dense synths (Node 248 -> 238).
+      out.count -= killedUnits;
+      count = out.count;
+    }
+
     // NO PLACEMENT ESCAPES SCORING. An unscored placement carries a null
     // IoU: drawn in the neutral colour, never flagged, never re-posed -- the
     // owner found one sitting on pure black. This is the last point where

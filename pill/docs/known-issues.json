@@ -334,5 +334,14 @@
     "production-shape": "if ratio >= 1.4: request AI mask (on-device MobileSAM, $0) -> opts.maskCandidate -> bake-off judges. Everything needed except the browser model is now shipped."
    }
   }
+ },
+ "final-physics-audit": {
+  "date": "2026-08-21",
+  "what": "Last stage of countPills: pills may touch, never overlap, so a deep interpenetration between two CLAIMED placements proves one is false. Claims are floored to the population-median pill dims (one medication per photo); penetration measured stadium-to-stadium.",
+  "kill-rule": "pen > 0.5 x min(minorA, minorB) AND victim conf 'low' vs non-low partner AND victim area < 0.5 x median single area (fragment-sized). Max 3 kills, whole single regions only (pills[] entries exempt in v1).",
+  "evidence": "r-90dbe20e browser pixels: 0.33x-area conf-low phantom penetrating a real tablet 103px at claimed size -> killed, 4 -> 3 EXACT. Chrome bake 242 -> 243, Node 248 held, jitter ratchet flat (503b3041 improved 2 -> 1).",
+  "refuted-looser-rules": "(a) area<0.6x partner alone executed a real conf-high pill on f5d11815 (18->17 vs truth 19); (b) conf-low alone executed ~2 full-size pills in each dense small-pill synth (Node 248->238).",
+  "trap": "`out` snapshots count BEFORE __runClusterSolve and this audit. The solver's own `count -= removed` has been dead since it was moved after out-creation; wiring `out.count = count` resurrected it and re-broke 10 dense synths. Propagate ONLY the audit's own killedUnits.",
+  "rule": "Physics may only delete with an independent weakness witness (conf + fragment mass). Physics alone identifies the PAIR, never the victim."
  }
 }
