@@ -4838,17 +4838,60 @@ export function countPills(cv, source, opts = {}) {
           if (!bq || !regsQ || !regsQ.length) continue;
           if (!regsQ.some((r) => (r.units || 1) > 1 && r.area > 0)) continue;
           const sumOld = regsQ.reduce((t, r) => t + (r.units || 1), 0);
-          const sumNew = regsQ.reduce((t, r) => t + ((r.units || 1) > 1 && r.area > 0
-            ? Math.min(r.units, Math.max(1, Math.round(r.area / unit)))
-            : (r.units || 1)), 0);
+          // ROUND ONCE, NOT ONCE PER REGION. The original summed each
+          // region's round(area/unit): eight independent roundings, each a
+          // knife edge, and under +-1 decode jitter the sum swung 40-42 on
+          // t3-yellow's raft while the blob's MASS held 39.16-39.22. When
+          // the swing blew the slack the guard refused and the raft stayed
+          // at the (equally jittery) watershed number -- counts [55..65]
+          // for a truth of 55. One rounding of the SUMMED quotient inherits
+          // the mass's stability; per-region units are then apportioned by
+          // largest fractional remainder (bounded per region by
+          // [1..r.units], floors/ceils of its own quotient).
+          const multis = regsQ.filter((r) => (r.units || 1) > 1 && r.area > 0);
+          const singlesSum = sumOld - multis.reduce((t, r) => t + r.units, 0);
+          const qcs = multis.map((r) => Math.min(r.units, Math.max(1, r.area / unit)));
+          const qTot = qcs.reduce((t, v) => t + v, 0);
+          let K = Math.round(qTot);
+          const Kfloor = qcs.reduce((t, v) => t + Math.floor(v), 0);
+          const Kceil = qcs.reduce((t, v) => t + Math.ceil(v), 0);
+          if (K < Kfloor) K = Kfloor;
+          if (K > Kceil) K = Kceil;
+          // OVERSHOOT CLAMPS TO THE MASS ANCHOR. The guard's recorded
+          // failure family is UNDERSHOOT (salmon 81 -> 17, lined 21 -> 17)
+          // and stays refused below. Overshoot is different: erosion
+          // inflates quotients while the blob's mass holds steady
+          // (measured 39.16-39.22 across jitter), so a K above the mass
+          // ceiling is noise and may be pulled DOWN to it -- never up.
+          {
+            const massQ0 = blobAreas[bq] / unit;
+            const slack0 = Math.max(0.75, 0.03 * massQ0);
+            const cap = Math.floor(massQ0 + slack0)
+              - regsQ.reduce((t, r) => t + ((r.units || 1) > 1 && r.area > 0 ? 0 : (r.units || 1)), 0);
+            if (K > cap && cap >= Kfloor) K = cap;
+          }
+          const sumNew = singlesSum + K;
           if (sumNew >= sumOld) continue; // reduce-only
           const massQ = blobAreas[bq] / unit;
           const slack = Math.max(0.75, 0.03 * massQ);
+          opts.debug?.({ stage: 'quotgate', blob: bq, sumOld, sumNew,
+            mass: +massQ.toFixed(2), slack: +slack.toFixed(2),
+            diff: +Math.abs(sumNew - massQ).toFixed(2) });
           if (Math.abs(sumNew - massQ) > slack
             || Math.abs(sumNew - massQ) >= Math.abs(sumOld - massQ)) continue;
-          for (const r of regsQ) {
-            if ((r.units || 1) <= 1 || !(r.area > 0)) continue;
-            const uCal = Math.min(r.units, Math.max(1, Math.round(r.area / unit)));
+          // largest-remainder apportionment of K across the multis
+          const alloc = qcs.map((v) => Math.floor(v));
+          let give = K - alloc.reduce((t, v) => t + v, 0);
+          const order = qcs.map((v, i2) => [v - Math.floor(v), i2])
+            .sort((a2, b2) => b2[0] - a2[0]);
+          for (const [, i2] of order) {
+            if (give <= 0) break;
+            if (alloc[i2] < Math.min(multis[i2].units, Math.ceil(qcs[i2]))) {
+              alloc[i2]++; give--;
+            }
+          }
+          multis.forEach((r, i2) => {
+            const uCal = Math.max(1, alloc[i2]);
             if (uCal < r.units) {
               opts.debug?.({ stage: 'quotcal', blob: bq, label: r.label,
                 area: r.area, from: r.units, to: uCal, unit: +unit.toFixed(1),
@@ -4856,7 +4899,7 @@ export function countPills(cv, source, opts = {}) {
               count += uCal - r.units;
               r.units = uCal;
             }
-          }
+          });
         }
       }
 

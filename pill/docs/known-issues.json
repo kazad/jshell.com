@@ -271,6 +271,31 @@
     "kseam-inflation": "The relief LIES on eb: kSeam reads 18 for truth 13 (blob 32), 6 for truth 3 (blob 7), 2 for truth 1 (blob 3) -- glare bands along the bead axis forge merge events. On 0bfc the same floor read 13 = truth exactly. kSeam transfers between boards no better than any other single witness; it is a CANDIDATE, never a verdict (the A4 design already treats it so).",
     "surviving-lead": "The 15-in-13 placement set on eb blob 32 must contain 2 overlapping or unsupported placements. The cluster solver (overlap as hard constraint, delete moves) and the IoU fit gate exist for exactly this and reported pillsRemoved: 0 -- find out why they tolerate it. That is mask-independent work: fix it on the SHIPPED configuration first, where blob 32-like over-splits also exist."
    }
+  },
+  "browser-gate-2026-08-21": {
+   "date": "2026-08-21",
+   "verdict": "PRODUCTION TRUTH: 6 of 8 borderline JPEGs count differently in the browser than in Node; PNGs agree exactly.",
+   "table": {
+    "t2-ibuprofen": "Node 13 / browser 13 / truth 13 -- agree",
+    "t2-white-capsules-wood": "Node 8 EXACT / browser 9 -- browser WRONG",
+    "r-7ff7fd99": "Node 20 EXACT / browser 19 -- browser WRONG",
+    "s-0bfc44d8": "Node 32 / browser 36 / truth 34 -- both wrong, opposite sides",
+    "s-eb90778f": "Node 33 / browser 33 -- agree (-1)",
+    "lined-bfdbfef9": "Node 19 / browser 21 / truth 20 -- both wrong, opposite sides",
+    "lined-503b3041": "Node 18 / browser 20 EXACT -- BROWSER RIGHT, Node wrong",
+    "lined-69204ff4": "Node 19 / browser 17 / truth 20 -- both wrong",
+    "s298 s229 (PNG)": "identical, exact"
+   },
+   "meaning": "The corpus number certifies the Node decoder, not the app. Decoder-level +-1px differences flip these images, and phone photos carry frame-to-frame noise of the same order. STABILITY UNDER DECODE NOISE is the production metric; tools/jitter.mjs measures it per image.",
+   "next": "Baseline the jitter instability across all corpus JPEGs, then attack the biggest flip sources stage-by-stage (jitter.mjs diffs the fired-stage sets between extreme runs). The photoseed capacity clamp (e917729) is the pattern: find the knife-edge decision, replace the threshold with a stable quantity."
+  },
+  "stability-ratchet": {
+   "date": "2026-08-21",
+   "what": "Production stability metric: tools/jitter.mjs spread (max-min over 7 +-1-noise runs) summed across the 13 unstable corpus JPEGs. The browser gate proved decode noise flips real counts, so this ratchets alongside the corpus.",
+   "baseline": "13 of 34 JPEGs unstable; total spread 36 before the round-once quotcal, 31 after (t3-yellow 10 -> 6 with mode on truth).",
+   "per-image": "0bfc 6, t3-yellow 6, bfdbfef9 5, 69204ff4 2, 503b3041 2, lightblue-1 2, salmon 2, six at 1.",
+   "next-sources": "0bfc and bfdbfef9 instability is the MASK flapping (glare shreds / fusion vary per decode) -- same root as their corpus failures, same door: the ensemble mask. The three small-blob flips left on t3-yellow are region raises (2->3, 2->4, 1->2), likely heavyFraction rounding at ~x.5 mass.",
+   "rule": "Any change that raises total spread is a regression even if the corpus holds. Re-sweep with: for f in <13 images>; do node tools/jitter.mjs $f | head -2; done"
   }
  }
 }
