@@ -305,6 +305,34 @@
    "table": "Chrome breaks 9 Node-exact images: r-554c3c1a -1, r-681ce773 +1, r-7ff7fd99 -1, r-90dbe20e +1, r-cc7a2ada +3(!), r-f5d11815 -1, r-fd69dff9 +1, advil-2 +1, salmon +2, t3-yellow -1. Chrome FIXES lined-503b3041 (exact at 20). Both wrong on 69204ff4/bfdbfef9/0bfc/eb.",
    "meaning": "Every one of the 9 newly-visible failures is a knife-edge image (the jitter sweep flagged most of them). Decoder difference IS one jitter sample. Closing the stability gap and closing the production gap are the same work.",
    "rule": "Gate changes on BOTH pixel sources: default bake AND VALEYE_PIXELS=browser bake. A fix that moves Node-exact up while Chrome-exact stays 239 is polishing the wrong decoder."
+  },
+  "ai-segmentation-option": {
+   "date": "2026-08-21",
+   "verdict": "RESEARCHED \u2014 viable as an ensemble candidate, not a replacement; $0 offline experiment first",
+   "options": {
+    "on-device": "MobileSAM ONNX ~40MB, ~3s CPU / ~0.3s WebGPU in-browser (proven ports); SAM2-small WebGPU ~150MB. $0/count, private.",
+    "cloud": "Replicate SAM-2 ~$0.012/count; Gemini 2.5 Flash masks ~$0.002-0.01/image (unproven on 60-pill rafts); CountGD++/T-Rex2 exemplar counting = best conceptual fit for one-medication (tap-a-pill UX), credit-priced API.",
+    "caution": "Published pill-specific YOLO counters report 87-93% -- BELOW our production 94.9% exact-image rate. Generic mAP is not exact counting."
+   },
+   "plan": "1) Offline SAM-2 run over the 253 corpus scored on EXACT counts vs truth (same gate as everything). 2) If it fixes the 13 production failures: MobileSAM in-browser as mask-bakeoff candidate D, judged like the others. 3) Cloud tier only for low-confidence flags.",
+   "experiment-2026-08-21": {
+    "setup": "SAM2.1-b (154MB, ultralytics) auto-mask over 16 of the hardest corpus images, pill-band area filter + multi-mask division, scored on exact counts.",
+    "result": "3/16 exact. As a REPLACEMENT it is far worse than the algorithm: salmon-pentagon 141 for 90 (glare/imprint masks), advil-dark 54 for 30, eb90778f 68 for 34. As a REGIME CANDIDATE it is precisely complementary: EXACT on s-0bfc44d8 (34, ours -2), lined-69204ff4 (20, ours -3 in production), r-554c3c1a (19). SAM nails the shredded-mask images our pipeline cannot and faceplants where ours is strong.",
+    "conclusion": "Confirms the ensemble path with local data: SAM enters the mask bake-off as candidate D, gated to the shredded/glare regime signature, judged like every other candidate. Never a raw counter.",
+    "runtime": "~3-6s/image on this machine (MPS); checkpoint 154MB. MobileSAM (~40MB) would be the browser variant."
+   },
+   "candidate-D-ceiling-2026-08-21": {
+    "setup": "SAM2.1-b pill-union masks forced as the working mask (opts.maskCandidate + maskForce, offline only) through OUR full counting machinery on the 7 hardest images.",
+    "result": "0bfc44d8 34 EXACT (ours +2/-2) and 503b3041 20 EXACT (ours -2 on Node). Harmful elsewhere: t3-yellow 46/-9 (SAM under-segments the heap), 69204ff4 18/-2. Confirms regime gating from a second angle.",
+    "cloudflare": "Workers AI has NO segmentation model (DETR detection, Moondream 3.1 VLM pointing, no SAM) at $0.011/1k neurons + 10k free/day. Cloud SAM = Replicate ~$0.012/scan (~1.2 cents). The <=1 cent target means on-device MobileSAM (~40MB, $0) or Workers-AI Moondream counting (untested) -- or accept 1.2 cents on Replicate.",
+    "integration": "opts.maskCandidate hook now exists in the bake-off (inert without the option). Production path: shredded-regime gate -> request AI mask (on-device or cloud) -> candidate D judged like the others."
+   },
+   "shredded-predicate-2026-08-21": {
+    "definition": "ratio = comps(>=30px) / (maskFg / unit), measured on the working mask (maskstats debug emit, shipped inert).",
+    "survey": "All 34 browser-pixel JPEGs: FIRE at ratio >= 1.4 selects exactly {0bfc 1.55, salmon 4.45} with ZERO healthy images (next-highest healthy: beige-round 1.33 exact, cream-caplets 1.12 exact). On both fires the SAM mask helps: 0bfc becomes EXACT through our pipeline, salmon |err| 2 -> 1.",
+    "limits": "eb90778f sits at 1.23 -- inside the healthy band -- and needs a second signal (specular-population) before it can route to the AI mask. The lined family is the OPPOSITE signature (fused, ratio 0.3-0.5) shared with healthy fused images; AI mask is NOT the lined cure (confirmed twice: forced SAM makes 69204ff4 worse).",
+    "production-shape": "if ratio >= 1.4: request AI mask (on-device MobileSAM, $0) -> opts.maskCandidate -> bake-off judges. Everything needed except the browser model is now shipped."
+   }
   }
  }
 }

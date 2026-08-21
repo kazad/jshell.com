@@ -1232,6 +1232,76 @@ function fillHoles(cv, bw, debug) {
     if (ll[i] && !touchesBorder[ll[i]] && !tooBig.has(ll[i])) md[i] = 255;
   }
   inv.delete(); lab.delete();
+
+  // ALMOST-HOLES. A pocket whose only escape is a 1-2px channel is a hole
+  // whose lid flickers with the DECODER: on r-f5d11815 one decode sees an
+  // enclosed 23px hole (filled) and another sees the same pocket open by
+  // one pixel (kept), the blob areas diverge, the watershed seeds differ,
+  // and the count flips +-1 -- the whole spread-1 caplet family starts at
+  // exactly this. Seal pockets that become enclosed under a 1px dilation,
+  // capped at highlight scale (2% of foreground; engravings measure 1.5%,
+  // the ring courtyard 78%), then re-run the plain fill for the crescent
+  // the dilation ring leaves behind.
+  {
+    const k1 = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3));
+    const dil = new cv.Mat();
+    cv.dilate(bw, dil, k1);
+    const inv2 = new cv.Mat();
+    cv.bitwise_not(dil, inv2);
+    const lab2 = new cv.Mat();
+    const n2 = cv.connectedComponents(inv2, lab2);
+    const l2 = lab2.data32S;
+    const tb2 = new Uint8Array(n2 + 1);
+    for (let x = 0; x < w; x++) { tb2[l2[x]] = 1; tb2[l2[(h - 1) * w + x]] = 1; }
+    for (let y = 0; y < h; y++) { tb2[l2[y * w]] = 1; tb2[l2[y * w + w - 1]] = 1; }
+    const area2 = new Map();
+    for (let i = 0; i < l2.length; i++) {
+      if (l2[i] && !tb2[l2[i]]) area2.set(l2[i], (area2.get(l2[i]) || 0) + 1);
+    }
+    let fgNow = 0;
+    const md2 = bw.data;
+    for (let i = 0; i < md2.length; i++) if (md2[i]) fgNow++;
+    // MULTIPLICITY GATE. Decode flicker produces ONE marginal pocket (the
+    // f5d11815 hole/bay); a specular board produces DOZENS of legitimate
+    // glare pockets, and sealing them bloats the mask -- measured, the
+    // unrestricted seal took 0bfc +2 -> +7 and advil-dark-3 exact -> +6.
+    // Seal only when the whole photo holds at most 3 candidate pockets.
+    // ...and each pocket must be FLICKER-scale. The measured flicker hole
+    // is 23px and engravings run 68-91px; advil-dark-3's fatal pockets ran
+    // to 1200px under the 2%-of-fg cap and merged gels (+6). Absolute cap
+    // 150px, still comfortably above every engraving measured.
+    const cands2 = new Set();
+    for (const [id, a2] of area2) if (a2 > 0 && a2 <= Math.min(150, 0.02 * fgNow)) cands2.add(id);
+    let sealed = 0;
+    if (cands2.size >= 1 && cands2.size <= 3) {
+      for (let i = 0; i < l2.length; i++) {
+        const id = l2[i];
+        if (id && cands2.has(id) && !md2[i]) { md2[i] = 255; sealed++; }
+      }
+    }
+    if (sealed) {
+      // crescent pass: the sealed interior may leave a now-enclosed sliver
+      const inv3 = new cv.Mat();
+      cv.bitwise_not(bw, inv3);
+      const lab3 = new cv.Mat();
+      const n3 = cv.connectedComponents(inv3, lab3);
+      const l3 = lab3.data32S;
+      const tb3 = new Uint8Array(n3 + 1);
+      for (let x = 0; x < w; x++) { tb3[l3[x]] = 1; tb3[l3[(h - 1) * w + x]] = 1; }
+      for (let y = 0; y < h; y++) { tb3[l3[y * w]] = 1; tb3[l3[y * w + w - 1]] = 1; }
+      const area3 = new Map();
+      for (let i = 0; i < l3.length; i++) {
+        if (l3[i] && !tb3[l3[i]]) area3.set(l3[i], (area3.get(l3[i]) || 0) + 1);
+      }
+      for (let i = 0; i < l3.length; i++) {
+        const id = l3[i];
+        if (id && !tb3[id] && (area3.get(id) || 0) <= 0.02 * fgNow) md2[i] = 255;
+      }
+      inv3.delete(); lab3.delete();
+      debug?.({ stage: 'almosthole', sealed });
+    }
+    k1.delete(); dil.delete(); inv2.delete(); lab2.delete();
+  }
 }
 
 // Cut strong interior intensity edges (the creases where touching pills
@@ -2483,8 +2553,52 @@ export function countPills(cv, source, opts = {}) {
         const v = wBM * wF * (mB - mF) * (mB - mF);
         if (v > mxM) { mxM = v; thrM = t; }
       }
+      // CANDIDATE D: an externally supplied mask (e.g. a neural segmenter's
+      // pill union) enters the same contest. opts.maskCandidate must be a
+      // Uint8Array at the counter's WORKING scale (the caller replicates
+      // scale = min(1, maxDim/max(w0,h0))). opts.maskForce adopts without
+      // the judge -- offline ceiling measurement only, never production.
+      if (opts.maskCandidate && opts.maskCandidate.length === nM) {
+        const extM = opts.maskCandidate;
+        let onE = 0, onA0 = 0;
+        for (let i = 0; i < nM; i++) { if (extM[i]) onE++; if (mdM[i]) onA0++; }
+        const fE = onE / nM;
+        if (opts.maskForce && onE > 0) {
+          opts.debug?.({ stage: 'maskvote', cand: 'ext-forced',
+            fracB: +fE.toFixed(3), covRatio: onA0 ? +(onE / onA0).toFixed(2) : 0,
+            adopt: true });
+          for (let i = 0; i < nM; i++) mdM[i] = extM[i] ? 255 : 0;
+        }
+      }
       let onB = 0, onA = 0;
       for (let i = 0; i < nM; i++) { if (satM[i] > thrM) onB++; if (mdM[i]) onA++; }
+      const compCountM = (get) => {
+        const seen = new Uint8Array(nM);
+        const st2 = new Int32Array(nM);
+        let n = 0;
+        for (let s0 = 0; s0 < nM; s0++) {
+          if (!get(s0) || seen[s0]) continue;
+          let sp = 0, area = 0;
+          st2[sp++] = s0; seen[s0] = 1;
+          while (sp > 0) {
+            const c = st2[--sp]; area++;
+            const x = c % wM, y = (c / wM) | 0;
+            if (x > 0 && get(c - 1) && !seen[c - 1]) { seen[c - 1] = 1; st2[sp++] = c - 1; }
+            if (x < wM - 1 && get(c + 1) && !seen[c + 1]) { seen[c + 1] = 1; st2[sp++] = c + 1; }
+            if (y > 0 && get(c - wM) && !seen[c - wM]) { seen[c - wM] = 1; st2[sp++] = c - wM; }
+            if (y < hM - 1 && get(c + wM) && !seen[c + wM]) { seen[c + wM] = 1; st2[sp++] = c + wM; }
+          }
+          if (area >= 30) n++;
+        }
+        return n;
+      };
+      // mask self-statistics (debug only): the shredded-regime predicate for
+      // requesting an external mask needs comps + coverage of the WORKING
+      // mask, independent of any candidate being present
+      if (opts.debug) {
+        opts.debug({ stage: 'maskstats', comps: compCountM((i) => mdM[i]),
+          fg: onA });
+      }
       const fracB = onB / nM;
       if (fracB > 0.02 && fracB < 0.45 && onA > 0
         && onB > 0.5 * onA && onB < 1.8 * onA) {
@@ -2516,28 +2630,8 @@ export function countPills(cv, source, opts = {}) {
         // crisp its edges (the lined swiss-cheese incumbent has MORE
         // fragments than the clean saturation mask, so the true positives
         // pass this easily).
-        const compCount = (get) => {
-          const seen = new Uint8Array(nM);
-          const st2 = new Int32Array(nM);
-          let n = 0;
-          for (let s0 = 0; s0 < nM; s0++) {
-            if (!get(s0) || seen[s0]) continue;
-            let sp = 0, area = 0;
-            st2[sp++] = s0; seen[s0] = 1;
-            while (sp > 0) {
-              const c = st2[--sp]; area++;
-              const x = c % wM, y = (c / wM) | 0;
-              if (x > 0 && get(c - 1) && !seen[c - 1]) { seen[c - 1] = 1; st2[sp++] = c - 1; }
-              if (x < wM - 1 && get(c + 1) && !seen[c + 1]) { seen[c + 1] = 1; st2[sp++] = c + 1; }
-              if (y > 0 && get(c - wM) && !seen[c - wM]) { seen[c - wM] = 1; st2[sp++] = c - wM; }
-              if (y < hM - 1 && get(c + wM) && !seen[c + wM]) { seen[c + wM] = 1; st2[sp++] = c + wM; }
-            }
-            if (area >= 30) n++;
-          }
-          return n;
-        };
-        const nA = compCount((i) => mdM[i]);
-        const nB = compCount((i) => satM[i] > thrM);
+        const nA = compCountM((i) => mdM[i]);
+        const nB = compCountM((i) => satM[i] > thrM);
         const adopt = precB >= precA + 0.12
           && nB <= Math.max(nA * 1.5, nA + 3);
         opts.debug?.({ stage: 'maskvote', precA: +precA.toFixed(3),
