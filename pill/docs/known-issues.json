@@ -292,9 +292,9 @@
   "stability-ratchet": {
    "date": "2026-08-21",
    "what": "Production stability metric: tools/jitter.mjs spread (max-min over 7 +-1-noise runs) summed across the 13 unstable corpus JPEGs. The browser gate proved decode noise flips real counts, so this ratchets alongside the corpus.",
-   "baseline": "13 of 34 JPEGs unstable; total spread 36 before the round-once quotcal, 31 after (t3-yellow 10 -> 6 with mode on truth).",
-   "per-image": "0bfc 6, t3-yellow 6, bfdbfef9 5, 69204ff4 2, 503b3041 2, lightblue-1 2, salmon 2, six at 1.",
-   "next-sources": "0bfc and bfdbfef9 instability is the MASK flapping (glare shreds / fusion vary per decode) -- same root as their corpus failures, same door: the ensemble mask. The three small-blob flips left on t3-yellow are region raises (2->3, 2->4, 1->2), likely heavyFraction rounding at ~x.5 mass.",
+   "baseline": "13 of 34 JPEGs unstable; total spread 36 -> 31 (round-once quotcal) -> 28 (pile-tile mass veto; t3-yellow 10 -> 3 with six of seven runs on truth).",
+   "per-image": "0bfc 6, bfdbfef9 5, t3-yellow 3, 69204ff4 2, 503b3041 2, lightblue-1 2, salmon 2, six at 1.",
+   "next-sources": "The top two (0bfc 6, bfdbfef9 5) are MASK flapping -- glare shreds and fusion patterns vary per decode -- the same root as their corpus failures and the same door: the ensemble mask with a stable judge. Everything at spread <= 3 is a single small-blob decision flipping.",
    "rule": "Any change that raises total spread is a regression even if the corpus holds. Re-sweep with: for f in <13 images>; do node tools/jitter.mjs $f | head -2; done"
   }
  }

@@ -4440,6 +4440,7 @@ export function countPills(cv, source, opts = {}) {
       }
 
       opts.debug?.({ stage: 'lengthcal', unitLen, unit });
+      unitArea = unitOk ? unit : 0;   // expose the consensus unit (stamp env)
       if (opts.debug) {
         for (const l of blobList) {
           const ax = blobAxis.get(l) || {};
@@ -7271,6 +7272,7 @@ export function countPills(cv, source, opts = {}) {
             // radiusEst here carries the autocorrelation pitch, measured from
             // the photo's repeating structure rather than from any blob.
             pitchR: radiusEst,
+            unitArea,   // mass arbiter for the pile-tile (0 when uncalibrated)
             debug: opts.debug,
             mqProbe: opts.mqProbe,   // offline match-quality validation hook only
           });

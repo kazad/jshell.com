@@ -1758,8 +1758,22 @@ export function stampArbitrate(cv, env) {
         if (near && fgChroma[i] && !hybrid[i]) { hybrid[i] = 1; addedPx++; }
         if (near && hybrid[i]) allowC[i] = 1;
       }
-      debug?.({ stage: 'chromagate', unexpl: +(unexpl / AREA0).toFixed(2),
-        added: +(addedPx / AREA0).toFixed(2) });
+      {
+        // luminance of what the chroma mask ADDS vs the existing mask's own
+        // material: rescued pill bodies are pill-bright, while on a
+        // saturated board the residual lights the dark shadow GAPS between
+        // pills -- the exact places phantom stamps land.
+        let aS = 0, aN = 0, mS = 0, mN = 0;
+        for (let i = 0; i < w * h; i++) {
+          const L = luma[i];
+          if (nb[i] <= lim && fgChroma[i] && !fgFinal[i]) { aS += L; aN++; }
+          else if (fgFinal[i]) { mS += L; mN++; }
+        }
+        debug?.({ stage: 'chromagate', unexpl: +(unexpl / AREA0).toFixed(2),
+          added: +(addedPx / AREA0).toFixed(2),
+          addedLum: aN ? Math.round(aS / aN) : null,
+          maskLum: mN ? Math.round(mS / mN) : null });
+      }
       // enough new material to hide at least a third of a pill, else the
       // chroma map agrees with the mask and there is nothing to rescue
       if (addedPx > 0.35 * AREA0) {
@@ -2239,8 +2253,12 @@ export function stampArbitrate(cv, env) {
           const L = A.anchor ? B : B.anchor ? A : (A.s <= B.s ? A : B);
           if (!L.anchor) deadP.add(L);
         }
-        let clP = 0, pileA = 0;
-        for (let i = 0; i < w * h; i++) if (hl.blob[i] === b) { pileA++; if (resP.claimed[i]) clP++; }
+        let clP = 0, pileA = 0, pileFin = 0;
+        for (let i = 0; i < w * h; i++) if (hl.blob[i] === b) {
+          pileA++;
+          if (resP.claimed[i]) clP++;
+          if (fgFinal[i]) pileFin++;
+        }
         debug?.({ stage: 'piletile', blob: b, pc: pipeByH[b],
           pile: allP.length - deadP.size, anchors: aOn.length, placed: pOn.length,
           physDrop: deadP.size, expl: +resP.expl.toFixed(3),
@@ -2254,6 +2272,31 @@ export function stampArbitrate(cv, env) {
         const clFrac = pileA ? clP / pileA : 0;
         if (pile <= pcH2) continue;                      // (2) raise-only
         if (pile > 1.5 * pcH2) continue;                 // (5) fabrication cap
+        // (6) MASS ARBITRATION. The tile may only overrule a pipeline count
+        // that mass does NOT corroborate. On t3-yellow the pipeline's 40 is
+        // mass-consistent (pile mass 39.2) and the 43-46 tiles are not --
+        // they are phantoms in shadow gaps that the chroma residual lit up,
+        // and whether they fired at all flipped on decode jitter (counts
+        // 55..65). On the shiny piles the pipeline count sits FAR below
+        // mass (blob 50: pc 8, mass 14.19) -- rescue territory -- and the
+        // tile stays available. Luminance cannot make this cut (measured:
+        // legitimate shiny additions are DARKER than the mask, 52-68 vs
+        // 148, because the rescue restores shadow flanks).
+        if (env.unitArea > 0) {
+          // mass from the PIPELINE mask only: the hybrid pile area includes
+          // the chroma-added material itself, so measuring against it lets
+          // phantom additions vouch for phantom pills (run 1: pileA-mass
+          // 41.5 sat between pc 40 and tile 43 and the veto slipped).
+          const pileMass = pileFin / env.unitArea;
+          const slackP = Math.max(0.75, 0.05 * pileMass);
+          const pcOk = Math.abs(pcH2 - pileMass) <= slackP;
+          const tileOk = Math.abs(pile - pileMass) <= slackP;
+          if (pcOk && !tileOk) {
+            debug?.({ stage: 'piletile-massveto', blob: b, pc: pcH2, pile,
+              mass: +pileMass.toFixed(2), slack: +slackP.toFixed(2) });
+            continue;
+          }
+        }
         if (deadP.size > 0.15 * pile) continue;          // (3) physics-consistent
         if (clFrac < 0.75) continue;                     // (4) explains the pile
         const keptP = pOn.filter((p) => !deadP.has(p));
