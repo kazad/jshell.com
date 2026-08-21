@@ -2426,6 +2426,117 @@ export function countPills(cv, source, opts = {}) {
       }
       if (cutTotal) opts.debug?.({ stage: 'shadowcut', cut: cutTotal, blobs: blobsCut });
     }
+    // MASK BAKE-OFF — the ensemble starts here. The pipeline's one mask
+    // (border-color distance + Otsu + rescue) has measured failure regimes:
+    // on beige pills over white lined paper it comes out swiss cheese, and
+    // every population statistic downstream calibrates on the wrong mask
+    // (the half-unit disease behind the whole lined trio). A pure
+    // SATURATION mask of the same photo is visibly clean -- pills are the
+    // only tinted material there -- but grafting it onto the bad mask was
+    // tried twice and failed both ways (union: no-op; carve: amputated
+    // shaded flanks; guards in known-issues). The move that was never
+    // tried: let it compete as a WHOLE mask, judged by the photo itself.
+    //
+    // The judge is boundary-gradient precision: a correct mask's boundary
+    // lies on real luminance edges, while swiss-cheese hole rims sit on
+    // smooth pill interior. Adoption demands a clear margin (+0.12) and
+    // sane coverage, so on photos where the shipped mask is healthy the
+    // candidate loses and nothing changes. Boards that are themselves
+    // saturated (wood, kraft, yellow) push the candidate's foreground
+    // fraction outside (0.02, 0.45) and never enter the contest.
+    {
+      const wM = src.cols, hM = src.rows, nM = wM * hM;
+      const sdM = src.data, mdM = bw.data;
+      const grayM = new Uint8Array(nM);
+      for (let i = 0; i < nM; i++) {
+        const o = i * 4;
+        grayM[i] = (sdM[o] * 0.299 + sdM[o + 1] * 0.587 + sdM[o + 2] * 0.114) | 0;
+      }
+      // candidate: saturation (distance from gray), Otsu
+      const satM = new Uint8Array(nM);
+      const histM = new Float64Array(256);
+      for (let i = 0; i < nM; i++) {
+        const o = i * 4, r = sdM[o], g = sdM[o + 1], b = sdM[o + 2];
+        const m = (r + g + b) / 3;
+        const v = Math.min(255, Math.sqrt(((r - m) * (r - m) + (g - m) * (g - m)
+          + (b - m) * (b - m)) / 3) | 0);
+        satM[i] = v; histM[v]++;
+      }
+      let sumAllM = 0; for (let t = 0; t < 256; t++) sumAllM += t * histM[t];
+      let wBM = 0, sumBM = 0, mxM = 0, thrM = 0;
+      for (let t = 0; t < 256; t++) {
+        wBM += histM[t]; if (!wBM) continue;
+        const wF = nM - wBM; if (!wF) break;
+        sumBM += t * histM[t];
+        const mB = sumBM / wBM, mF = (sumAllM - sumBM) / wF;
+        const v = wBM * wF * (mB - mF) * (mB - mF);
+        if (v > mxM) { mxM = v; thrM = t; }
+      }
+      let onB = 0, onA = 0;
+      for (let i = 0; i < nM; i++) { if (satM[i] > thrM) onB++; if (mdM[i]) onA++; }
+      const fracB = onB / nM;
+      if (fracB > 0.02 && fracB < 0.45 && onA > 0
+        && onB > 0.5 * onA && onB < 1.8 * onA) {
+        const isOn = (get, i) => get(i);
+        const prec = (get) => {
+          let bnd = 0, hit = 0;
+          for (let y = 1; y < hM - 1; y++) {
+            for (let x = 1; x < wM - 1; x++) {
+              const i = y * wM + x;
+              if (!get(i)) continue;
+              if (get(i - 1) && get(i + 1) && get(i - wM) && get(i + wM)) continue;
+              bnd++;
+              const g0 = grayM[i];
+              const gr = Math.max(Math.abs(g0 - grayM[i - 1]), Math.abs(g0 - grayM[i + 1]),
+                Math.abs(g0 - grayM[i - wM]), Math.abs(g0 - grayM[i + wM]));
+              if (gr >= 12) hit++;
+            }
+          }
+          return bnd ? hit / bnd : 0;
+        };
+        const precA = prec((i) => mdM[i]);
+        const precB = prec((i) => satM[i] > thrM);
+        // FRAGMENTATION VETO. Boundary-gradient precision REWARDS NOISE:
+        // on the speckled synthetic board the saturation mask is a spray of
+        // colour-noise flecks whose every rim is a sharp edge -- it scored
+        // 0.916 and its adoption took a 12/12 image to 0/12. Structure is
+        // the missing axis: count components >= 30px in both masks, and a
+        // candidate more fragmented than the incumbent cannot win however
+        // crisp its edges (the lined swiss-cheese incumbent has MORE
+        // fragments than the clean saturation mask, so the true positives
+        // pass this easily).
+        const compCount = (get) => {
+          const seen = new Uint8Array(nM);
+          const st2 = new Int32Array(nM);
+          let n = 0;
+          for (let s0 = 0; s0 < nM; s0++) {
+            if (!get(s0) || seen[s0]) continue;
+            let sp = 0, area = 0;
+            st2[sp++] = s0; seen[s0] = 1;
+            while (sp > 0) {
+              const c = st2[--sp]; area++;
+              const x = c % wM, y = (c / wM) | 0;
+              if (x > 0 && get(c - 1) && !seen[c - 1]) { seen[c - 1] = 1; st2[sp++] = c - 1; }
+              if (x < wM - 1 && get(c + 1) && !seen[c + 1]) { seen[c + 1] = 1; st2[sp++] = c + 1; }
+              if (y > 0 && get(c - wM) && !seen[c - wM]) { seen[c - wM] = 1; st2[sp++] = c - wM; }
+              if (y < hM - 1 && get(c + wM) && !seen[c + wM]) { seen[c + wM] = 1; st2[sp++] = c + wM; }
+            }
+            if (area >= 30) n++;
+          }
+          return n;
+        };
+        const nA = compCount((i) => mdM[i]);
+        const nB = compCount((i) => satM[i] > thrM);
+        const adopt = precB >= precA + 0.12
+          && nB <= Math.max(nA * 1.5, nA + 3);
+        opts.debug?.({ stage: 'maskvote', precA: +precA.toFixed(3),
+          precB: +precB.toFixed(3), fracB: +fracB.toFixed(3),
+          covRatio: +(onB / onA).toFixed(2), nA, nB, adopt });
+        if (adopt) {
+          for (let i = 0; i < nM; i++) mdM[i] = satM[i] > thrM ? 255 : 0;
+        }
+      }
+    }
     if (emit) emit('mask-final', grayToStage(bw));
 
     // Sure background: dilated mask. Sure foreground: distance-transform peaks.
@@ -4753,7 +4864,49 @@ export function countPills(cv, source, opts = {}) {
         const compact = blobAreas[l] <= 4 * Math.PI * peaks[l] * peaks[l] * Math.max(1, k0);
         const clear = unitOk && k0 >= 1 && Math.abs(mass - k0) <= 0.2
           && wsCount === k0 && unitsSum === wsCount && pillThick && compact;
-        if (!clear) ambiguous.push({ l, regs, k0, unitsSum });
+        // SEAM AUDIT OF A CLEAR VERDICT. mass ~= wsCount is agreement, not
+        // proof: on r-7ff7fd99 blob 11 the watershed cut a 4-pill shingle
+        // into 3 pill-sized regions and mass read 3.16 (shingled caplets
+        // hide area beneath each other), so both witnesses endorsed the
+        // wrong answer and the blob skipped the panel entirely. Area and
+        // outline are both blind here -- measured, the blob's major axis
+        // normalised for 2-D packing is 0.94, BELOW the true singles on the
+        // same photo, so a length gate would flag singles and clear this.
+        //
+        // Its luma relief is not blind. A blob holding k pills carries k-1
+        // merge events at the same 0.67 x IQR depth the seam re-partition
+        // certifies with. Measured here: blob 11 shows a THIRD event at
+        // 0.71 (4 pills), while blob 9 -- a genuine 2 -- has 2.13 then
+        // nothing above 0.37. When the relief certifies more pieces than
+        // the split found, send the blob to the panel; the panel can still
+        // settle on the same answer.
+        // COST GATE. seamSpectrum builds a blurred luma field and runs a
+        // union-find over the whole blob box; calling it on every clear
+        // multi-pill blob tripled the counter's runtime (measured on
+        // r-7ff7fd99: 946ms -> 3230ms per image). The audit can only ever
+        // fire when the blob is big enough to hide an extra pill, so charge
+        // the spectrum only there: a blob whose area leaves less than half a
+        // unit of slack above its k0 pills has nothing to find. Measured,
+        // the case this exists for (blob 11, 2075px against 3 x 657) carries
+        // 1.16 units of slack.
+        const slackU = unitOk ? blobAreas[l] / unit - k0 : 0;
+        let seamAgrees = true;
+        if (clear && k0 >= 2 && opts.acScale !== false && slackU >= 0.1) {
+          const bx = blobBox.get(l);
+          if (bx) {
+            const sp = seamSpectrum(src.data, w, h, bl, w, l, bx);
+            if (sp && sp.events && sp.events.length >= k0) {
+              const iq = Math.max(1, sp.p75 - sp.p25);
+              if (sp.events[k0 - 1].v >= 0.67 * iq) {
+                seamAgrees = false;
+                opts.debug?.({ stage: 'clearseam', blob: l, k0,
+                  mass: +mass.toFixed(2),
+                  ev: +(sp.events[k0 - 1].v / iq).toFixed(2) });
+              }
+            }
+          }
+        }
+        if (!clear || !seamAgrees) ambiguous.push({ l, regs, k0, unitsSum });
       }
       consensusEligible = eligible;
       opts.debug?.({ stage: 'consensus', blobs: blobList.length, eligible, ambiguous: ambiguous.length, unit, unitOk });
@@ -6015,6 +6168,24 @@ export function countPills(cv, source, opts = {}) {
             const massW = votes.find((x) => x.m === 'mass');
             const cands = [];
             if (massW && massW.v > kFinal0) cands.push({ v: massW.v, conf: 'high' }); // A1
+            // A3: the boundary's ceiling when MASS UNDER-READS. Shingled
+            // caplets hide area beneath each other, so mass cannot propose
+            // the true count -- r-7ff7fd99 blob 11 holds 4 pills, reads
+            // mass 3.16, and its arcs see 4 caps.
+            //
+            // Only inside a blob ALREADY known to hold several pills. The
+            // failure mode is a lone pill whose webbed outline shows a
+            // second cap: measured, all four photos this cost (+1 each on
+            // r-9e5ac6c9, r-aaaac648, r-d87c4d5f, r-dbe1f2d8) are k0=1
+            // blobs raised to 2, while the shingle it exists for is k0=3
+            // raised to 4. A one-step restriction does NOT separate them
+            // (all are one-step) and neither does mask fill (every cell
+            // measured 1.00 on both sides -- the phantom cap sits fully on
+            // mask, it just is not a pill).
+            if (arcS && arcHi > kFinal0 && kFinal0 >= 2
+              && !(massW && massW.v >= arcHi)) {
+              cands.push({ v: arcHi, conf: 'low' });
+            }
             if (massW && arcS && arcHi >= 1 && massW.v > arcHi && arcHi > kFinal0) {
               // mass overshoots the boundary interval: also offer the
               // boundary's own ceiling, per the arcrec philosophy ("no

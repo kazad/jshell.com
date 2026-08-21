@@ -189,11 +189,62 @@
    "what": "r-7ff7fd99 (-1): blob 11 holds 4 truth pills but the watershed yields 3 pill-SIZED regions, and mass reads 3.16 because shingled caplets hide area under each other. The clear test accepts (mass ~= wsCount ~= unitsSum, every piece 1.0-1.19x unit) so the blob never reaches the panel.",
    "measured": "truth (222.5,302.5) and (205.5,295.5) both map to one region at (211,298); region areas 601-727 against unit 657 -- all sane. A piece-size sanity gate was written and REVERTED as dead code: the fused pair looks exactly like one healthy pill.",
    "why-hard": "Every area-based witness agrees with the wrong answer here. The pair is only distinguishable by its OUTLINE (a fused shingle is longer than one caplet along its major axis: blob 11 lenR 1.62 vs a template of 1.0) or by the seam spectrum, neither of which the clear test consults.",
-   "next": "REFUTED by measurement: length cannot separate this case either. Blob 11 (4 true pills, k0=3) spans 1.62 unitLens; normalised by sqrt(k) for 2-D packing that is 0.94, BELOW the single pills on the same photo (blob 13 at 1.08, typical single 1.05). A shingled pair hides length exactly as it hides area -- the pills overlap ALONG their axes. Both area and outline witnesses are therefore blind here. What remains untested: the seam spectrum (does the fused pair show a merge event the singles lack?) and the arc/cap witness on the pair outline. Any future attempt must measure those two BEFORE writing a gate; two gates have now been written and reverted as dead or backwards.",
+   "next": "The seam audit is proven and reusable; what is missing is a candidate source that separates a shingle-hidden pill from a webbed-junction cap. The four casualties all have per-pill 19/19 BEFORE the change (they gain a spurious, not a miss), so the discriminator may be placement-level: a shingle-hidden pill has mask material to stand on, a webbed cap does not. Try IoU/fit of the k+1th placement before adopting arcHi.",
    "tried-and-reverted": [
     "piece-size sanity band (pieces look healthy: 601-727 vs unit 657)",
-    "major-axis bound, both linear (k+0.35)/2 and sqrt(k) forms -- flags true singles, clears the shingle"
+    "major-axis bound, both linear (k+0.35)/2 and sqrt(k) forms -- flags true singles, clears the shingle",
+    "seam audit of clear verdicts + arcHi as a seam candidate: the AUDIT works and is harmless (blob 11 shows a 3rd merge event at 0.71 x IQR, blob 9 a genuine 2 shows nothing past 0.37 -- the luma relief sees what area and outline miss), but it gains nothing alone. The win needs arcHi offered as a seam candidate when mass under-reads, and THAT costs four real photos +1 each (r-9e5ac6c9, r-aaaac648, r-d87c4d5f, r-dbe1f2d8) where the arc reads an extra cap on a webbed junction and the relief holds one more event than pills. Restricting the candidate to a one-step raise did NOT help -- all four are one-step. Net 1 gained / 4 lost, corpus 247 -> 244."
    ]
+  },
+  "geom-baseline-false-alarm": {
+   "date": "2026-08-20",
+   "verdict": "RESOLVED \u2014 no regression existed",
+   "what": "The geometry gate appeared to regress from 70 to 88-89 overlapping pairs across tonight's work.",
+   "measured": "Running the six overlap-heavy images against the 246 build and the current build gives IDENTICAL results (55 pairs, 14 duplicate, worst 39.8px on both). The counter did not change geometry at all.",
+   "root-cause": "The 70 was never a measurement of a committed build. geomgate OVERWRITES tools/baselines/geom.json on every run, and commit 5342103 (\"Persist geom baseline\") committed a file that a run had just rewritten while an experimental counter was loaded in the working tree. The genuine baseline at 8225a71 was 80 pairs / 45 dirty; the real current value is 88 / 44 -- and even that gap is unattributed because 80 was measured before several accuracy fixes that legitimately move placements.",
+   "lesson": "A baseline file a tool self-overwrites is not a baseline. Never commit tools/baselines/geom.json from a tree holding uncommitted counter changes, and compare builds by RUNNING both, never by trusting a stored number. The targeted form -- geomgate with an explicit image list -- takes under a minute versus 25 for the full sweep, so head-to-head comparison is always affordable."
+  },
+  "lined-half-unit": {
+   "date": "2026-08-20",
+   "verdict": "OPEN \u2014 diagnosed, guard misaimed and reverted",
+   "what": "The lined caplet photos calibrate to a HALF-pill unit (559.5 against real caplets of ~1150-1200px), so circles are drawn at half scale: two per pill plus empties on background. Per-pill 15-16/20 with 4-6 spurious on all three.",
+   "measured": "lined-69204ff4: blobs 2 and 4 are single caplets at 1195 and 1146 px but read 2.14 and 2.05 units. unitLen is CORRECT at 55.1 (real caplet length), so length and area disagree by exactly 2x. 20 pills fuse into one 15470px blob plus fragments, so estimateUnitArea medians a fragment rather than a pill.",
+   "tried-and-reverted": [
+    "Scoping raft-unit to round populations (elongation from area/(pi*peak^2), measured 2.25 on these photos, gate fired correctly). It made NO difference: raft-unit was never the culprit -- estimateUnitArea itself returns the half-unit on a photo where most pills are fused.",
+    "Length-derived unit with ridgePk width: REFUTED, ridge reads necks (9.1 vs true 13.0) on a fused raft, so lenUnit 802 fell inside the tolerance band around the wrong 560 and never fired.",
+    "Length-derived unit with radiusEst width (fusion-immune, 13.4): predicts 1181 against real caplets of 1146-1195, a 1-3% match, and lined-69204ff4 counted exactly 20. REVERTED ANYWAY: per-pill collapsed 15/20 -> 6/20 (the count was right by accident while placement got worse) and the corpus fell 248 -> 247. A right count with wrong placements is worse than a wrong count, since the overlay is what a pharmacist checks.",
+    "Floor the placement template at the autocorrelation pitch (tMajor < 2*radiusEst -> scale both extents up). REVERTED: per-pill went 15/20 -> 14/20. The template only sizes CLUMP placements, and these photos fail mostly on singles, so the lever cannot reach the defect. A 1.5x bar did not fire at all (25.9 > 20.1)."
+   ],
+   "next": "The defect is upstream of every downstream lever tried so far (unit, template, placement scale). It is the SEGMENTATION: with 20 caplets fused into one 15470px blob, the watershed splits each pill in two. Next attempt should target the split itself -- compare watershed marker count against the autocorrelation-predicted capacity (blob area / (0.8 * unitLen * 2 * radiusEst)) and suppress markers when the split exceeds it. That is the only stage upstream of all the corrupted witnesses.",
+   "mechanism-confirmed": "The half-scale CIRCLES come from tMajor/tMinor, the placement template, which is the median shape of units===1 regions. With a half-unit each caplet splits into two units===1 regions, so the template medians a FRAGMENT: measured 25.9 x 17.3 against real caplets of ~55 x 26. Note 25.9 is essentially the caplet WIDTH -- the fragments are pills seen sideways."
+  },
+  "truth-audit-2026-08-20": {
+   "date": "2026-08-20",
+   "verdict": "ALL FIVE TRUTHS VERIFIED CORRECT \u2014 the failures are legitimate",
+   "what": "Audited the ground truth of every remaining corpus failure by rendering the annotated centres onto the photos at high magnification and checking each by eye.",
+   "method": "tools-free probe: upscale 3-5x, draw each truth centre as a dot, verify one dot per pill / every pill dotted / no dot on background. Plus a self-consistency pass (centre-array length vs declared count, closest-pair distance).",
+   "findings": {
+    "lined-503b3041": "20 correct. One dot per pill, all on pills.",
+    "lined-69204ff4": "20 correct. Tightest pair is 21.1px apart -- verified at 5x zoom to be two genuinely touching pills, one dot each, NOT an annotation error.",
+    "lined-bfdbfef9": "20, self-consistent, closest pair 45.5px.",
+    "s-0bfc44d8": "34 correct. Every bead dotted exactly once, none missed, none on background.",
+    "s-eb90778f": "34, self-consistent, closest pair 41.5px."
+   },
+   "false-alarm": "A colour-threshold audit script I wrote reported an \"unmarked blob\" on lined-503b3041 and 8 centres \"not on pill-coloured pixels\". BOTH were artifacts of the crude threshold: the blob was two pills merged, and the 8 centres are visibly on pills in the rendered image. Trust the rendered overlay, not a hand-rolled colour test.",
+   "conclusion": "No test is wrong. All five are real counter failures, both scale-related (half-unit on lined caplets, half-bead on glare-split shiny beads). Effort spent on them is justified."
+  },
+  "mask-bakeoff-judge": {
+   "date": "2026-08-21",
+   "verdict": "SHIPPED at gradient-precision + fragmentation-veto (248/251). Three other judges measured and refuted.",
+   "what": "The ensemble mask bake-off (saturation candidate vs shipped mask) needs a judge. Four decision rules were measured corpus-wide or on regime probes:",
+   "measured": {
+    "gradient-precision + frag veto (SHIPPED)": "248/253, within1 251. Adopts on lined-69204ff4 (per-pill 15->17, +2 -> -1), refuses noise/t3/controls.",
+    "gradient-precision alone": "REWARDS NOISE: speckle rims are sharp edges; scored 0.916 on the noise board and took 12/12 to 0/12.",
+    "board-facing precision (1px standoff)": "REWARDS LOOSE MASKS: a tight mask touches its own anti-aliasing (correct sat mask scored 0.037), the swiss-cheese incumbent floats in clean paper and wins.",
+    "edge AND board-at-3px-standoff": "fixed shiny direction (eb90778f adopted chroma: 34/34 per-pill, every bead found for the first time) but broke lined adoption (low-contrast beige-on-white boundary gradient < 12).",
+    "fragmentation-led (nB <= nA-2, no precision)": "CATASTROPHE: 227/253. Correct on all 5 probe cases, wrong corpus-wide -- the chroma candidate has fewer components on most real towel photos (blur merges), and adoption exploded counts +12/+14. Fragmentation is a veto, never the positive signal. THE five-probe-cases trap in its purest form."
+   },
+   "shiny-lead": "Under the edge+standoff judge the chroma-residual mask (the truth-generator method) was adopted on both shiny images: eb90778f measured 34/34 per-pill -- the mask is RIGHT -- but 18-20 components hold 34 beads, so it trades shredded disease for fused disease and counts land -4/+4. Coverage stays capped at 1.8x until the fused machinery is tuned on that mask. That is the door to the last shiny failures."
   }
  }
 }
