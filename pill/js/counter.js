@@ -6555,6 +6555,43 @@ export function countPills(cv, source, opts = {}) {
             // method reproduces it, that IS a 2-method agreement on the
             // baseline answer — high confidence. Otherwise flag it.
             const corroborated = votes.some((x) => x.m !== 'ws' && x.v === a.unitsSum);
+            // ...but when NOTHING reproduces the baseline and something
+            // does reproduce the panel's k, keeping the baseline preserves
+            // the LEAST stable witness. The baseline is the watershed's
+            // marker count, and the marker count is decode-jitter: on
+            // r-cc7a2ada, Chrome's decode grows blob 5 from 5 markers to 8
+            // (base 9) while its pixel MASS barely moves (6.23 vs 6.35) --
+            // the shipped rule kept 9 and production over-counted +3 on an
+            // image the Node gates call exact. A k that an independent
+            // family corroborates beats an orphaned baseline.
+            // The corroborator must be MASS ITSELF, with the baseline far
+            // from mass and k on it. First version accepted any non-ws
+            // vote and lost 5 pills on two PNGs: on the gradient board ERO
+            // corroborated k=5 against a true base of 7 -- but erosion is
+            // the same seam-blind family as the watershed, and on noise-25
+            // every witness read 1 on a true fused pair, exactly the case
+            // the keep-the-baseline rule exists for. The measured win shape
+            // (cc7a2ada blob 5): |massFrac - k| = 0.35, |massFrac - base|
+            // = 2.65. Require both distances.
+            const kCorrob = votes.some((x) => x.m === 'mass' && x.v === k)
+              && Math.abs(massFrac - k) <= 0.4
+              && Math.abs(massFrac - a.unitsSum) >= 1.5;
+            if (!corroborated && kCorrob && k !== a.unitsSum) {
+              lowConfidence++;
+              count -= a.unitsSum;
+              count += k;
+              const singlesN = regs.filter((r) => r.units === 1);
+              opts.debug?.({ stage: 'orphanbase', blob: l,
+                base: a.unitsSum, k, votes: votes.map((v) => `${v.m}:${v.v}`).join(',') });
+              if (singlesN.length === k) {
+                for (const r of singlesN) regions.push({ ...r, units: 1, confidence: 'low' });
+              } else {
+                const area = blobAreas[l];
+                regions.push({ cx: a.sx / area, cy: a.sy / area, area,
+                  units: k, confidence: 'low' });
+              }
+              continue;
+            }
             const conf = corroborated ? 'high' : 'low';
             if (!corroborated) lowConfidence++;
             for (const r of regs) regions.push({ ...r, confidence: conf });
