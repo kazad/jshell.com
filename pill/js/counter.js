@@ -2558,20 +2558,6 @@ export function countPills(cv, source, opts = {}) {
       // Uint8Array at the counter's WORKING scale (the caller replicates
       // scale = min(1, maxDim/max(w0,h0))). opts.maskForce adopts without
       // the judge -- offline ceiling measurement only, never production.
-      if (opts.maskCandidate && opts.maskCandidate.length === nM) {
-        const extM = opts.maskCandidate;
-        let onE = 0, onA0 = 0;
-        for (let i = 0; i < nM; i++) { if (extM[i]) onE++; if (mdM[i]) onA0++; }
-        const fE = onE / nM;
-        if (opts.maskForce && onE > 0) {
-          opts.debug?.({ stage: 'maskvote', cand: 'ext-forced',
-            fracB: +fE.toFixed(3), covRatio: onA0 ? +(onE / onA0).toFixed(2) : 0,
-            adopt: true });
-          for (let i = 0; i < nM; i++) mdM[i] = extM[i] ? 255 : 0;
-        }
-      }
-      let onB = 0, onA = 0;
-      for (let i = 0; i < nM; i++) { if (satM[i] > thrM) onB++; if (mdM[i]) onA++; }
       const compCountM = (get) => {
         const seen = new Uint8Array(nM);
         const st2 = new Int32Array(nM);
@@ -2592,35 +2578,88 @@ export function countPills(cv, source, opts = {}) {
         }
         return n;
       };
+      const precM = (get) => {
+        let bnd = 0, hit = 0;
+        for (let y = 1; y < hM - 1; y++) {
+          for (let x = 1; x < wM - 1; x++) {
+            const i = y * wM + x;
+            if (!get(i)) continue;
+            if (get(i - 1) && get(i + 1) && get(i - wM) && get(i + wM)) continue;
+            bnd++;
+            const g0 = grayM[i];
+            const gr = Math.max(Math.abs(g0 - grayM[i - 1]), Math.abs(g0 - grayM[i + 1]),
+              Math.abs(g0 - grayM[i - wM]), Math.abs(g0 - grayM[i + wM]));
+            if (gr >= 12) hit++;
+          }
+        }
+        return bnd ? hit / bnd : 0;
+      };
+      if (opts.maskCandidate && opts.maskCandidate.length === nM) {
+        const extM = opts.maskCandidate;
+        let onE = 0, onA0 = 0;
+        for (let i = 0; i < nM; i++) { if (extM[i]) onE++; if (mdM[i]) onA0++; }
+        const fE = onE / nM;
+        if (opts.maskForce && onE > 0) {
+          opts.debug?.({ stage: 'maskvote', cand: 'ext-forced',
+            fracB: +fE.toFixed(3), covRatio: onA0 ? +(onE / onA0).toFixed(2) : 0,
+            adopt: true });
+          for (let i = 0; i < nM; i++) mdM[i] = extM[i] ? 255 : 0;
+        } else if (onE > 0 && onA0 > 0) {
+          // JUDGED adoption. The caller only supplies a candidate in the
+          // shredded-gloss regime (maskstats ratio >= 1.4), where the
+          // incumbent is confetti; a real segmenter's union must be
+          // STRUCTURALLY better (fewer comps), cover the same footprint,
+          // and not lose much edge precision (its 512-res boundary is
+          // blocky, so it cannot be held to the +0.12 bar the saturation
+          // candidate faces).
+          // Measured on browser pixels (ONNX MobileSAM, grid 24):
+          //   0bfc   cov 1.54 nA 66->34  forced 34 EXACT   (good)
+          //   salmon cov 5.08 nA 130->9  forced 89 (was +2) (good)
+          //   eb     cov 1.67 nA 45->34  forced 34 EXACT   (good)
+          //   t3     cov 0.18 nA 17->10  forced 13 (was 55) (catastrophic)
+          // COVERAGE separates: a segmenter that sees MORE than the shredded
+          // incumbent healed it; one that sees less missed pills. Gradient
+          // precision does NOT separate (.643 good vs .638 bad -- the 512-res
+          // union has blocky edges either way) and must not be a bar here.
+          const covE = onE / onA0;
+          const nA0 = compCountM((i) => mdM[i]);
+          const nE = compCountM((i) => extM[i]);
+          const precA0 = precM((i) => mdM[i]);
+          const precE = precM((i) => extM[i]);
+          const adoptE = covE >= 1.2 && covE <= 8 && nE <= nA0;
+          opts.debug?.({ stage: 'maskvote', cand: 'ext',
+            precA: +precA0.toFixed(3), precB: +precE.toFixed(3),
+            covRatio: +covE.toFixed(2), nA: nA0, nB: nE, adopt: adoptE });
+          if (adoptE) {
+            for (let i = 0; i < nM; i++) mdM[i] = extM[i] ? 255 : 0;
+            opts.__maskChosen = 'ext';
+          }
+        }
+      }
+      let onB = 0, onA = 0;
+      for (let i = 0; i < nM; i++) { if (satM[i] > thrM) onB++; if (mdM[i]) onA++; }
       // mask self-statistics (debug only): the shredded-regime predicate for
       // requesting an external mask needs comps + coverage of the WORKING
       // mask, independent of any candidate being present
+      // gloss = fraction of mask pixels that are bright AND desaturated --
+      // specular highlight, not pigment. Second signal for the shredded
+      // predicate: eb's ratio (1.25) hides below a healthy matte board
+      // (1.33), but matte boards have no specular field.
+      let glossN = 0;
+      for (let i = 0; i < nM; i++) {
+        if (mdM[i] && grayM[i] >= 225 && satM[i] <= 45) glossN++;
+      }
+      opts.__maskStats = { comps: compCountM((i) => mdM[i]), fg: onA,
+        gloss: onA ? +(glossN / onA).toFixed(4) : 0 };
       if (opts.debug) {
-        opts.debug({ stage: 'maskstats', comps: compCountM((i) => mdM[i]),
-          fg: onA });
+        opts.debug({ stage: 'maskstats', comps: opts.__maskStats.comps,
+          fg: opts.__maskStats.fg, gloss: opts.__maskStats.gloss });
       }
       const fracB = onB / nM;
       if (fracB > 0.02 && fracB < 0.45 && onA > 0
         && onB > 0.5 * onA && onB < 1.8 * onA) {
-        const isOn = (get, i) => get(i);
-        const prec = (get) => {
-          let bnd = 0, hit = 0;
-          for (let y = 1; y < hM - 1; y++) {
-            for (let x = 1; x < wM - 1; x++) {
-              const i = y * wM + x;
-              if (!get(i)) continue;
-              if (get(i - 1) && get(i + 1) && get(i - wM) && get(i + wM)) continue;
-              bnd++;
-              const g0 = grayM[i];
-              const gr = Math.max(Math.abs(g0 - grayM[i - 1]), Math.abs(g0 - grayM[i + 1]),
-                Math.abs(g0 - grayM[i - wM]), Math.abs(g0 - grayM[i + wM]));
-              if (gr >= 12) hit++;
-            }
-          }
-          return bnd ? hit / bnd : 0;
-        };
-        const precA = prec((i) => mdM[i]);
-        const precB = prec((i) => satM[i] > thrM);
+        const precA = precM((i) => mdM[i]);
+        const precB = precM((i) => satM[i] > thrM);
         // FRAGMENTATION VETO. Boundary-gradient precision REWARDS NOISE:
         // on the speckled synthetic board the saturation mask is a spray of
         // colour-noise flecks whose every rim is a sharp edge -- it scored
@@ -9361,6 +9400,8 @@ export function countPills(cv, source, opts = {}) {
 
 
     const out = { count, regions, scale, boundaries, width: w, height: h, unitArea, thr: otsuThr };
+    if (opts.__maskStats) { out.maskStats = opts.__maskStats; delete opts.__maskStats; }
+    if (opts.__maskChosen) { out.maskChosen = opts.__maskChosen; delete opts.__maskChosen; }
     if (out2Template) out.templateInfo = out2Template;
     // For the interactive stamp tester (/pill/stamp): the exact shape and
     // the exact surface the counter used, so what the user probes is what

@@ -1,4 +1,5 @@
 import { loadCV, countPills, drawOverlay } from './counter.js';
+import { samSessions, samAutoMask, samWanted } from './sam.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -525,6 +526,7 @@ async function analyze(sourceCanvas, extraFrames) {
     state.count = result.count;
     showResult(state.sourceCanvas, result);
     autoUpload(result); // every analyzed photo feeds the regression suite
+    maybeRefineWithSam(sourceCanvas, result);
   } catch (e) {
     console.error('count failed', e);
     alert('Could not analyze that image.');
@@ -850,6 +852,49 @@ async function flushQueue() {
     try { await postPhoto(item.dataUrl, item.meta); } catch { left.push(item); }
   }
   saveQueue(left);
+}
+
+// AI SEGMENTATION REFINEMENT. Fires only in the shredded-gloss regime
+// (samWanted: specular glare has shredded the working mask into confetti
+// -- across the whole corpus that is 3 photos). MobileSAM runs fully
+// on-device (~21MB of fp16 ONNX, fetched once, $0/scan); its pill-union
+// mask enters countPills' mask bake-off as a CANDIDATE, and the coverage
+// + fragmentation judge decides. The model never counts. Validated on
+// production pixels: 0bfc 36->34 EXACT, eb 33->34 EXACT, salmon 92->89,
+// t3's bad mask rejected by the judge (count untouched).
+async function maybeRefineWithSam(sourceCanvas, primary) {
+  try {
+    if (!samWanted(primary)) return;
+    if (state.result !== primary || els.resultScreen.hidden) return;
+    els.helperReact.textContent = 'Shiny pills — refining with on-device AI… ✨';
+    const { ort, enc, dec } = await samSessions();
+    const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+    const img = ctx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+    const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+    const w2 = scale < 1 ? Math.round(img.width * scale) : img.width;
+    const h2 = scale < 1 ? Math.round(img.height * scale) : img.height;
+    const sm = await samAutoMask(ort, enc, dec, img, w2, h2, { grid: 24,
+      onProgress: (i, n) => {
+        if (state.result !== primary) return;
+        els.helperReact.textContent = `Refining with on-device AI… ${Math.round(100 * i / n)}% ✨`;
+      } });
+    if (state.result !== primary || els.resultScreen.hidden) return;
+    if (!sm) { els.helperReact.textContent = ''; return; }
+    const r2 = countPills(state.cv, sourceCanvas, { maxDim: 1280,
+      variant: 'consensus', maskCandidate: sm.cand });
+    if (state.result !== primary || els.resultScreen.hidden) return;
+    if (r2.maskChosen !== 'ext') { els.helperReact.textContent = ''; return; }
+    state.result = r2;
+    state.count = r2.count;
+    showResult(state.sourceCanvas, r2);
+    els.helperReact.textContent = r2.count === primary.count
+      ? 'AI segmentation agreed with the count. ✨'
+      : `AI segmentation refined the count: ${primary.count} → ${r2.count} ✨`;
+    autoUpload(r2);
+  } catch (e) {
+    console.warn('sam refinement skipped', e);
+    if (state.result === primary) els.helperReact.textContent = '';
+  }
 }
 
 function autoUpload(result) {
