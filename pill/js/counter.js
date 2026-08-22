@@ -4254,7 +4254,27 @@ export function countPills(cv, source, opts = {}) {
             count3 += units;
             regions3.push({ cx: s.sx / s.area, cy: s.sy / s.area, area: s.area, units });
           }
-          opts.debug?.({ stage: 'collapse2', rN, markers: stats3.size, count3, massCap });
+          // FRAGMENT-MEDIAN GUARD. units = round(area/med3) presumes the median
+          // basin IS one pill. On a hithresh-core rescue of a shadow-fused
+          // chain the basins are intensity CORES, not pills: med3 lands at a
+          // fraction of a pill and one leftover basin mints units for every
+          // core-sized quantum of shadow mass (measured: markers=7 exactly
+          // right, med3=134px vs true pill ~531px, one 3091px basin -> 23
+          // units, shipped 32 for 7). The markers themselves carry the honest
+          // count, so compare med3 against the MARKER-IMPLIED unit
+          // fgArea/markers: a true pill-median sits near it (legit rescue
+          // measured 0.78x), a fragment-median sits far below (corrupt 0.20x).
+          // Below 0.4x, trust the markers: one unit per basin. Multiplication
+          // where med3 is sane (>= 0.4x) is untouched.
+          const medFrag = med3 > 0 && stats3.size >= 2 && med3 < 0.4 * (fgArea / stats3.size);
+          if (medFrag) {
+            count3 = regions3.length;
+            for (const g of regions3) g.units = 1;
+          }
+          opts.debug?.({ stage: 'collapse2', rN, markers: stats3.size, count3, massCap, medFrag: medFrag ? 1 : 0,
+            med3, fgArea, radiusEst, count, source,
+            areas3: [...stats3.values()].map((s) => s.area).sort((a, b) => b - a).slice(0, 12),
+            adopted: count3 >= Math.max(count * 3, count + 5) ? 1 : 0 });
           // Only adopt a DECISIVE improvement. A marginal rescue is bistable:
           // tiny exposure changes flip it on and off between frames, which is
           // what made live counts swing wildly on textured backgrounds. The
