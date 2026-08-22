@@ -419,5 +419,17 @@
   "what": "Three independent knife-edges, three scoped patches: (1) COVERT-PAIR VETO in unitfix -- shadow-bridged pairs shape-certify 'single' and their median reverted a correct raft unit (530 -> 1128); veto when the ws-region population median independently corroborates the autocorrelation unit (dark boards only; coherence >= 0.75; proposed > 1.8x regMed; measured over all 32 unitfix-after-raft sites, fires on exactly the shadowpair boards). (2) lenjunk population gate 6 -> 5 blobs (blast radius: one corpus image, r-90dbe20e, byte-identical). (3) SEAM-CORROBORATED RAFT DESCENT: orphaned base = ws+1 on a raft (regs >= 6) steps down to ws when the relief certifies exactly ws pieces (kSeam == ws, next event under the 0.67 IQR bar); corpus firing universe = salmon only, which abstains by 14 steps.",
   "evidence": "shadowpair-wood 11 -> 12 EXACT, pair-wood 9 -> 8 EXACT, hexraft-light-t96 20 -> 19 EXACT (jitter mode moved to truth). Adversarial 48 -> 51/56; the remaining 5 are the documented out-of-regime set. Corpus dual gate zero movers; salmon and r-90dbe20e jitter byte-identical.",
   "refuted-in-transcript": "panel reroute for the covert pair (all witnesses read 1 -- agreed wrong); stamp raise (claimedFrac inside the phantom band); photoseed score floor for t96 (true center-pill seeds on sibling boards sit 0.816-0.894, margins too thin)."
+ },
+ "label-audit-r-7ff7fd99": {
+  "date": "2026-08-22",
+  "what": "sync-corpus imported a field adjustment (18 -> 19, note 'reported wrong') that OVERWROTE the established truth 20 for r-7ff7fd99. The hand-verified centers file holds 20 points, and the current build places 20/20 with every marker matched on both decode paths -- the field tap under-adjusted by one. Restored to 20.",
+  "rule": "A field adjustment may CREATE a truth but never OVERWRITE a centers-verified one; when they conflict, the per-pill centers file wins and the conflict gets audited by eye. Consider teaching sync-corpus to skip ids that already have a centers file."
+ },
+ "scored-caplet-unit": {
+  "date": "2026-08-22",
+  "what": "NEW MECHANISM from a real field photo (r-2c50d34e): SCORED caplets. cutCreases severs every pill at its score groove; the crease-piece median (649px = half a caplet) then OVERWRITES a correct blob unit (1361) because the small-side plausibility floor references the pitch CIRCLE (0.6*pi*r^2 = 464) and an elongated caplet's half clears it by 1.4x -- a structural blind spot with no small-side twin to the existing too-big refusal.",
+  "fix": "Refuse a unit2 < 0.62x unitBlob when >= 3 blobs sit within [0.7,1.45]x unitBlob AND unitBlob <= 3*pi*r^2; when that refusal fires, the mass-capacity clamp admits the junctionInflated relaxation (the unit is population-vouched). Margins: target 0.477/0.485 vs nearest healthy adopters 0.84-0.86.",
+  "evidence": "Chrome 24 -> 20, Node 21 -> 20 (truth 19); jitter spread 8 -> 7; all 7 upward-correcting siblings untouched by construction; corpus/adv/fresh-seed gates all held, one mover.",
+  "residual": "The remaining +1 is a shadow lobe injected whole by the rescue stage into one caplet's blob (2.89 units, ws and mass honestly agree at 2), CURRENTLY CANCELED by phantomremove deleting a real mask-eroded pale caplet (chromaFrac 0). Fix as a PAIR in the shadow/mask workstream; fixing either alone moves the count off 19. SAM predicate correctly silent (ratio 0.185 -- not the shredded regime)."
  }
 }

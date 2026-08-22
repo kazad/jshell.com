@@ -4581,6 +4581,10 @@ export function countPills(cv, source, opts = {}) {
       }
       const pieces = [...pieceStats.values()].filter((p) => p.area >= absFloor);
       const unit2 = estimateUnitArea(pieces.map((p) => p.area));
+      opts.debug?.({ stage: 'unitprov', unitBlob: +unit.toFixed(0),
+        cal: calList.map((l) => blobAreas[l]), raftUnitFired,
+        unit2: +unit2.toFixed(0), nPieces: pieces.length,
+        pieceAreas: pieces.map((p) => p.area).sort((a, b) => a - b) });
       const minPlausibleUnit = 0.6 * Math.PI * radiusEst * radiusEst;
       // A FLOOR WITHOUT A CEILING IS HALF A GUARD. The crease cut on a dense
       // raft yields a handful of huge merged fragments, and their median
@@ -4595,10 +4599,39 @@ export function countPills(cv, source, opts = {}) {
       // more than a circle of its half-width, and the case this catches is an
       // order of magnitude out, not a borderline one.
       const maxPlausibleUnit2 = radiusEst > 0 ? 3 * Math.PI * radiusEst * radiusEst : Infinity;
+      // SCORED-CAPLET REFUSAL. cutCreases exists to sever pill-pill seams,
+      // but on a scored caplet it also severs every pill at its SCORE LINE,
+      // and the piece median lands on HALF a pill. Measured on field photo
+      // r-2c50d34e (19 scored caplets on lined paper): the blob unit was
+      // CORRECT at 1361 -- three isolated, shape-clean singles at
+      // 1376/1390/1569 vouch for it -- and unit2 overwrote it with 649
+      // (0.48x), after which every verified single read as mass 2.1 and the
+      // photo counted 21 (Node) / 24 (Chrome) for truth 19. unit2 may only
+      // SHRINK a blob unit that is not itself credible: when >=3 blobs sit
+      // within [0.7, 1.45]x of unitBlob (a visible single population) AND
+      // unitBlob is a plausible single under the autocorrelation pitch
+      // (<= the same 3*pi*r^2 ceiling unit2 answers to), a unit2 below
+      // 0.62x of it is a subdivision of real pills -- keep the blob unit.
+      // The 0.62 bar clears the nearest healthy adopters by a wide margin
+      // (advil 0.84, r-1af0a96c 0.85, synth n60 0.86); the upward-correcting
+      // adopters (r-25b52635 et al., unit2 ~2x unitBlob) are untouched by
+      // construction, and a fused-pair population fails the plausibility
+      // arm because a pair blob exceeds the pitch ceiling.
+      const singleSupport = (!raftUnitFired && radiusEst > 0 && unit <= maxPlausibleUnit2)
+        ? calList.filter((l) => blobAreas[l] >= 0.7 * unit && blobAreas[l] <= 1.45 * unit).length
+        : 0;
+      let unitVouched = false;
       if (pieces.length >= blobList.length * 2 && unit2 >= Math.max(absFloor, minPlausibleUnit)) {
-        if (unit2 <= maxPlausibleUnit2) unit = unit2;
-        else opts.debug?.({ stage: 'unit2-refused', proposed: +unit2.toFixed(0),
-          cap: +maxPlausibleUnit2.toFixed(0), pieces: pieces.length, kept: +unit.toFixed(0) });
+        if (unit2 > maxPlausibleUnit2) {
+          opts.debug?.({ stage: 'unit2-refused', proposed: +unit2.toFixed(0),
+            cap: +maxPlausibleUnit2.toFixed(0), pieces: pieces.length, kept: +unit.toFixed(0) });
+        } else if (unit2 < 0.62 * unit && singleSupport >= 3) {
+          unitVouched = true;
+          opts.debug?.({ stage: 'unit2-scored-refused', proposed: +unit2.toFixed(0),
+            kept: +unit.toFixed(0), support: singleSupport, pieces: pieces.length });
+        } else {
+          unit = unit2;
+        }
       }
       const unitOk = unit >= absFloor;
 
@@ -5697,9 +5730,30 @@ export function countPills(cv, source, opts = {}) {
 
         // A calibrated unit must look like ONE pill of the observed thickness;
         // outside this window the "unit" is a clump and mass votes are noise.
+        //
+        // SECOND ARM: the shape template. radiusEst is an autocorrelation
+        // PITCH after acscale, and on a photo of well-separated caplets the
+        // global correlation maximum is the neighbour SPACING, not the pill
+        // (measured on r-1af0a96c: acscale 7.9 -> 25.5, ratio 3.23, while
+        // ridgePk 7.6 is the true half-width). The round-pill window
+        // 0.6-4 x pi*r^2 then demands a 1225px unit against a 469px caplet
+        // and mass abstains photo-wide — on that photo the abstention let a
+        // ws/ero seam under-read (k=2, via broadAmbiguity: the same inflated
+        // radiusEst fails pillThick on all 17 clean singles) beat a dead-on
+        // massFrac of 3.01, counting 18 for 19 on BOTH decodes.
+        // The template pool is convexity-vouched SINGLES (solidity >= 0.90,
+        // fill within 0.12 of consensus), so when the calibrated unit lands
+        // on the vouched single-pill area the unit IS one pill, whatever the
+        // pitch says. A fused raft cannot open this arm (no vouched singles),
+        // and the half-unit families (lined, shiny s-0bfc44d8) are untouched
+        // because their fragment-sized units already sit INSIDE the radius
+        // window — measured: 0bfc unit 1741 in [424, 2827] at radiusEst 15 —
+        // so this arm never arbitrates there.
         const unitPlausible = unitOk
-          && unit >= 0.6 * Math.PI * radiusEst * radiusEst
-          && unit <= 4 * Math.PI * radiusEst * radiusEst;
+          && ((unit >= 0.6 * Math.PI * radiusEst * radiusEst
+            && unit <= 4 * Math.PI * radiusEst * radiusEst)
+          || (tplArea > 0 && tplPool.length >= 3
+            && unit >= 0.7 * tplArea && unit <= 1.45 * tplArea));
 
         // Boundary-arc witness calibration (computed lazily — only photos
         // with ambiguous blobs pay for it). The recovered cap radius must be
@@ -6383,7 +6437,14 @@ export function countPills(cv, source, opts = {}) {
             //     pills abreast rather than a lone pill or an end-to-end chain.
             // On every photo that already counts correctly, the rescue does not
             // fire and this reduces to the original invariant exactly.
-            const junctionInflated = clumpUnitFired && ridgePk > 0
+            // Second admission (r-2c50d34e): the scored-caplet refusal above
+            // (unitVouched) means >=3 isolated shape-clean singles vouch for
+            // the unit, so a mass vote computed from it is the trustworthy
+            // witness and the junction-inflated clump peak (30.6 vs ridgePk
+            // 12 there) is the dishonest denominator. Same side-by-side
+            // signature, same honest ridge denominator, different proof that
+            // the unit is sound.
+            const junctionInflated = (clumpUnitFired || unitVouched) && ridgePk > 0
               && peaks[l] > 1.5 * ridgePk;
             const capPeak = junctionInflated ? ridgePk : peaks[l];
             const capacity = peaks[l] >= MIN_PEAK
