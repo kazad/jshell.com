@@ -2556,6 +2556,11 @@ export function countPills(cv, source, opts = {}) {
       }
       if (cutTotal) opts.debug?.({ stage: 'shadowcut', cut: cutTotal, blobs: blobsCut });
     }
+    // Set when the mask bake-off vetoes a RIM-LACE candidate that would
+    // otherwise have won: the photo's pills read as saturated rims around
+    // background-coloured bodies, so NEITHER mask is trustworthy. Mirrors
+    // grainBlind: never changes a count, only forbids passing silently.
+    let rimLace = false;
     // MASK BAKE-OFF — the ensemble starts here. The pipeline's one mask
     // (border-color distance + Otsu + rescue) has measured failure regimes:
     // on beige pills over white lined paper it comes out swiss cheese, and
@@ -2720,11 +2725,46 @@ export function countPills(cv, source, opts = {}) {
         // pass this easily).
         const nA = compCountM((i) => mdM[i]);
         const nB = compCountM((i) => satM[i] > thrM);
-        const adopt = precB >= precA + 0.12
+        // RIM-LACE VETO. A convex pill encloses at most a glare core
+        // (fillHoles' measured worst case: ~1/3 of its bead). A candidate
+        // whose ENCLOSED holes hold >40% of its own foreground is not a
+        // pill mask -- it is the saturated RIMS of pills whose bodies match
+        // the background. Measured: adv-dense-light-n120 candidate 0.561
+        // (each pale bead passes only at its rim; adopting it shredded 120
+        // pills into 140 arc regions, count 204); every healthy candidate
+        // reads 0.009-0.278, the one healthy ADOPTED one 0.014.
+        let holeMassB = 0;
+        {
+          const seenH = new Uint8Array(nM);
+          const stH = new Int32Array(nM);
+          for (let s0 = 0; s0 < nM; s0++) {
+            if (satM[s0] > thrM || seenH[s0]) continue;
+            let sp = 0, touches = false, hArea = 0;
+            stH[sp++] = s0; seenH[s0] = 1;
+            while (sp > 0) {
+              const c = stH[--sp]; hArea++;
+              const x = c % wM, y = (c / wM) | 0;
+              if (!x || !y || x === wM - 1 || y === hM - 1) touches = true;
+              if (x > 0 && !(satM[c - 1] > thrM) && !seenH[c - 1]) { seenH[c - 1] = 1; stH[sp++] = c - 1; }
+              if (x < wM - 1 && !(satM[c + 1] > thrM) && !seenH[c + 1]) { seenH[c + 1] = 1; stH[sp++] = c + 1; }
+              if (y > 0 && !(satM[c - wM] > thrM) && !seenH[c - wM]) { seenH[c - wM] = 1; stH[sp++] = c - wM; }
+              if (y < hM - 1 && !(satM[c + wM] > thrM) && !seenH[c + wM]) { seenH[c + wM] = 1; stH[sp++] = c + wM; }
+            }
+            if (!touches) holeMassB += hArea;
+          }
+        }
+        const holeFracB = onB > 0 ? holeMassB / onB : 0;
+        const wins = precB >= precA + 0.12
           && nB <= Math.max(nA * 1.5, nA + 3);
+        const adopt = wins && holeFracB <= 0.4;
+        // A lace that WINS the precision contest means the incumbent's
+        // boundaries are measurably worse than pill rims: the photo has no
+        // trustworthy mask. Keep the incumbent's count but flag it.
+        if (wins && !adopt) rimLace = true;
         opts.debug?.({ stage: 'maskvote', precA: +precA.toFixed(3),
           precB: +precB.toFixed(3), fracB: +fracB.toFixed(3),
-          covRatio: +(onB / onA).toFixed(2), nA, nB, adopt });
+          covRatio: +(onB / onA).toFixed(2), nA, nB,
+          holeFracB: +holeFracB.toFixed(3), adopt });
         if (adopt) {
           for (let i = 0; i < nM; i++) mdM[i] = satM[i] > thrM ? 255 : 0;
         }
@@ -10119,6 +10159,16 @@ export function countPills(cv, source, opts = {}) {
       out.lowConfidence = Math.max(1, out.lowConfidence || 0);
       if (out.confidence > 0.4) out.confidence = 0.4;
       if (out.confidenceParts) out.confidenceParts.grainBlind = 1;
+    }
+    // Rim-lace floor: the bake-off vetoed a candidate that beat the
+    // incumbent's boundary precision while being pure pill RIMS (enclosed
+    // holes >40% of its foreground). Pale pills on a matching board have no
+    // trustworthy mask; without this floor adv-dense-light-n120 scored a
+    // confident 0.882 counting 142 for truth 120.
+    if (rimLace) {
+      out.lowConfidence = Math.max(1, out.lowConfidence || 0);
+      if (out.confidence > 0.4) out.confidence = 0.4;
+      if (out.confidenceParts) out.confidenceParts.rimLace = 1;
     }
 
     if (opts.returnImage) out.image = new Uint8ClampedArray(src.data); // RGBA at processed resolution
