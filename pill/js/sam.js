@@ -181,15 +181,30 @@ export async function samSessions() {
   }
   const ortUrl = new URL('../vendor/ort/ort.bundle.min.mjs', import.meta.url);
   const ort = await import(ortUrl.href);
-  ort.env.wasm.wasmPaths = new URL('../vendor/ort/', import.meta.url).href;
+  const ortBase = new URL('../vendor/ort/', import.meta.url).href;
+  ort.env.wasm.wasmPaths = ortBase;
+  const cat = async (urls) => {
+    const parts = await Promise.all(urls.map((u) => fetch(u).then((r) => {
+      if (!r.ok) throw new Error('fetch ' + u + ' -> ' + r.status);
+      return r.arrayBuffer();
+    })));
+    const total = parts.reduce((t, b) => t + b.byteLength, 0);
+    const bytes = new Uint8Array(total);
+    let off = 0;
+    for (const b of parts) { bytes.set(new Uint8Array(b), off); off += b.byteLength; }
+    return bytes;
+  };
+  // Cloudflare Pages caps files at 25MiB, so the ort wasm and the encoder
+  // both ship as chunks and are reassembled here.
+  ort.env.wasm.wasmBinary = (await cat([
+    ortBase + 'ort-wasm-simd-threaded.jsep.wasm.0',
+    ortBase + 'ort-wasm-simd-threaded.jsep.wasm.1',
+  ])).buffer;
   const base = new URL('../vendor/sam/', import.meta.url).href;
-  const parts = await Promise.all([
-    fetch(base + 'mobilesam_encoder.onnx.0').then((r) => r.arrayBuffer()),
-    fetch(base + 'mobilesam_encoder.onnx.1').then((r) => r.arrayBuffer()),
+  const encBytes = await cat([
+    base + 'mobilesam_encoder.onnx.0',
+    base + 'mobilesam_encoder.onnx.1',
   ]);
-  const encBytes = new Uint8Array(parts[0].byteLength + parts[1].byteLength);
-  encBytes.set(new Uint8Array(parts[0]), 0);
-  encBytes.set(new Uint8Array(parts[1]), parts[0].byteLength);
   const o = { executionProviders: ['webgpu'] };
   const enc = await ort.InferenceSession.create(encBytes, o);
   const dec = await ort.InferenceSession.create(base + 'mobilesam_decoder.onnx', o);
