@@ -4889,8 +4889,92 @@ export function countPills(cv, source, opts = {}) {
           const raftBlocked = raftUnitFired && radiusEst > 0
             && unitLen > 0 && unitLen < 2.7 * radiusEst
             && unitSingle > 2 * Math.PI * radiusEst * radiusEst;
+          // COVERT-PAIR VETO — the raftveto's roundness arm, rebuilt on a
+          // witness the all-pairs board cannot forge. On a shadow-bridged
+          // pair board EVERY blob is a peanut, so unitLen reads the PAIR
+          // major (57.9 vs 2.7r = 35.1 on shadowpair-wood) and the round
+          // arm above never opens — the same circular evidence the veto's
+          // own comment warns about, one level up. What the pairs cannot
+          // forge is the WATERSHED REGION population: the split already
+          // carved most pairs into pill-sized regions, and that median
+          // independently CORROBORATES the autocorrelation unit. Two
+          // independent witnesses agreeing on one pill's area outvote a
+          // blob-median that reads exactly a pair.
+          // Measured over the complete unitfix-after-raft universe (32
+          // images, every corpus firing site from the trace archive plus
+          // the adversarial targets):
+          //   fires: shadowpair-wood  ratio 2.30, regMed/geomUnit 0.93
+          //          shadowpair-light ratio 2.18, corroboration 0.99
+          //   nearest exempt, each by an independent arm:
+          //          salmon (shred trap: regMed 277 is mask confetti,
+          //            corroboration 0.79 < 0.85 — the raft unit is NOT
+          //            corroborated, so the region median may not testify)
+          //          lined-bfdbfef9 (ratio 1.68 < 1.8 AND corr 1.34 > 1.3)
+          //          lined-503b3041 (half-unit family: corr 0.49)
+          //          s134 (ratio 1.33), eb90778f (ratio 1.46, corr 1.69)
+          //          every healthy capsule/tablet revert: ratio <= 1.24,
+          //          corroboration >= 1.65
+          // DARK-BOARD SCOPE. Bright boards (frame luma >= 190) already get
+          // the shadowcut BOARD arm, which opens the pair necks at the mask
+          // level; there the pair-median unit is a shadow-residual symptom
+          // this veto must not paper over (measured: shadowpair-light is
+          // EXACT today, and vetoing there re-exposed an uncut shadow lobe
+          // as base 4 — 14 for 12). Dark boards get no board arm, so the
+          // unit-level veto is their regime. Same 190 bar as shadowcut.
+          const covertPairBd = (() => {
+            const sd6 = src.data, ch6 = src.channels();
+            const ls = [];
+            for (let x = 0; x < w; x += 4) {
+              const o1 = x * ch6, o2 = ((h - 1) * w + x) * ch6;
+              ls.push((sd6[o1] + sd6[o1 + 1] + sd6[o1 + 2]) / 3);
+              ls.push((sd6[o2] + sd6[o2 + 1] + sd6[o2 + 2]) / 3);
+            }
+            for (let y = 0; y < h; y += 4) {
+              const o1 = y * w * ch6, o2 = (y * w + w - 1) * ch6;
+              ls.push((sd6[o1] + sd6[o1 + 1] + sd6[o1 + 2]) / 3);
+              ls.push((sd6[o2] + sd6[o2 + 1] + sd6[o2 + 2]) / 3);
+            }
+            return median(ls);
+          })();
+          const covertPairMed = (() => {
+            const ras = regions.filter((r2) => r2.area > 0)
+              .map((r2) => r2.area).sort((q, r3) => q - r3);
+            return ras.length >= 8 ? ras[ras.length >> 1] : 0;
+          })();
+          const covertPairGeom = Math.PI * radiusEst * radiusEst;
+          const covertPairCoh = (() => { // region-population coherence
+            const ras = regions.filter((r2) => r2.area > 0).map((r2) => r2.area);
+            if (!ras.length || !covertPairMed) return 0;
+            return ras.filter((v) => v >= 0.7 * covertPairMed
+              && v <= 1.4 * covertPairMed).length / ras.length;
+          })();
+          // ...and the region POPULATION must be coherent (>= 75% of ws
+          // regions within [0.7, 1.4] x their own median) — a free-standing
+          // pair board's split regions are near-identical (measured 0.91 on
+          // both shadowpair boards), while a fused raft's mix of fragments
+          // and cores is not (lined family 0.33-0.59, salmon shred 0.59).
+          // This is what keeps the veto off the half-unit lined family,
+          // whose regMed corroborates geometry for the WRONG reason (its
+          // regions are half-caplets and its geomUnit is a half-pill too).
+          const covertPair = raftUnitFired && radiusEst > 0
+            && covertPairBd < 190
+            && covertPairCoh >= 0.75
+            && covertPairMed >= 0.85 * covertPairGeom
+            && covertPairMed <= 1.3 * covertPairGeom
+            && unitSingle > 1.8 * covertPairMed;
+          if (opts.debug && raftUnitFired && covertPairMed > 0) {
+            opts.debug({ stage: 'pairveto-eval', proposed: +unitSingle.toFixed(0),
+              regMed: +covertPairMed.toFixed(0), geom: +covertPairGeom.toFixed(0),
+              corr: +(covertPairMed / covertPairGeom).toFixed(2),
+              ratio: +(unitSingle / covertPairMed).toFixed(2),
+              coh: +covertPairCoh.toFixed(2), bd: +covertPairBd.toFixed(0),
+              fire: covertPair });
+          }
           if (contradicted) {
             opts.debug?.({ stage: 'unitfix-veto', proposed: unitSingle, tplArea, unit });
+          } else if (covertPair) {
+            opts.debug?.({ stage: 'unitfix-pairveto', proposed: +unitSingle.toFixed(0),
+              unit: +unit.toFixed(0), regMed: +covertPairMed.toFixed(0) });
           } else if (raftBlocked) {
             opts.debug?.({ stage: 'unitfix-raftveto', proposed: +unitSingle.toFixed(0),
               unit: +unit.toFixed(0), tplArea: +(tplArea || 0).toFixed(0) });
@@ -5063,7 +5147,14 @@ export function countPills(cv, source, opts = {}) {
       // sub-unit AREA as well keeps this from ever touching a real pill that
       // is merely foreshortened, and needing several length-confirmed pills
       // present means a photo of one odd object can't self-veto.
-      if (unitLen > 0 && blobList.length >= 6) {
+      // >= 5, was >= 6: a 5-blob photo with 5 length-confirmed blobs still
+      // carries the "several length-confirmed pills" the self-veto guard
+      // demands. Measured need: adv-pair-wood is 4 pair-blobs plus one dark
+      // board sliver (major 104 vs unitLen 66.7, p75 luma 118 vs population
+      // 231 = 0.51x — rule (b) territory) and the >= 6 gate was the ONLY
+      // reason the sliver survived to count 9 for 8. The single corpus
+      // image with exactly 5 blobs (r-90dbe20e) measured unchanged.
+      if (unitLen > 0 && blobList.length >= 5) {
         const confirmed = blobList.filter((l) => {
           const m = (blobAxis.get(l) || {}).major || 0;
           return m >= 0.85 * unitLen;
@@ -7233,6 +7324,53 @@ export function countPills(cv, source, opts = {}) {
             // method reproduces it, that IS a 2-method agreement on the
             // baseline answer — high confidence. Otherwise flag it.
             const corroborated = votes.some((x) => x.m !== 'ws' && x.v === a.unitsSum);
+            // SEAM-CORROBORATED RAFT DESCENT (one step). A phantom photoseed
+            // on a raft forfeits its basin into a neighbour, and the
+            // oversized-region fallback re-mints the lost unit from the
+            // web-inflated area quotient: the base lands at ws+1 while NO
+            // witness reproduces it (measured, hexraft-light-t96: base 20,
+            // ws 19, mass 21.36 — web inflation pushes mass past BOTH).
+            // When the blob's own luma relief certifies EXACTLY the marker
+            // count — ws-1 consecutive events >= 0.67 x IQR and the next
+            // event below the bar (t96: 18 events at 47.4-58.2 against bar
+            // 18.4, then a cliff to 10.3) — two independent witness
+            // families agree at base-1 and the orphaned base yields.
+            // Scope, each edge measured:
+            //   - raft-scale only (regs >= 6): flush pairs and shingles,
+            //     where relief and watershed go blind TOGETHER, never enter
+            //     (noise-25's true fused pair is regs 1);
+            //   - one step only (base === ws+1): the re-mint under repair
+            //     adds exactly one unit;
+            //   - mass must not defend the base (round(massFrac) !== base):
+            //     a genuine k+1 blob backs its base with pixel mass
+            //     (a true pair reads 2.0 for base 2 and is refused);
+            //   - relief must match ws EXACTLY: salmon's contested raft
+            //     blob (base 16, ws 15) reads kSeam 1 — its shredded-board
+            //     relief certifies nothing — and abstains by 14 steps.
+            if (!corroborated && a.unitsSum === k + 1 && k === regs.length
+              && regs.length >= 6 && Math.round(massFrac) !== a.unitsSum) {
+              if (!seam && a.box) seam = seamSpectrum(src.data, w, h, bl, w, l, a.box);
+              if (seam && seam.events.length) {
+                const iqrD = Math.max(1, seam.p75 - seam.p25);
+                const fD = 0.67 * iqrD;
+                let kSeamD = 1;
+                for (const e of seam.events) { if (e.v >= fD) kSeamD++; else break; }
+                if (kSeamD === k) {
+                  lowConfidence++;
+                  count -= a.unitsSum;
+                  count += k;
+                  opts.debug?.({ stage: 'seamdesc', blob: l, base: a.unitsSum,
+                    k, regs: regs.length, kSeam: kSeamD,
+                    massFrac: +massFrac.toFixed(2) });
+                  for (const r of regs) {
+                    regions.push({ ...r,
+                      units: r.units > 1 ? r.units - (a.unitsSum - k) : r.units,
+                      confidence: 'low' });
+                  }
+                  continue;
+                }
+              }
+            }
             // ...but when NOTHING reproduces the baseline and something
             // does reproduce the panel's k, keeping the baseline preserves
             // the LEAST stable witness. The baseline is the watershed's
