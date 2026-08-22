@@ -347,5 +347,13 @@
  },
  "ai-segmentation-option": {
   "status-2026-08-21": "BUILT AND SHIPPED on-device. MobileSAM fp16 ONNX (enc 13.5MB + dec 8MB, vendor/sam/) via onnxruntime-web (vendor/ort/, webgpu-first, wasm fallback), lazy-loaded by js/sam.js only when samWanted() fires: ratio >= 1.4 OR (ratio >= 1.15 AND maskStats.gloss >= 0.055). Gloss = frac of mask px with gray>=225 & sat<=45; measured: eb 0.100, 0bfc 0.111 vs highest healthy 0.0385 (and the only healthy ratios >=1.15 -- beige-black-2 1.33 gloss 0.0026, cream-caplets 1.12 gloss 0.0001 -- are cold). Fires on exactly {0bfc, salmon, eb}. The union mask enters the bake-off as candidate D under a JUDGED rule (cov 1.2..8x AND comps <= incumbent; gradient precision deliberately NOT a bar -- 512-res edges are blocky on good and bad masks alike, .643 good vs .638 bad). Validated on browser pixels, ONNX-JS end to end: 0bfc 36->34 EXACT (adopted), eb 33->34 EXACT (adopted), salmon 92->89 (adopted), t3 bad mask REJECTED (cov 0.18, count untouched 55). Grid 24 == grid 32 output on all probes at half cost (~10s CPU, less on webgpu); grid 20 resonance collapse on salmon (1 mask) is why the grid is 24 not 20. Model NEVER counts; judge + app predicate are both required. $0/scan."
+ },
+ "sheet-admission-mass-refuted": {
+  "date": "2026-08-21",
+  "what": "REFUTED lever: admitting high-mass blobs (capacity >= 20, thickR 1.2-1.4) into the sheet/photoseed route to kill lined-bfdbfef9's route bistability.",
+  "evidence-for": "On Node pixels it is a clean win: bfdbfef9 jitter spread 5 -> 1 (counts [19,24,24,22,22,22,22] -> [19,19,19,19,18,19,18]), all probes/controls hold, Node bake 248 held.",
+  "refutation": "On CHROME pixels the forced photoseed route overcounts where the stamp route was closer: advil-dark-2 31 -> 33 (truth 30), bfdbfef9 21 -> 22 (truth 20); Chrome within-1 251 -> 249. The photoseed route is itself decode-sensitive on these fused boards -- same route, opposite errors per decoder.",
+  "diagnosis-that-stands": "The bfdbfef9 route flip IS real and IS the sheet-admission gate `peaks[l] <= 1.4*radiusEst` (measured: peak 59.6 admitted vs 33.0 rejected under one-quantum jitter, both operands mask-microstructure). Blob mass (capacity) is stable across the flip (30.8 vs 31.4-33.5). Any future stabilizer must anchor on mass but pick a route whose OUTPUT is decode-stable -- neither photoseed (19-22 across decodes) nor stamp (21-24) currently is.",
+  "rule": "Gate every change on BOTH bakes before believing a stability win; jitter runs on Node pixels only and cannot see Chrome-side casualties."
  }
 }

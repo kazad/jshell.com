@@ -885,6 +885,20 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
       || (p.area > 2.2 * medA && p.area <= 12 * medA
         && p.peak >= 0.8 * rUnit && p.peak <= 1.35 * rUnit
         && p.lumSum >= (bgLum - 6) * p.newArea
+        // POLARITY, both directions. The bar above only rejects material
+        // DARKER than the background; a SOFT shadow pool sits AT background
+        // luminance and slides under it. When the piece's confirmed pill
+        // material fixes a bright polarity (same +10 guard shadowLike uses),
+        // a chain of that same medication must add material on the PILL
+        // side of the background, not at board brightness. Measured on the
+        // only two chain fires in a 44-image real+shiny sweep (both Chrome
+        // decodes): r-554c3c1a pill+soft-shadow piece reads newLum 108.4 vs
+        // bgLum 112.7 (oldLum 199.1) and s-0bfc44d8 glare-fused shadow reads
+        // 101.3 vs 104.7 (172.8) -- both board-luminance adoptions, both
+        // rejected here; the r-554c3c1a one cost a real pill downstream
+        // (lenjunk killed the fused blob, pill and all: Chrome counted 18).
+        && !(p.oldArea > 0 && p.oldLum / p.oldArea > bgLum + 10
+          && p.newArea > 2 * p.oldArea && p.lumSum / p.newArea < bgLum + 6)
         && chainDensity(p) >= 0.55
         // A LARGE PIECE MUST CONTAIN A CONFIRMED PILL. This arm exists for a
         // touching CHAIN of pills -- single-pill thickness, multi-unit area --
@@ -5010,9 +5024,33 @@ export function countPills(cv, source, opts = {}) {
           const slack = Math.max(0.75, 0.03 * massQ);
           opts.debug?.({ stage: 'quotgate', blob: bq, sumOld, sumNew,
             mass: +massQ.toFixed(2), slack: +slack.toFixed(2),
-            diff: +Math.abs(sumNew - massQ).toFixed(2) });
-          if (Math.abs(sumNew - massQ) > slack
-            || Math.abs(sumNew - massQ) >= Math.abs(sumOld - massQ)) continue;
+            diff: +Math.abs(sumNew - massQ).toFixed(2), wsN: regsQ.length });
+          // WATERSHED-CORROBORATED ACCEPTANCE. On a fused raft the certified
+          // unit comes from FREE-STANDING singles, whose mask area runs ~10%
+          // larger than a raft-interior pill (fused pills forfeit rim pixels
+          // to seams — measured on browserpng lined-bfdbfef9: free singles
+          // 4996-5400px, raft 68843/15 = 4589/pill), so blob mass under-reads
+          // and the slack guard refuses a re-quote that two other witnesses
+          // endorse. When the re-quote says EVERY watershed region is a
+          // single (sumNew === region count — the ws panel vote verbatim)
+          // and mass agrees from BELOW (massQ <= sumNew, within the measured
+          // ~15% free-single inflation), accept: ws count + unit quotient +
+          // mass direction outvote the raw slack. Mass dissenting UPWARD
+          // keeps the refusal — that direction is the half-unit family
+          // (browserpng lined-503b3041 blob 1: sumNew 6, mass 13.71) and the
+          // shingle family (r-7ff7fd99: sumNew 3, mass 3.16), both of which
+          // this must never touch. Raft-scoped (>= 6 regions): the free-
+          // single-vs-raft-interior mechanism needs a raft to exist.
+          const wsCorrob = sumNew === regsQ.length && regsQ.length >= 6
+            && massQ <= sumNew
+            && sumNew - massQ <= Math.max(0.75, 0.15 * massQ)
+            && Math.abs(sumNew - massQ) < Math.abs(sumOld - massQ);
+          if (wsCorrob && Math.abs(sumNew - massQ) > slack) {
+            opts.debug?.({ stage: 'quotgate-ws', blob: bq, sumOld, sumNew,
+              wsN: regsQ.length, mass: +massQ.toFixed(2) });
+          }
+          if (!wsCorrob && (Math.abs(sumNew - massQ) > slack
+            || Math.abs(sumNew - massQ) >= Math.abs(sumOld - massQ))) continue;
           // largest-remainder apportionment of K across the multis
           const alloc = qcs.map((v) => Math.floor(v));
           let give = K - alloc.reduce((t, v) => t + v, 0);
@@ -6487,14 +6525,45 @@ export function countPills(cv, source, opts = {}) {
                     && seam.events.length >= cd.v - 1)) return false;
                   const cosigned = massW && cd.v === massW.v
                     && lenCapW >= cd.v;
-                  if (cosigned && seam.events[cd.v - 2].v >= 0.55 * iqr
+                  // ARC CO-SIGNER, one step only. A shingled caplet hides
+                  // area (mass under-reads) but shows its own cap arc, so
+                  // when the boundary independently counts cd.v quality
+                  // caps AND the raise is a single step above the settled
+                  // k, the seam event may certify at the same relaxed
+                  // 0.55 * IQR floor the mass co-sign earns. Measured on
+                  // the 44-image real+shiny sweep (both decodes): the one
+                  // true fire, browserpng r-7ff7fd99 blob 11 (4 pills,
+                  // mass 3.21, qcaps 4), reads ratio 0.633 -- Chrome's
+                  // decode shifts p25 153.9 vs Node 156.0 so the 0.67 bar
+                  // lands at 19.70 vs its 3rd event 18.60, while Node reads
+                  // 19.34 vs 18.29 and passes; the decoder difference IS
+                  // the failure. The worst healthy one-step arc-cosigned
+                  // candidate reads 0.447 (r-d87c4d5f blob 12), and every
+                  // multi-step arc candidate (down to 0.655 on browserpng
+                  // r-681ce773 blob 2, a 5-pill blob arcs overread as 7)
+                  // stays on the 0.67 floor. The partition-validity cell
+                  // veto and photometric acceptance below still judge.
+                  // Scoped to blobs where MASS UNDER-READS (massV <= the
+                  // settled k) -- the shingle regime this arm exists for.
+                  // When mass sits ABOVE kFinal0 a mass candidate is in
+                  // play, and letting a one-step arc raise certify too
+                  // hands the ascending sort a smaller certified k that
+                  // pre-empts the lencap-certified mass k: measured on
+                  // browserpng lined-69204ff4, stacking the unscoped arc
+                  // co-sign dropped 19 -> 17.
+                  const cosignedArc = arcS && arcS.qcaps >= cd.v
+                    && cd.v === kFinal0 + 1
+                    && massW && massW.v <= kFinal0;
+                  if ((cosigned || cosignedArc)
+                    && seam.events[cd.v - 2].v >= 0.55 * iqr
                     && seam.events[cd.v - 2].v < floorT) {
                     opts.debug?.({ stage: 'lencap', blob: l, v: cd.v,
-                      lenCap: +lenCapW.toFixed(2),
+                      arc: !cosigned, lenCap: +lenCapW.toFixed(2),
                       ev: +seam.events[cd.v - 2].v.toFixed(2),
                       iqr: +iqr.toFixed(1) });
                   }
-                  return seam.events[cd.v - 2].v >= (cosigned ? 0.55 * iqr : floorT);
+                  return seam.events[cd.v - 2].v
+                    >= (cosigned || cosignedArc ? 0.55 * iqr : floorT);
                 })
                   .sort((x2, y2) => x2.v - y2.v);
                 if (okC.length) {
@@ -6792,13 +6861,31 @@ export function countPills(cv, source, opts = {}) {
             .map((p) => ({ cx: p.sx / p.area, cy: p.sy / p.area, area: p.area }));
           count -= a.unitsSum;
           count += k;
+          // PANEL PROVENANCE for consolidation. A flush side-by-side pair
+          // presents a smooth convex outline (measured, r-f5d11815 pair
+          // blob: solidity 0.933, fillR 0.953, aspect 1.32, neck defect
+          // 9.6px vs the 11.7px bar — the 0.5x-minor threshold scales with
+          // the PAIR's fitted minor, so a flush pair's shallow neck sneaks
+          // under) and fragment consolidation then merges the agreed k=2
+          // back into one units=1 region: browser decode 18 v truth 19,
+          // while Node only survived via the pile re-tile papering over it.
+          // When the panel AGREED on k >= 2 and pixel MASS independently
+          // read the same k, that is a two-witness verdict on this blob;
+          // consolidation's one-witness outline argument may not undo it
+          // (same exemption the arc witness already holds, same reason).
+          // Both independent witnesses must corroborate, not just mass: on synth
+          // s297 a halo-bloated single reads massFrac 2.2 (mass votes 2, crease
+          // votes 1) and the mass-only tag exempted a correct consolidation
+          // (20 -> 21). f5d11815's real flush pair reads ws:1 mass:2 CREASE:2.
+          const panelTag = k >= 2 && votes.some((x) => x.m === 'mass' && x.v === k)
+            && votes.some((x) => x.m === 'crease' && x.v === k);
           if (singles.length === k) {
-            for (const r of singles) regions.push({ ...r, units: 1, confidence: 'high' });
+            for (const r of singles) regions.push({ ...r, units: 1, confidence: 'high', panel: panelTag });
           } else if (pieceCenters.length === k) {
-            for (const p of pieceCenters) regions.push({ ...p, units: 1, confidence: 'high' });
+            for (const p of pieceCenters) regions.push({ ...p, units: 1, confidence: 'high', panel: panelTag });
           } else {
             const area = blobAreas[l];
-            regions.push({ cx: a.sx / area, cy: a.sy / area, area, units: k, confidence: 'high' });
+            regions.push({ cx: a.sx / area, cy: a.sy / area, area, units: k, confidence: 'high', panel: panelTag });
           }
         }
 
@@ -7101,7 +7188,10 @@ export function countPills(cv, source, opts = {}) {
           // already read this outline at cap scale and found several pills
           // (see the arc reconciliation block for the measured counter-case
           // to "the outline can't lie").
-          if (!k || ells[k].area > maxPill || r.arc) { keep.push(r); continue; }
+          // Panel-provenance regions (agreed k >= 2 with mass reading the
+          // same k) are exempt for the same measured reason as arc: a flush
+          // side-by-side pair passes every outline gate here (r-f5d11815).
+          if (!k || ells[k].area > maxPill || r.arc || r.panel) { keep.push(r); continue; }
           merged.set(k, (merged.get(k) || 0) + r.units);
         }
         for (const [k, unitsSum] of merged) {
