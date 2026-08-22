@@ -362,5 +362,37 @@
   "evidence": "Forfeit ratio (blobArea/trueCount)/unit measured across 60+ rafts, both decodes: 0.845-1.062. Controlled pair: synth s112 (dark bg) shows NO forfeit (0.95-1.06) while s262 (kraft bg) shows consistent 0.86 -- same generator, same packing, only background differs. The forfeit is seam-side MASK EROSION under low edge contrast, not rim-sharing physics; it varies per blob within one image (s142: 0.88-1.00) and is bimodal within the lined family itself (503b/bfdbfef9 need 0.86-0.90, 69204ff4 needs 0.925). No constant certifies more than half; every constant that helps lined explodes dark synths (+~25 on s112 alone). The missing pixels are unobservable at runtime.",
   "positive-finding": "The old lined-half-unit defect is FIXED in the current build: raft-unit + unitfix land the lined unit exactly on the free-single median (ratio ~1.00 on all six lined decode-pairs). The remaining lined deficit is purely raft mass under-read from seam erosion.",
   "door": "A future fix needs a witness that SEES the seam erosion (seam-adjacent gradient contrast, or a segmentation-model mask), never a mass multiplier."
+ },
+ "fused-regime-sam-refuted": {
+  "date": "2026-08-21",
+  "what": "REFUTED lever: extending the SAM route to the FUSED regime (low maskstats ratio) with owner-seam unions.",
+  "evidence": "Forced ceiling on browser pixels: advil-dark-2 30 EXACT (would fix the +1) BUT lined-503b3041 20 -> 19 (new casualty) and lined-69204ff4 19 -> 21 (overshoots, not fixed). 1 win / 1 casualty / 1 miss. The ext judge cannot separate them either: fused-regime candidates cover 0.84-0.92x the incumbent (below the 1.2x floor that defines the shredded regime's win condition) and advil's seam union has MORE comps than the incumbent (12 vs 7) so the fragmentation veto also fires. The judge that protects the healthy corpus necessarily rejects the one good mask.",
+  "rule": "The SAM route stays scoped to the shredded/specular predicate. The fused family's door remains a seam-erosion witness, not a model mask."
+ },
+ "seam-erosion-witness-refuted": {
+  "date": "2026-08-22",
+  "what": "REFUTED (definitively): any single-frame per-blob pixel statistic that predicts lined seam-erosion mass loss. Six witnesses measured across the lined trio (both decodes), dark/kraft synth rafts, and real clumps.",
+  "witnesses-and-killers": {
+   "boundary-weak-gradient": "perfect line WITHIN the lined family (0.7% error) but sign-inverted within-photo (lined singles read weaker boundaries than eroded rafts) and wk25=0 maps to both e=0.85 (s111/s262) and e=1.0 (s112).",
+   "hull-deficit": "0.45-0.50 flat across e 0.857-0.926; healthy and eroded overlap. Measures packing, not erosion.",
+   "notch-census": "recovers <=5% where 14-15% is missing; the eaten mass is not in enclosed channels.",
+   "morphological-closing": "r=6 recovers the target exactly on both decodes and NOTHING else; inflates healthy s112 rafts to 1.13. A target-shaped knob.",
+   "ws-cell-median-over-unit": "s111 pairs 0.79 -> e 0.99 vs s262 pairs 0.78 -> e 0.85: identical witness, 14% apart.",
+   "channel-rethreshold": "the decisive one: on synths any luma bar restores parity to 0.3% (mask-channel loss, pixels intact); on lined NO channel/bar reaches parity (best 0.899 < shipped 0.925). The seam mass is ABSENT from the pixels."
+  },
+  "new-facts": "(1) 'dark synths do not erode' was s112-specific: s111 dark rafts erode 0.845-0.865 at full boundary contrast -- background contrast is not the variable. (2) bfdbfef9's required correction is DECODE-dependent (0.860 jpeg-js vs 0.900 Chrome, same photo): a predictor would have to track 4% of decoder noise the pixels do not carry. (3) Real clumps span per-blob e 0.79-1.20 at truth-exact counts: any mass corrector must reproduce that spread or it invents pills. (4) Panel state on the target: jpeg votes ws12/mass14/crease13/ero13; chrome ws14/mass15/crease15/ero14 -> even the winning pair is one short.",
+  "rule": "The lined -1 is not recoverable from a single frame. Remaining doors are non-local: multi-frame fusion (shipped in the app) or a fundamentally better mask source for the fused regime (fused-regime SAM also refuted)."
+ },
+ "small-raft-discriminator": {
+  "date": "2026-08-22",
+  "what": "The capacity>=8 floor that excluded 7-pill rafts (parked 'until a real discriminator exists') is RESOLVED. Capacity 4-8 seed-starved blobs enter the photoseed rescue when BOTH certify: interior relief events nEv67+1 >= capacity-1 (a raft carries ~n-1 seams; real webbed clumps read 1-2) AND masked luma autocorrelation >= 0.6 with pitch in [1.6r, 2.4r] (raft lattice 0.78-0.97 at ~2.0r vs clumps 0.39 at off-pitch 1.26-1.29 -- 2x margin).",
+  "evidence": "adv-hexraft-dark/wood-n7: 1 -> 7 EXACT, jitter [7x7] stable. Both in-band real-corpus blobs (cc7a2ada b9, f5d11815 b7) fail both certifiers and stay 19 EXACT, jitter stable. Dual bake: zero movers on either decode. Fields that do NOT separate, measured: solidity, inFrac, peak/rEq, circularity, valleys, arcClusters alone.",
+  "rule": "Two independent structural certifiers, both required; either alone has a counterexample (dbe1f2d8 passes relief but reads acStr 0.179)."
+ },
+ "noise-grain-hardening": {
+  "date": "2026-08-22",
+  "what": "Four grain/noise fixes: (1) grain-purge now retires dropped flecks from the per-blob arrays (bl/peaks/blobAreas) so purged flecks cannot resurrect as regions -- SCOPED by drop magnitude: dropped >= 20x kept (true grain reads 300-1650x, a glare/chroma-shredded pill board reads 2.8x and propagating there exploded salmon 92 -> 160, caught by the orchestrator's dual gate); (2) fillHoles refuses a hole > 50% of its OWN enclosing blob (ring courtyards, 62%, vs engravings 8-15%); (3) floodloss floor at half a pill under shatteredMask; (4) grainBlind confidence floor (count-neutral): shatteredMask with radiusEst < 8 after acscale caps confidence at 0.4 -- the dense-noise implosion had been passing SILENTLY at 0.929.",
+  "results": "Adversarial suite 41/56 -> 46/56 exact (chain-noise 21->9 EXACT, hexraft-noise-n7 42->7 EXACT, ring 21->8, n19 20->19 EXACT); corpus dual gate ZERO movers. Out-of-regime residuals, all flagged low-confidence: dense-noise (mask polarity inversion), shadowchain (shadow-fused chain), stack (flush slab, no necks), ring's acscale-on-ring unit.",
+  "trap": "Salmon: a shredded PILL BOARD satisfies shatteredMask -- its flecks are pill fragments, not grain. Any purge-side aggression must pass the drop-ratio separator."
  }
 }

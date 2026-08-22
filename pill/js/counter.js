@@ -1237,6 +1237,41 @@ function fillHoles(cv, bw, debug) {
   }
   const tooBig = new Set();
   for (const [id, a] of holeArea) if (fgCount > 0 && a > 0.25 * fgCount) tooBig.add(id);
+  // PER-BLOB COURTYARD ARM. The global 25%-of-foreground bar assumes the
+  // photo's foreground is pill material, but on a grain-shattered board the
+  // denominator is mostly noise flecks: measured on adv-ring-noise-n12, the
+  // ring's 4624px courtyard reads 9.3% of a 49715px foreground (1500 grain
+  // comps) and got filled -- the phantom interior then minted 10 spurious
+  // pills. Judged against its OWN enclosing blob the same courtyard is 62%
+  // (4624 vs the 7399px ring blob), while genuine fills stay small: ring
+  // engravings 68-91px on 500-1200px pills (8-15%), and a worst-case glare
+  // core is ~a third of its bead. Bar at 50% -- between the classes with
+  // margin on both sides.
+  if (holeArea.size) {
+    const fgLab = new cv.Mat();
+    cv.connectedComponents(bw, fgLab);
+    const fl = fgLab.data32S;
+    const blobArea = new Map();
+    for (let i = 0; i < fl.length; i++) {
+      if (fl[i]) blobArea.set(fl[i], (blobArea.get(fl[i]) || 0) + 1);
+    }
+    const holeOwner = new Map(); // hole id -> enclosing fg blob id
+    for (let i = 0; i < ll.length; i++) {
+      const hid = ll[i];
+      if (!hid || touchesBorder[hid] || holeOwner.has(hid)) continue;
+      const x = i % w, y = (i / w) | 0;
+      if (x > 0 && fl[i - 1]) holeOwner.set(hid, fl[i - 1]);
+      else if (x < w - 1 && fl[i + 1]) holeOwner.set(hid, fl[i + 1]);
+      else if (y > 0 && fl[i - w]) holeOwner.set(hid, fl[i - w]);
+      else if (y < h - 1 && fl[i + w]) holeOwner.set(hid, fl[i + w]);
+    }
+    for (const [id, a] of holeArea) {
+      if (tooBig.has(id)) continue;
+      const own = blobArea.get(holeOwner.get(id)) || 0;
+      if (own > 0 && a > 0.5 * own) tooBig.add(id);
+    }
+    fgLab.delete();
+  }
   if (tooBig.size) {
     debug?.({ stage: 'holes-refused', n: tooBig.size, fg: fgCount,
       sizes: [...tooBig].map((id) => holeArea.get(id)).sort((a, b) => b - a).slice(0, 5) });
@@ -2781,6 +2816,15 @@ export function countPills(cv, source, opts = {}) {
     // EXACT — including a 37-pill hex raft and a 120-pill dense board that
     // previously returned count=1.
     let shatteredMask = false;
+    // GRAIN-BLIND REGIME. Set when the mask is shattered into grain AND no
+    // pill-plausible scale was ever recovered (radiusEst still < 8 after the
+    // autocorrelation attempt). In that state every downstream number is
+    // arithmetic on noise: measured on adv-dense-noise-n200, radiusEst 4.2,
+    // purge floor 14, final count 19 grain flecks for 200 pills -- yet the
+    // self-consistency confidence read 0.929, because grain IS a consistent
+    // population. The flag never changes a count; it only forbids that state
+    // from passing silently.
+    let grainBlind = false;
     if (opts.acScale !== false) {
       // SHATTERED MASK TEST. Board texture segments into hundreds of sub-pill
       // specks; pills do not. Measured on the adversarial noise raft: 207
@@ -2979,12 +3023,46 @@ export function countPills(cv, source, opts = {}) {
           if (st2.intAt(i, cv.CC_STAT_AREA) < floor2) { drop[i] = 1; dropped++; }
         }
         if (dropped) {
+          // The purge must reach the PER-BLOB ARRAYS, not just the mask.
+          // `bl`/`peaks`/`blobAreas` were labeled from bw BEFORE this purge,
+          // and the watershed marker loop + flood-loss rescue read those
+          // arrays, never bw -- so a purged fleck kept its marker and came
+          // back as a full region. Measured on adv-chain-noise-n9: purge
+          // dropped 1652 comps from bw, yet 13 flecks of 81-117px (floor
+          // 511) re-entered as units=1 regions and the image counted 21
+          // for 9. lab2 partitions the same pre-purge bw as `bl` (both
+          // 8-connectivity), so zeroing each dropped pixel's `bl` entry and
+          // its blob's peak/area retires the fleck everywhere downstream.
+          // ...but ONLY when the drops are GRAIN, not pill shreds. The
+          // separator is drop magnitude per kept blob: true grain drops
+          // hundreds of flecks per surviving blob (chain-noise 1652/1,
+          // hexraft-noise 1799/6 = 300x), while a glare/chroma-shredded
+          // BOARD drops fragments OF PILLS at ~3x (salmon 177/64 = 2.8) --
+          // propagating there retires real pill material from the per-blob
+          // accounting and the image exploded 92 -> 160.
+          const kept2 = n2 - 1 - dropped;
+          const grainy = dropped >= 20 * Math.max(1, kept2);
           const ld = lab2.data32S, bd = bw.data;
-          for (let i = 0; i < ld.length; i++) if (drop[ld[i]]) bd[i] = 0;
+          for (let i = 0; i < ld.length; i++) {
+            if (drop[ld[i]]) {
+              bd[i] = 0;
+              if (grainy) {
+                const l0 = bl[i];
+                if (l0) { peaks[l0] = 0; blobAreas[l0] = 0; bl[i] = 0; }
+              }
+            }
+          }
           opts.debug?.({ stage: 'grain-purge', dropped, kept: n2 - 1 - dropped,
             floor: +floor2.toFixed(0), radiusEst: +radiusEst.toFixed(1) });
         }
         lab2.delete(); st2.delete(); ct2.delete();
+      }
+      // See `grainBlind` declaration: shattered mask, and the correlation
+      // rescue could not find a pill-plausible pitch either (< 8px is the
+      // same texture bar the acscale exemption uses).
+      if (shatteredMask && radiusEst < 8) {
+        grainBlind = true;
+        opts.debug?.({ stage: 'grain-blind', radiusEst: +radiusEst.toFixed(1) });
       }
     }
 
@@ -3135,8 +3213,233 @@ export function countPills(cv, source, opts = {}) {
         // either; both are seeded with exactly one marker.
         // 1 corpus image is worth more than 2 adversarial ones, so the floor
         // stays until a real discriminator exists.
-        const starved = got < capacity / 3 && singleLayer && capacity >= 8;
+        let starved = got < capacity / 3 && singleLayer && capacity >= 8;
+        // SMALL-RAFT ADMISSION (the discriminator the note above asked for).
+        // The five recorded fields tie, but two RICHER fields separate the
+        // 7-pill hex rafts from the real webbed clumps with 2x margins,
+        // measured 2026-08-22 on both sides of the divide:
+        //
+        //                       dark-n7  wood-n7 | cc7a2ada b9  f5d11815 b7
+        //   relief events>=.67IQR   6       6    |      2            1
+        //   autocorr peak (1.3-3r) 0.78    0.78  |     0.39         0.40
+        //   autocorr lag / radius  1.93    2.00  |     1.26         1.29
+        //
+        // Physics: a raft of n one-layer pills carries n-1 interior seams,
+        // each a merge event in the luma relief, so the relief CERTIFIES the
+        // area-implied capacity (6 events ~ capacity 6.8). A webbed clump's
+        // capacity over-reads its true count, so its relief falls short by
+        // 2-4 events. Independently, a hex raft is a lattice: its masked
+        // luma autocorrelation peaks at ~one pill DIAMETER (lag/r ~ 2.0),
+        // while the clumps peak weakly at an off-pitch lag. Solidity, inFrac,
+        // circularity, peak/rEq and valley count were all measured on the
+        // same blobs and do NOT separate (e.g. solidity 0.93/0.92 raft vs
+        // 0.90/0.97 clump).
+        //
+        // Admit capacity 4-8 only when BOTH certify. Cost: runs only for
+        // in-band starved candidates -- two blobs in the whole real corpus,
+        // both refused here by wide margins.
+        if (!starved && singleLayer && capacity >= 4 && capacity < 8
+            && got < capacity / 3 && radiusEst > 3) {
+          const Wp = src.cols, Hp = src.rows, sdp = src.data;
+          let bx0 = Wp, bx1 = -1, by0 = Hp, by1 = -1;
+          for (let y = 0; y < Hp; y++) {
+            const row = y * Wp;
+            for (let x = 0; x < Wp; x++) if (bl[row + x] === l) {
+              if (x < bx0) bx0 = x; if (x > bx1) bx1 = x;
+              if (y < by0) by0 = y; if (y > by1) by1 = y;
+            }
+          }
+          let reliefOk = false, pitchOk = false, nEv = 0, acStr = 0, acLag = 0;
+          if (bx1 >= bx0) {
+            const box = { x0: bx0, x1: bx1, y0: by0, y1: by1 };
+            // interior relief must account for the capacity: n pills -> n-1
+            // merge events above the blob's own 0.67 x IQR bar
+            const sp = seamSpectrum(sdp, Wp, Hp, bl, Wp, l, box);
+            if (sp) {
+              const iqr = Math.max(1, sp.p75 - sp.p25);
+              for (const e of sp.events) if (e.v >= 0.67 * iqr) nEv++;
+              reliefOk = nEv + 1 >= capacity - 1;
+            }
+            // lattice pitch: masked luma autocorrelation peaking near one
+            // pill diameter, strongly (>= 0.6; clumps measure ~0.4)
+            if (reliefOk) {
+              const idxs = [];
+              for (let y = by0; y <= by1; y++) {
+                const row = y * Wp;
+                for (let x = bx0; x <= bx1; x++) if (bl[row + x] === l) idxs.push(row + x);
+              }
+              const lum = new Float32Array(idxs.length);
+              let mu = 0;
+              for (let i = 0; i < idxs.length; i++) {
+                const o = idxs[i] * 4;
+                lum[i] = 0.299 * sdp[o] + 0.587 * sdp[o + 1] + 0.114 * sdp[o + 2];
+                mu += lum[i];
+              }
+              mu /= Math.max(1, idxs.length);
+              let va = 0;
+              for (let i = 0; i < idxs.length; i++) { const dv = lum[i] - mu; va += dv * dv; }
+              va /= Math.max(1, idxs.length);
+              if (va > 1e-6) {
+                const bwx = bx1 - bx0 + 1, bwy = by1 - by0 + 1;
+                const loc = new Float32Array(bwx * bwy).fill(NaN);
+                for (let i = 0; i < idxs.length; i++) {
+                  const x = idxs[i] % Wp, y = (idxs[i] / Wp) | 0;
+                  loc[(y - by0) * bwx + (x - bx0)] = lum[i];
+                }
+                const Lmin = Math.max(4, Math.round(1.3 * radiusEst));
+                const Lmax = Math.max(Lmin + 2, Math.round(3.0 * radiusEst));
+                for (let L = Lmin; L <= Lmax; L++) {
+                  let best = -2;
+                  for (let k2 = 0; k2 < 12; k2++) {
+                    const th2 = Math.PI * k2 / 12;
+                    const dx = Math.round(L * Math.cos(th2)), dy2 = Math.round(L * Math.sin(th2));
+                    let s2 = 0, c2 = 0;
+                    for (let i = 0; i < idxs.length; i++) {
+                      const x = (idxs[i] % Wp) - bx0 + dx, y = ((idxs[i] / Wp) | 0) - by0 + dy2;
+                      if (x < 0 || x >= bwx || y < 0 || y >= bwy) continue;
+                      const v2 = loc[y * bwx + x];
+                      if (v2 !== v2) continue;
+                      s2 += (lum[i] - mu) * (v2 - mu); c2++;
+                    }
+                    if (c2 >= 0.25 * idxs.length) { const r2 = s2 / (c2 * va); if (r2 > best) best = r2; }
+                  }
+                  if (best > acStr) { acStr = best; acLag = L; }
+                }
+                pitchOk = acStr >= 0.6 && acLag >= 1.6 * radiusEst && acLag <= 2.4 * radiusEst;
+              }
+            }
+          }
+          if (reliefOk && pitchOk) {
+            starved = true;
+            opts.debug?.({ stage: 'small-raft', blob: l, capacity: +capacity.toFixed(2),
+              nEv67: nEv, acStr: +acStr.toFixed(3), acLagOverR: +(acLag / radiusEst).toFixed(2) });
+          }
+        }
         if (starved) sheetBlob.add(l);
+        // --- PROBE (diagnostic only, opts.sheetProbe): richer per-blob field
+        // set for the small-raft-vs-real-clump divide. Emits 'sheetprobe'.
+        if (opts.sheetProbe && capacity <= 20) {
+          const Wp = src.cols, Hp = src.rows, sdp = src.data;
+          let bx0 = Wp, bx1 = -1, by0 = Hp, by1 = -1;
+          for (let y = 0; y < Hp; y++) {
+            const row = y * Wp;
+            for (let x = 0; x < Wp; x++) if (bl[row + x] === l) {
+              if (x < bx0) bx0 = x; if (x > bx1) bx1 = x;
+              if (y < by0) by0 = y; if (y > by1) by1 = y;
+            }
+          }
+          const box = { x0: bx0, x1: bx1, y0: by0, y1: by1 };
+          const cont = traceOuterContour(bl, Wp, l, box);
+          let perim = 0, solidity = 0;
+          if (cont) {
+            for (let i = 0; i < cont.length; i++) {
+              const a2 = cont[i], b2 = cont[(i + 1) % cont.length];
+              perim += Math.hypot(a2[0] - b2[0], a2[1] - b2[1]);
+            }
+            const pts = cont.slice().sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+            const cross = (o, a2, b2) => (a2[0] - o[0]) * (b2[1] - o[1]) - (a2[1] - o[1]) * (b2[0] - o[0]);
+            const lo = [], up = [];
+            for (const p of pts) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+            for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+            const hull = lo.slice(0, -1).concat(up.slice(0, -1));
+            let ha = 0;
+            for (let i = 0; i < hull.length; i++) { const a2 = hull[i], b2 = hull[(i + 1) % hull.length]; ha += a2[0] * b2[1] - b2[0] * a2[1]; }
+            ha = Math.abs(ha) / 2;
+            solidity = ha > 0 ? blobAreas[l] / ha : 0;
+          }
+          const circ = perim > 0 ? (perim * perim) / (4 * Math.PI * blobAreas[l]) : 0;
+          // interior mass fraction (dd beyond one radius) + rim fraction
+          let inN = 0, nb2 = 0;
+          const idxs = [];
+          for (let y = by0; y <= by1; y++) {
+            const row = y * Wp;
+            for (let x = bx0; x <= bx1; x++) {
+              const i = row + x;
+              if (bl[i] !== l) continue;
+              nb2++; idxs.push(i);
+              if (dd[i] > radiusEst) inN++;
+            }
+          }
+          const inFrac = nb2 ? inN / nb2 : 0;
+          const arc = boundaryArcStats(bl, Wp, l, box, radiusEst);
+          const sp = seamSpectrum(sdp, Wp, Hp, bl, Wp, l, box);
+          let nEv = 0, ev1 = 0, ev2 = 0, ev3 = 0, iq = 0;
+          if (sp) {
+            iq = Math.max(1, sp.p75 - sp.p25);
+            for (const e of sp.events) if (e.v >= 0.67 * iq) nEv++;
+            ev1 = sp.events[0] ? sp.events[0].v : 0;
+            ev2 = sp.events[1] ? sp.events[1].v : 0;
+            ev3 = sp.events[2] ? sp.events[2].v : 0;
+          }
+          // masked luma autocorrelation: pitch presence inside the blob
+          let acStr = 0, acLag = 0;
+          {
+            const lum = new Float32Array(Wp * Hp);
+            let mu = 0;
+            for (const i of idxs) { const o = i * 4; const v = 0.299 * sdp[o] + 0.587 * sdp[o + 1] + 0.114 * sdp[o + 2]; lum[i] = v; mu += v; }
+            mu /= Math.max(1, nb2);
+            let va = 0;
+            for (const i of idxs) { const dv = lum[i] - mu; va += dv * dv; }
+            va /= Math.max(1, nb2);
+            if (va > 1e-6) {
+              const inBlob = (x, y) => x >= bx0 && x <= bx1 && y >= by0 && y <= by1 && bl[y * Wp + x] === l;
+              const Lmin = Math.max(4, Math.round(1.3 * radiusEst));
+              const Lmax = Math.max(Lmin + 2, Math.round(3.0 * radiusEst));
+              for (let L = Lmin; L <= Lmax; L++) {
+                let best = -2;
+                for (let k = 0; k < 12; k++) {
+                  const th2 = Math.PI * k / 12;
+                  const dx = Math.round(L * Math.cos(th2)), dy2 = Math.round(L * Math.sin(th2));
+                  let s2 = 0, c2 = 0;
+                  for (const i of idxs) {
+                    const x = i % Wp, y = (i / Wp) | 0;
+                    const x2 = x + dx, y3 = y + dy2;
+                    if (!inBlob(x2, y3)) continue;
+                    s2 += (lum[i] - mu) * (lum[y3 * Wp + x2] - mu); c2++;
+                  }
+                  if (c2 >= 0.25 * nb2) { const r2 = s2 / (c2 * va); if (r2 > best) best = r2; }
+                }
+                if (best > acStr) { acStr = best; acLag = L; }
+              }
+            }
+            // luma-valley count: dark comps below the blob's p25
+            let vly = 0;
+            {
+              const vals = idxs.map((i) => lum[i]).sort((a2, b2) => a2 - b2);
+              const p25 = vals[(vals.length * 0.25) | 0];
+              const dark = new Set();
+              for (const i of idxs) if (lum[i] < p25) dark.add(i);
+              const seen = new Set();
+              const minSz = Math.max(4, 0.02 * pillArea);
+              for (const s0 of dark) {
+                if (seen.has(s0)) continue;
+                let sz = 0;
+                const stack = [s0]; seen.add(s0);
+                while (stack.length) {
+                  const p = stack.pop(); sz++;
+                  for (const q2 of [p - 1, p + 1, p - Wp, p + Wp]) {
+                    if (dark.has(q2) && !seen.has(q2)) { seen.add(q2); stack.push(q2); }
+                  }
+                }
+                if (sz >= minSz) vly++;
+              }
+              const rEq2 = Math.sqrt(blobAreas[l] / Math.PI);
+              opts.debug?.({ stage: 'sheetprobe', blob: l,
+                area: blobAreas[l], capacity: +capacity.toFixed(2), seeds: got,
+                peak: +peaks[l].toFixed(1), thickR: +(peaks[l] / radiusEst).toFixed(2),
+                peakOverREq: +(peaks[l] / rEq2).toFixed(2),
+                solidity: +solidity.toFixed(3), circ: +circ.toFixed(2),
+                inFrac: +inFrac.toFixed(3),
+                arcCaps: arc ? arc.caps : -1, arcQcaps: arc ? arc.qcaps : -1,
+                arcClusters: arc ? arc.clusters : -1, arcNotches: arc ? arc.notches : -1,
+                capFrac: arc ? +arc.capFrac.toFixed(2) : -1,
+                nEv67: nEv, iq: +iq.toFixed(2),
+                ev1: +ev1.toFixed(2), ev2: +ev2.toFixed(2), ev3: +ev3.toFixed(2),
+                acStr: +acStr.toFixed(3), acLag, acLagOverR: +(acLag / radiusEst).toFixed(2),
+                valleys: vly });
+            }
+          }
+        }
         opts.debug?.({ stage: 'sheet', blob: l, area: blobAreas[l], capacity: +capacity.toFixed(1), seeds: got, peak: +peaks[l].toFixed(1), radiusEst: +radiusEst.toFixed(1), thickR: +(peaks[l] / radiusEst).toFixed(2), singleLayer, starved });
       }
     }
@@ -3406,9 +3709,20 @@ export function countPills(cv, source, opts = {}) {
         const s = stats.get(r.label);
         if (s && s.blob) pushed.add(s.blob);
       }
+      // On a grain-shattered board the mask's vouching is worthless below
+      // pill scale: the purge floor is a QUARTER pill, so double-speck grain
+      // clumps of 0.3x a pill survive it, lose their basin to the flood, and
+      // this rescue re-enters them as whole pills (measured on
+      // adv-hexraft-noise-n7: 164px and 187px flecks re-entered against a
+      // 531px pill, 9 for 7). Scoped to shatteredMask with a corrected
+      // radiusEst -- exactly the grain-purge's own scope -- require half a
+      // pill, the same bar the purge itself would have applied at 0.5x.
+      const lostFloor = shatteredMask && radiusEst > 3
+        ? Math.max(minArea, absFloor, 0.5 * Math.PI * radiusEst * radiusEst)
+        : Math.max(minArea, absFloor);
       const lost = [];
       for (let l = 1; l < peaks.length; l++) {
-        if (blobAreas[l] >= Math.max(minArea, absFloor) && peaks[l] >= MIN_PEAK && !pushed.has(l)) lost.push(l);
+        if (blobAreas[l] >= lostFloor && peaks[l] >= MIN_PEAK && !pushed.has(l)) lost.push(l);
       }
       if (lost.length) {
         const lsx = new Map(), lsy = new Map();
@@ -9795,6 +10109,16 @@ export function countPills(cv, source, opts = {}) {
       };
     } else {
       out.confidence = 0;
+    }
+    // Grain-blind floor: the self-consistency score cannot see that the
+    // "population" it is scoring is board texture (grain is a consistent
+    // population -- adv-dense-noise-n200 scored 0.929 counting 19 flecks for
+    // 200 pills). When the mask shattered and no pill scale was recovered,
+    // the count is untrustworthy by construction: warn, never pass silently.
+    if (grainBlind) {
+      out.lowConfidence = Math.max(1, out.lowConfidence || 0);
+      if (out.confidence > 0.4) out.confidence = 0.4;
+      if (out.confidenceParts) out.confidenceParts.grainBlind = 1;
     }
 
     if (opts.returnImage) out.image = new Uint8ClampedArray(src.data); // RGBA at processed resolution
