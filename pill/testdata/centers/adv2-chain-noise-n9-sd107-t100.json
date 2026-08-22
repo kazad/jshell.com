@@ -1,0 +1,47 @@
+{
+ "image": "testdata/adv2/adv2-chain-noise-n9-sd107-t100.png",
+ "size": [
+  1000,
+  750
+ ],
+ "method": "EXACT — emitted by tools/gen-adversarial.html (window.__centers)",
+ "count": 9,
+ "centers": [
+  [
+   468.6,
+   275.9
+  ],
+  [
+   476.4,
+   300.6
+  ],
+  [
+   484.3,
+   325.4
+  ],
+  [
+   492.1,
+   350.2
+  ],
+  [
+   500,
+   375
+  ],
+  [
+   507.9,
+   399.8
+  ],
+  [
+   515.7,
+   424.6
+  ],
+  [
+   523.6,
+   449.4
+  ],
+  [
+   531.4,
+   474.1
+  ]
+ ]
+}

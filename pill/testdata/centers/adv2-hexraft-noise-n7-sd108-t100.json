@@ -1,0 +1,39 @@
+{
+ "image": "testdata/adv2/adv2-hexraft-noise-n7-sd108-t100.png",
+ "size": [
+  1000,
+  750
+ ],
+ "method": "EXACT — emitted by tools/gen-adversarial.html (window.__centers)",
+ "count": 7,
+ "centers": [
+  [
+   500,
+   375
+  ],
+  [
+   526,
+   375
+  ],
+  [
+   513,
+   397.5
+  ],
+  [
+   487,
+   397.5
+  ],
+  [
+   474,
+   375
+  ],
+  [
+   487,
+   352.5
+  ],
+  [
+   513,
+   352.5
+  ]
+ ]
+}

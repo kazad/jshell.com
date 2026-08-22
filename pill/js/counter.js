@@ -3350,8 +3350,12 @@ export function countPills(cv, source, opts = {}) {
               reliefOk = nEv + 1 >= capacity - 1;
             }
             // lattice pitch: masked luma autocorrelation peaking near one
-            // pill diameter, strongly (>= 0.6; clumps measure ~0.4)
-            if (reliefOk) {
+            // pill diameter, strongly (>= 0.6; clumps measure ~0.4).
+            // Computed whenever the relief passes OR the strong-lattice
+            // bypass below could apply -- on a noise background the relief
+            // census is blinded (grain inflates the IQR) and gating the
+            // lattice on reliefOk starved the bypass of its own witness.
+            if (reliefOk || nEv >= 1) {
               const idxs = [];
               for (let y = by0; y <= by1; y++) {
                 const row = y * Wp;
@@ -3398,7 +3402,19 @@ export function countPills(cv, source, opts = {}) {
               }
             }
           }
-          if (reliefOk && pitchOk) {
+          // STRONG-LATTICE BYPASS. On a NOISE background the relief census
+          // is blinded -- grain inflates the IQR so only 2 events clear the
+          // 0.67 floor on a raft whose 6 seams are real (measured on the
+          // fresh-seed generalization suite: hexraft-noise sd108, capacity
+          // 7.99, nEv67 2, count collapsed to 2; its seed-1 sibling passed
+          // only because capacity 8.04 skipped this band entirely). The
+          // lattice certifier alone separates at 2x (rafts 0.778-0.966 vs
+          // every measured control <= 0.395), so a STRONG lattice
+          // (>= 0.72, 45% margin both ways, pitch window unchanged)
+          // certifies without the relief co-sign.
+          const acStrong = acStr >= 0.72
+            && acLag >= 1.6 * radiusEst && acLag <= 2.4 * radiusEst;
+          if ((reliefOk && pitchOk) || acStrong) {
             starved = true;
             opts.debug?.({ stage: 'small-raft', blob: l, capacity: +capacity.toFixed(2),
               nEv67: nEv, acStr: +acStr.toFixed(3), acLagOverR: +(acLag / radiusEst).toFixed(2) });

@@ -1,0 +1,47 @@
+{
+ "image": "testdata/adv2/adv2-chain-wood-n9-sd104-t100.png",
+ "size": [
+  1000,
+  750
+ ],
+ "method": "EXACT — emitted by tools/gen-adversarial.html (window.__centers)",
+ "count": 9,
+ "centers": [
+  [
+   574.5,
+   302.4
+  ],
+  [
+   555.8,
+   320.5
+  ],
+  [
+   537.2,
+   338.7
+  ],
+  [
+   518.6,
+   356.8
+  ],
+  [
+   500,
+   375
+  ],
+  [
+   481.4,
+   393.2
+  ],
+  [
+   462.8,
+   411.3
+  ],
+  [
+   444.2,
+   429.5
+  ],
+  [
+   425.5,
+   447.6
+  ]
+ ]
+}

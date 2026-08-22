@@ -1,0 +1,47 @@
+{
+ "image": "testdata/adv2/adv2-chain-light-n9-sd104-t100.png",
+ "size": [
+  1000,
+  750
+ ],
+ "method": "EXACT — emitted by tools/gen-adversarial.html (window.__centers)",
+ "count": 9,
+ "centers": [
+  [
+   588.1,
+   319.8
+  ],
+  [
+   566.1,
+   333.6
+  ],
+  [
+   544.1,
+   347.4
+  ],
+  [
+   522,
+   361.2
+  ],
+  [
+   500,
+   375
+  ],
+  [
+   478,
+   388.8
+  ],
+  [
+   455.9,
+   402.6
+  ],
+  [
+   433.9,
+   416.4
+  ],
+  [
+   411.9,
+   430.2
+  ]
+ ]
+}
