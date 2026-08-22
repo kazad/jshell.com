@@ -2450,14 +2450,47 @@ export function countPills(cv, source, opts = {}) {
         blobPx.push(px3);
       }
       const lum3 = (c) => { const o = c * ch3; return (sd3[o] + sd3[o + 1] + sd3[o + 2]) / 3; };
-      let cutTotal = 0, blobsCut = 0;
-      for (const px3 of blobPx) {
+      // BRIGHT-BOARD ARM reference. A hard cast shadow on a BRIGHT board
+      // reads at ~half the BOARD luma but can sit far ABOVE 0.45x the
+      // blob's own p75 when the pill body is mid-bright: adv-shadowpair-
+      // light measures shadow luma 118 against a body-referenced bar of 95
+      // (p75 210), so the pass above never fires and each shadow-bridged
+      // pair certifies as one convex "single" (6 for 12 at confidence
+      // 0.955). The shadow's real signature is BOARD chromaticity at
+      // reduced luma: measured dC-to-board 4 for shadow vs 18 for pill
+      // body (the body-referenced dC reads 14 and the < 20 bar keeps it).
+      // Arm only on bright boards (lined paper measures 157-182, stays
+      // off); depth bar 0.65x board (these shadows measure 0.43-0.60x;
+      // mild self-shading on a white pill reads > 0.7x).
+      let bdLum = 0, bdChr = null;
+      {
+        const strip3 = Math.max(2, Math.round(Math.min(w3, h3) * 0.03));
+        let br = 0, bg = 0, bb = 0, bn = 0;
+        for (let y = 0; y < h3; y++) {
+          const edgeRow = y < strip3 || y >= h3 - strip3;
+          for (let x = 0; x < w3; x += 2) {
+            if (!edgeRow && x >= strip3 && x < w3 - strip3) continue;
+            const o = (y * w3 + x) * ch3;
+            br += sd3[o]; bg += sd3[o + 1]; bb += sd3[o + 2]; bn++;
+          }
+        }
+        if (bn) {
+          bdLum = (br + bg + bb) / (3 * bn);
+          const t = Math.max(1, br + bg + bb);
+          bdChr = [br / t, bg / t, bb / t];
+        }
+      }
+      let cutTotal = 0, blobsCut = 0, cutBoard = 0;
+      const passes = bdLum >= 190 ? ['body', 'board'] : ['body'];
+      for (const arm of passes)
+      for (const px3full of blobPx) {
+        const px3 = arm === 'body' ? px3full : px3full.filter((c) => md3[c]);
         if (px3.length < 200) continue;
         const h64 = new Float64Array(64);
         for (const c of px3) h64[Math.min(63, lum3(c) >> 2)]++;
         let acc = 0, p75 = 0;
         for (let t = 0; t < 64; t++) { acc += h64[t]; if (acc >= 0.75 * px3.length) { p75 = (t + 0.5) * 4; break; } }
-        const thr3 = 0.45 * p75;
+        const thr3 = arm === 'body' ? 0.45 * p75 : 0.8 * bdLum;
         const cand = new Set();
         for (const c of px3) if (lum3(c) < thr3) cand.add(c);
         // A real caster's shadow is a large SHARE of its blob (s229: the
@@ -2466,7 +2499,9 @@ export function countPills(cv, source, opts = {}) {
         // heap -- and cutting them re-shapes contacts the watershed owns
         // (t3 went +7 with them cut, exact with them kept).
         if (cand.size < 0.15 * px3.length) continue;
-        if (cand.size > 0.4 * px3.length) continue;
+        // A lone pill's shadow lobe reaches half its blob (shadowlone-light
+        // measures 0.495), so the board arm allows up to 0.55.
+        if (cand.size > (arm === 'body' ? 0.4 : 0.55) * px3.length) continue;
         // body-band hue reference
         let br3 = 0, bg3 = 0, bb3 = 0, bn3 = 0;
         for (const c of px3) {
@@ -2506,7 +2541,7 @@ export function countPills(cv, source, opts = {}) {
               else bgB++;
             }
           }
-          if (comp.length < 0.08 * px3.length) continue;
+          if (comp.length < (arm === 'body' ? 0.08 : 0.15) * px3.length) continue;
           // MAJORITY-BACKGROUND BOUNDARY: a lobe hangs into the board; a
           // seam is walled by pill on both sides. Only lobes may go.
           if (bgB <= pillB) continue;
@@ -2545,16 +2580,30 @@ export function countPills(cv, source, opts = {}) {
             cr3 += sd3[o]; cg3 += sd3[o + 1]; cb3 += sd3[o + 2];
           }
           const ct3 = Math.max(1, cr3 + cg3 + cb3);
-          const dC3 = 255 * (Math.abs(cr3 / ct3 - bc3[0])
-            + Math.abs(cg3 / ct3 - bc3[1]) + Math.abs(cb3 / ct3 - bc3[2]));
-          if (dC3 < 20) continue;   // pill-hued: shaded pill material stays
+          const chr3 = [cr3 / ct3, cg3 / ct3, cb3 / ct3];
+          if (arm === 'body') {
+            const dC3 = 255 * (Math.abs(chr3[0] - bc3[0])
+              + Math.abs(chr3[1] - bc3[1]) + Math.abs(chr3[2] - bc3[2]));
+            if (dC3 < 20) continue;   // pill-hued: shaded pill material stays
+          } else {
+            // Board arm: the component must BE the board, only darker --
+            // board chromaticity (dC < 8; pill body measures 18) at real
+            // cast-shadow depth (<= 0.65x board luma).
+            let lsum3 = 0;
+            for (const c of comp) lsum3 += lum3(c);
+            if (lsum3 / comp.length > 0.65 * bdLum) continue;
+            const dB3 = 255 * (Math.abs(chr3[0] - bdChr[0])
+              + Math.abs(chr3[1] - bdChr[1]) + Math.abs(chr3[2] - bdChr[2]));
+            if (dB3 >= 8) continue;
+          }
           toCut.push(...comp);
         }
         if (!toCut.length) continue;
         for (const c of toCut) md3[c] = 0;
         cutTotal += toCut.length; blobsCut++;
+        if (arm === 'board') cutBoard += toCut.length;
       }
-      if (cutTotal) opts.debug?.({ stage: 'shadowcut', cut: cutTotal, blobs: blobsCut });
+      if (cutTotal) opts.debug?.({ stage: 'shadowcut', cut: cutTotal, blobs: blobsCut, board: cutBoard, bdLum: Math.round(bdLum) });
     }
     // Set when the mask bake-off vetoes a RIM-LACE candidate that would
     // otherwise have won: the photo's pills read as saturated rims around
