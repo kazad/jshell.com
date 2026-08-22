@@ -5614,9 +5614,29 @@ export function countPills(cv, source, opts = {}) {
           // pill (20 counted for 19). Both conditions are required: on
           // r-fd69dff9 blob 9 (truth 3, massFrac 3.10, ws 2) the watershed
           // sits BELOW the floor, so the discount stays out of the way and
-          // mass still rescues the pill ws missed.
+          // mass still rescues the pill ws missed (floor 3 = round 3 there,
+          // so flooring changes nothing).
+          //
+          // THE MARKER COUNT MUST NOT BE AN EXACT-MATCH TRIGGER. Watershed
+          // marker counts are decoder-unstable (the stability ratchet's
+          // measured list), and requiring regs === floor makes this guard
+          // flip with one marker of jitter. Measured on r-fd69dff9's 4-caplet
+          // clump under Chrome-decoded pixels (testdata/browserpng): the
+          // clump's pixels are the same to 0.17% (area 2382 vs 2378, luma
+          // histogram identical: 4.5%/5.3%/6.0% below 60/80/100 in BOTH
+          // decodes -- no shadow-web pixels were added), massFrac is 4.63 in
+          // both, but the watershed drops a marker (3 vs 4). regs===floor
+          // then fails, massV falls through to k0=round(4.63)=5, and the
+          // stacked-arm massoverride ships the invented pill: 20 for 19.
+          // A watershed at floor-1 corroborates the webbing verdict MORE, not
+          // less: it saw even fewer pills than the floor claims. Scoped to
+          // floor >= 2 so a shingled pair / shadow-bloated single reading
+          // 1.5-1.9x with a merged marker keeps its round-up rescue.
+          const wsAtFloor = regs.length === Math.floor(massFrac)
+            || (Math.floor(massFrac) >= 2
+              && regs.length === Math.floor(massFrac) - 1);
           const webbedFloor = ridgePk > 0 && peaks[l] > 1.5 * ridgePk
-            && regs.length === Math.floor(massFrac);
+            && wsAtFloor;
           const massV = lenSingle ? 1
             : webbedFloor ? Math.max(1, Math.floor(massFrac))
               : (heavyFraction ? Math.ceil(massFrac) : Math.max(1, a.k0));
@@ -6441,8 +6461,41 @@ export function countPills(cv, source, opts = {}) {
               if (seam && seam.events.length) {
                 const iqr = Math.max(1, seam.p75 - seam.p25);
                 const floorT = 0.67 * iqr;
-                const okC = cands.filter((cd) => cd.v > kFinal0 && cd.v <= capacityS
-                  && seam.events.length >= cd.v - 1 && seam.events[cd.v - 2].v >= floorT)
+                // LENGTH-CAPACITY SECOND WITNESS. When the blob's area,
+                // normalized by a unit built ONLY from the two stable,
+                // blob-independent scales — lengthcal's unitLen and the
+                // autocorrelation radiusEst (0.8 * unitLen * 2 * radiusEst
+                // is one pill's area to 1-3% on the design set) — itself
+                // names at least massV pills, the MASS candidate carries an
+                // independent co-signer and may certify at a 0.55 * IQR
+                // seam floor instead of 0.67. Measured on the lined raft
+                // (browserpng 69204ff4 blob 1, truth 16): the 14th merge
+                // event sits at 0.59 * IQR, just under the global floor,
+                // while lenCap reads 15.32 for massV 15. The one control
+                // blob where a mass candidate exists at all (r-cc7a2ada
+                // blob 9, truth 3, massV 4) reads lenCap 3.51 < 4, so the
+                // relaxation cannot reach it; every other measured control
+                // has massV <= kFinal0 and never builds the candidate.
+                // Only the mass candidate is eligible — arcHi and kSeam
+                // candidates keep the corpus-calibrated 0.67 floor — and
+                // the partition-validity cell veto below still judges the
+                // resulting cells either way.
+                const lenCapW = unitLen > 0 && radiusEst >= MIN_PEAK
+                  ? blobAreas[l] / (0.8 * unitLen * 2 * radiusEst) : 0;
+                const okC = cands.filter((cd) => {
+                  if (!(cd.v > kFinal0 && cd.v <= capacityS
+                    && seam.events.length >= cd.v - 1)) return false;
+                  const cosigned = massW && cd.v === massW.v
+                    && lenCapW >= cd.v;
+                  if (cosigned && seam.events[cd.v - 2].v >= 0.55 * iqr
+                    && seam.events[cd.v - 2].v < floorT) {
+                    opts.debug?.({ stage: 'lencap', blob: l, v: cd.v,
+                      lenCap: +lenCapW.toFixed(2),
+                      ev: +seam.events[cd.v - 2].v.toFixed(2),
+                      iqr: +iqr.toFixed(1) });
+                  }
+                  return seam.events[cd.v - 2].v >= (cosigned ? 0.55 * iqr : floorT);
+                })
                   .sort((x2, y2) => x2.v - y2.v);
                 if (okC.length) {
                   // PARTITION-VALIDITY ACCEPTANCE (cell-shape veto). Before
