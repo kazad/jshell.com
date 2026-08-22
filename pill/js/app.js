@@ -1,5 +1,5 @@
 import { loadCV, countPills, drawOverlay } from './counter.js';
-import { samSessions, samAutoMask, samWanted } from './sam.js';
+import { samSessions, samAutoMask, samWanted, samSeamsWanted } from './sam.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -874,6 +874,7 @@ async function maybeRefineWithSam(sourceCanvas, primary) {
     const w2 = scale < 1 ? Math.round(img.width * scale) : img.width;
     const h2 = scale < 1 ? Math.round(img.height * scale) : img.height;
     const sm = await samAutoMask(ort, enc, dec, img, w2, h2, { grid: 24,
+      seams: samSeamsWanted(primary),
       onProgress: (i, n) => {
         if (state.result !== primary) return;
         els.helperReact.textContent = `Refining with on-device AI… ${Math.round(100 * i / n)}% ✨`;

@@ -150,8 +150,51 @@ export async function samAutoMask(ort, enc, dec, img, outW, outH, opts = {}) {
   // Union at LOW, then nearest-neighbour to the counter's working scale.
   // The LOW square covers the PADDED encoder square; only the (vw x vh)
   // region is real image.
+  // OWNER-SEAM union. The raw OR of 91 touching pill masks is one fused
+  // megablob (measured on salmon: 1.13M px, per-pill separation destroyed,
+  // downstream count 89). Eroding every instance instead minted fragments
+  // where near-duplicate masks survive NMS (eb: 35 masks for 34 beads,
+  // 33 -> 36). So: assign each pixel to ONE owner (first claim in
+  // predicted-IoU order) and clear only the 1px boundary BETWEEN different
+  // owners -- the model's own instance separation, preserved for the
+  // watershed, with duplicates absorbed by first-claim. The counter still
+  // does all counting.
+  // Seams are REGIME-SPECIFIC (opts.seams): the fusion regime (predicate
+  // ratio arm, salmon 4.45) needs them -- without seams the union is one
+  // megablob and the count lands 89. The specular regime (gloss arm, eb)
+  // must NOT have them: glare-split near-duplicate masks survive NMS
+  // (35 masks for 34 beads) and seams let the extras live as fragments
+  // (33 -> 36); the solid OR union lets the counter re-split correctly
+  // (34 EXACT). 0bfc (ratio arm) measures 34 under both styles.
+  if (!opts.seams) {
+    const uniS = new Uint8Array(LOW * LOW);
+    for (const m of band) {
+      for (let j = 0; j < LOW * LOW; j++) if (m.bits[j]) uniS[j] = 1;
+    }
+    return finishUnion(uniS, band.length, nw, nh, outW, outH);
+  }
+  const owner = new Int16Array(LOW * LOW).fill(-1);
+  band.forEach((m, bi) => {
+    for (let j = 0; j < LOW * LOW; j++) {
+      if (m.bits[j] && owner[j] < 0) owner[j] = bi;
+    }
+  });
   const uni = new Uint8Array(LOW * LOW);
-  for (const m of band) for (let j = 0; j < LOW * LOW; j++) if (m.bits[j]) uni[j] = 1;
+  for (let y = 1; y < LOW - 1; y++) {
+    for (let xx = 1; xx < LOW - 1; xx++) {
+      const j = y * LOW + xx;
+      const o = owner[j];
+      if (o < 0) continue;
+      const n1 = owner[j - 1], n2 = owner[j + 1],
+        n3 = owner[j - LOW], n4 = owner[j + LOW];
+      uni[j] = ((n1 >= 0 && n1 !== o) || (n2 >= 0 && n2 !== o)
+        || (n3 >= 0 && n3 !== o) || (n4 >= 0 && n4 !== o)) ? 0 : 1;
+    }
+  }
+  return finishUnion(uni, band.length, nw, nh, outW, outH);
+}
+
+function finishUnion(uni, nMasks, nw, nh, outW, outH) {
   const vw = Math.round(LOW * nw / ENC_SIZE), vh = Math.round(LOW * nh / ENC_SIZE);
   const cand = new Uint8Array(outW * outH);
   for (let y = 0; y < outH; y++) {
@@ -161,7 +204,7 @@ export async function samAutoMask(ort, enc, dec, img, outW, outH, opts = {}) {
       cand[y * outW + xx] = uni[sy * LOW + sx];
     }
   }
-  return { cand, nMasks: band.length };
+  return { cand, nMasks };
 }
 
 // ---- browser loader (lazy; ~42MB fetched once, then HTTP/SW-cached) ----
@@ -221,4 +264,13 @@ export function samWanted(result) {
   if (!ms || !(result.unitArea > 0) || !(ms.fg > 0)) return false;
   const ratio = ms.comps / (ms.fg / result.unitArea);
   return ratio >= 1.4 || (ratio >= 1.15 && (ms.gloss || 0) >= 0.055);
+}
+
+// Which union style the firing regime needs (see the seams comment above):
+// the fusion arm (ratio >= 1.4) gets instance seams, the gloss arm a solid
+// union.
+export function samSeamsWanted(result) {
+  const ms = result && result.maskStats;
+  if (!ms || !(result.unitArea > 0) || !(ms.fg > 0)) return false;
+  return ms.comps / (ms.fg / result.unitArea) >= 1.4;
 }
