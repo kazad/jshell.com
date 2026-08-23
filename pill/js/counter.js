@@ -788,7 +788,7 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
   for (let i = 0; i < ll.length; i++) {
     if (!ll[i]) continue;
     let p = pieces.get(ll[i]);
-    if (!p) { p = { area: 0, peak: 0, dtSum: 0, newArea: 0, lumSum: 0, oldArea: 0, oldLum: 0, x0: 1e9, x1: -1, y0: 1e9, y1: -1 }; pieces.set(ll[i], p); }
+    if (!p) { p = { area: 0, peak: 0, dtSum: 0, newArea: 0, lumSum: 0, oldArea: 0, oldLum: 0, nR: 0, nG: 0, nB: 0, oR: 0, oG: 0, oB: 0, x0: 1e9, x1: -1, y0: 1e9, y1: -1 }; pieces.set(ll[i], p); }
     p.area++;
     p.dtSum += dd[i];
     {
@@ -803,11 +803,13 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
     if (!mask[i]) {
       p.newArea++;
       p.lumSum += lum;
+      p.nR += sd[q]; p.nG += sd[q + 1]; p.nB += sd[q + 2];
     } else {
       // Luminance of the piece's ALREADY-CONFIRMED pill material, which fixes
       // the polarity a genuine pill has against this background.
       p.oldArea++;
       p.oldLum += lum;
+      p.oR += sd[q]; p.oG += sd[q + 1]; p.oB += sd[q + 2];
     }
     if (dd[i] > p.peak) p.peak = dd[i];
   }
@@ -815,6 +817,65 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
   // Unit pill radius implied by the confirmed-pill median area (medP is
   // unreliable pre-fillHoles: specular holes flatten the distance peak).
   const rUnit = Math.sqrt(medA / Math.PI);
+
+  // BOARD CHROMATICITY reference (same frame strip shadowcut uses). The
+  // chain clause's chroma guard below needs to know what colour the BOARD
+  // is, independent of the mask.
+  let bdChrR = [1 / 3, 1 / 3, 1 / 3];
+  {
+    const strip = Math.max(2, Math.round(Math.min(cand.cols, cand.rows) * 0.03));
+    let br = 0, bg2 = 0, bb = 0;
+    for (let y = 0; y < cand.rows; y++) {
+      const edgeRow = y < strip || y >= cand.rows - strip;
+      for (let x = 0; x < cand.cols; x += 2) {
+        if (!edgeRow && x >= strip && x < cand.cols - strip) continue;
+        const o = (y * cand.cols + x) * 4;
+        br += sd[o]; bg2 += sd[o + 1]; bb += sd[o + 2];
+      }
+    }
+    const t = Math.max(1, br + bg2 + bb);
+    bdChrR = [br / t, bg2 / t, bb / t];
+  }
+  const dChr = (a, b) => 255 * (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]));
+  const pieceChr = (r, g, b) => { const t = Math.max(1, r + g + b); return [r / t, g / t, b / t]; };
+
+  // BOARD-GROUT VETO for the chain clause. The chain clause adopts a large
+  // piece on the theory it is several touching pills of the SAME medication
+  // extending the confirmed pill inside it. That theory makes a colour
+  // prediction: the new material must be PILL-coloured. Measured on
+  // r-2c50d34e (scored tan caplets on white ruled paper): the confirmed
+  // caplet inside the piece reads dC 36 from the board, while the 2663px
+  // the clause wanted to add reads dC 3.4 from the board and dC 35 from its
+  // own pill -- that addition is sunlit paper and mild shade, not pill, and
+  // it minted a second unit on a lone caplet. The two luminance polarity
+  // guards above are blind here because the pill's luma (~145) sits BELOW
+  // the board's (~178): "darker than background" is this medication's
+  // normal state. Colour is the witness luminance cannot be.
+  // All three distances are required, so the veto abstains whenever the
+  // photo cannot separate pill from board by colour (white-on-white:
+  // dOldBoard collapses; then absence of chroma proves nothing -- the same
+  // abstention rule phantomremove uses for chromaFrac).
+  const boardGrout = (p) => {
+    if (!p.oldArea || !p.newArea) return false;
+    const oc = pieceChr(p.oR, p.oG, p.oB);
+    const nc = pieceChr(p.nR, p.nG, p.nB);
+    const dOldBoard = dChr(oc, bdChrR);
+    const dNewBoard = dChr(nc, bdChrR);
+    const dNewOld = dChr(nc, oc);
+    // ENGULFMENT-SCOPED, like the 554c chain-arm guard: board-hued
+    // material that ENGULFS its confirmed pill is grout (2c50d34e's paper
+    // lobe: new 2663px over a 1271px caplet, 2.1x); board-hued material
+    // that trims a larger confirmed chain is a legitimate rescue of a
+    // washed-out pill (t2-ibuprofen: new 0.54x confirmed -- vetoing it
+    // dropped a real pill, 13 -> 12, caught by the corpus gate).
+    const oldA = Math.max(1, p.area - p.newArea);
+    const fire = dOldBoard >= 20 && dNewBoard < 8 && dNewOld >= 20
+      && p.newArea > 1.5 * oldA;
+    debug?.({ stage: 'rescue-grout', area: p.area, newArea: p.newArea,
+      dOldBoard: +dOldBoard.toFixed(1), dNewBoard: +dNewBoard.toFixed(1),
+      dNewOld: +dNewOld.toFixed(1), fire });
+    return fire;
+  };
 
   // SHADOW POLARITY. Distance-from-background is UNSIGNED: a cast shadow sits
   // beside the pill, is darker than the surface, and therefore scores as
@@ -899,6 +960,7 @@ function rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, debug) {
         // (lenjunk killed the fused blob, pill and all: Chrome counted 18).
         && !(p.oldArea > 0 && p.oldLum / p.oldArea > bgLum + 10
           && p.newArea > 2 * p.oldArea && p.lumSum / p.newArea < bgLum + 6)
+        && !boardGrout(p)
         && chainDensity(p) >= 0.55
         // A LARGE PIECE MUST CONTAIN A CONFIRMED PILL. This arm exists for a
         // touching CHAIN of pills -- single-pill thickness, multi-unit area --
@@ -2118,6 +2180,7 @@ function pillPhotoStats(distData, w, h, pill, otsuCut) {
  * @returns {{count:number, regions:Array<{cx,cy,area,units}>, scale:number, boundaries?:Uint8Array, width:number, height:number, image?:Uint8ClampedArray}}
  */
 export function countPills(cv, source, opts = {}) {
+  let groutFired = false; // set when rescue's board-grout veto fires (see call site)
   const maxDim = opts.maxDim || 1280;
   const withOverlay = opts.overlay !== false;
 
@@ -2259,7 +2322,14 @@ export function countPills(cv, source, opts = {}) {
     // colored ones on a light tray) get a second chance.
     if (usedColorDist) {
       const bgLum = (dfb.color[0] + dfb.color[1] + dfb.color[2]) / 3;
-      rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, opts.debug);
+      // The grout veto and the scored-caplet raft-restore arm are one
+    // mechanism arriving by two roads; the restore arm may only open on a
+    // photo where the veto actually fired (s190's tilted capsules fired
+    // the restore WITHOUT any grout and lost a real pill).
+    rescueSecondMode(cv, distBg, bw, absFloor, src, bgLum, (e) => {
+      if (e && e.stage === 'rescue-grout' && e.fire) groutFired = true;
+      opts.debug?.(e);
+    });
     }
 
     const kernel = track(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3)));
@@ -4552,12 +4622,14 @@ export function countPills(cv, source, opts = {}) {
       // to that gross disagreement so healthy photos, where the two already
       // agree, are untouched.
       let raftUnitFired = false;
+      let unitPreRaft = 0;
       if (opts.acScale !== false && radiusEst > 0) {
         const geomUnit = Math.PI * radiusEst * radiusEst;
         if (unit > geomUnit * 2) {
           opts.debug?.({ stage: 'raft-unit', from: Math.round(unit),
             to: Math.round(geomUnit), radiusEst: +radiusEst.toFixed(1),
             blobs: calList.length });
+          unitPreRaft = unit;
           unit = geomUnit;
           raftUnitFired = true;
         }
@@ -4617,16 +4689,46 @@ export function countPills(cv, source, opts = {}) {
       // adopters (r-25b52635 et al., unit2 ~2x unitBlob) are untouched by
       // construction, and a fused-pair population fails the plausibility
       // arm because a pair blob exceeds the pitch ceiling.
-      const singleSupport = (!raftUnitFired && radiusEst > 0 && unit <= maxPlausibleUnit2)
-        ? calList.filter((l) => blobAreas[l] >= 0.7 * unit && blobAreas[l] <= 1.45 * unit).length
+      // The reference the vouch tests against: the blob-median unit as
+      // estimated from AREAS. When the raft override has replaced it with
+      // pi*r^2, the population test must still see the original -- an
+      // ELONGATED single population legitimately exceeds 2x the circle of
+      // its own half-width (a 55x26 caplet is 2.15-2.6x pi*r^2), so on
+      // scored-caplet photos the raft override and the crease median are
+      // the SAME half-pill error arriving by two roads, and the refusal
+      // must not let the first road disable its defence against the
+      // second. Measured on r-2c50d34e after the rescue grout veto: the
+      // honest mask moved radiusEst 15.7 -> 14.2, raft-unit halved the
+      // vouched 1361 to 633, the refusal (keyed to the live unit) went
+      // silent, and the photo collapsed to 17 through the strict capacity
+      // clamp -- while four isolated singles at 1258-1569 vouched for 1361
+      // the entire time.
+      const unitRef = raftUnitFired ? unitPreRaft : unit;
+      const singleSupport = (radiusEst > 0 && unitRef <= maxPlausibleUnit2)
+        ? calList.filter((l) => blobAreas[l] >= 0.7 * unitRef && blobAreas[l] <= 1.45 * unitRef).length
         : 0;
       let unitVouched = false;
       if (pieces.length >= blobList.length * 2 && unit2 >= Math.max(absFloor, minPlausibleUnit)) {
         if (unit2 > maxPlausibleUnit2) {
           opts.debug?.({ stage: 'unit2-refused', proposed: +unit2.toFixed(0),
             cap: +maxPlausibleUnit2.toFixed(0), pieces: pieces.length, kept: +unit.toFixed(0) });
-        } else if (unit2 < 0.62 * unit && singleSupport >= 3) {
+        } else if (singleSupport >= 3
+          && (raftUnitFired
+            ? (groutFired && unit2 < 0.70 * unitRef)
+            : unit2 < 0.62 * unitRef)) {
+          // 0.70 on the raft-restored road: the crease median under the two
+          // decoders of the SAME photo reads 0.504 (Node) and 0.665
+          // (Chrome) of the vouched unit -- a bar the decoders straddle is
+          // a knife-edge, and the restore arm carries two extra witnesses
+          // (the raft fire itself and the pitch ceiling on unitRef) that
+          // the plain refusal does not. Nearest healthy adopters stay
+          // 0.84-0.86, and every one of them is already outside this arm.
           unitVouched = true;
+          if (raftUnitFired && unit !== unitRef) {
+            opts.debug?.({ stage: 'raft-unit-restored', from: +unit.toFixed(0),
+              to: +unitRef.toFixed(0), support: singleSupport });
+            unit = unitRef;
+          }
           opts.debug?.({ stage: 'unit2-scored-refused', proposed: +unit2.toFixed(0),
             kept: +unit.toFixed(0), support: singleSupport, pieces: pieces.length });
         } else {
