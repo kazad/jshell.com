@@ -1670,7 +1670,19 @@ export function stampArbitrate(cv, env) {
     // rejected stamp answer was 80 explaining 0.73). Below cover 0.35 the
     // better-explaining answer wins regardless of direction; above it the
     // raise requirement stands.
-    if (res2.expl > res.expl + 0.1 && (total2 > count || cover < 0.35)) { res = res2; maskNote = 'otsu'; }
+    // MARGIN IS WAIVED IN CATASTROPHE, like the direction rule above.
+    // Below cover 0.35 this very clause declares the pipeline count
+    // untrustworthy in either direction -- yet the +0.1 margin still
+    // demanded the retry beat the mask it had just condemned by a full
+    // tenth. Measured on salmon rotated 180 degrees (same pills, same
+    // photo, upside down): the final mask shatters to a pre-stamp 216 and
+    // explains 0.647; the otsu retry explains 0.73 and totals 92 -- which
+    // matches the board's own mass arithmetic (fg 91,857 / unit 1004 =
+    // 91.5) -- and lost by 0.017. The counter shipped 217 for 90. Under
+    // cover 0.35, strictly-better explanation now suffices; at or above
+    // it, the original margin and must-raise rule stand untouched.
+    const explOK = cover < 0.35 ? res2.expl > res.expl : res2.expl > res.expl + 0.1;
+    if (explOK && (total2 > count || cover < 0.35)) { res = res2; maskNote = 'otsu'; }
     else maskNote = `otsuRejected(expl=${res2.expl.toFixed(2)},total=${total2})`;
   }
 

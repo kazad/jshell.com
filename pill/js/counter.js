@@ -9338,7 +9338,359 @@ export function countPills(cv, source, opts = {}) {
             // the mask the stamp counted on; in otsu mode that material is
             // invisible to activeMd and this refiner would drag the pills
             // onto the purged crescents. Leave them where the evidence is.
-            if (g.stamp) continue;
+            if (g.stamp) {
+              // ---- DT-SNAP, STAMPED-RAFT REGIME ONLY --------------------
+              //
+              // On a board where the count comes from mass over one fused
+              // region, the placements are a STRIDE GRID, not detections:
+              // measured on salmon, 52 of 92 markers sit on an exact 24px
+              // lattice, which is stampArbitrate's stride = (min/3)|0 at
+              // that pill size. Against an independent annotation those
+              // markers are a median 0.261 half-widths from the true pill
+              // centres, worst 1.008 -- a full pill width.
+              //
+              // Better seeding cannot fix it and that was measured, not
+              // assumed: scoring the true centres against the counter's own
+              // markers under the peel loop's objective, truth wins 15 of 76
+              // and SIXTY of 76 are exact TIES. Plain coverage prefers the
+              // WRONG pose 92% of the time. The score is flat, so it keeps
+              // whatever seed it was handed.
+              //
+              // But the right answer is already in the mask. Local maxima of
+              // the distance transform -- where a pill's body is furthest
+              // from any boundary -- recover the annotated centres on salmon
+              // to a median of 1.4px (0.038 half-widths) with 89 peaks for
+              // 89 pills, ZERO missed and ZERO spurious. And the peak COUNT
+              // independently corroborates the arithmetic on the rest of the
+              // regime: beige-black-1 and -2 give exactly 90 for truth 90 at
+              // every radius tested, lightblue gives 70 for truth 70.
+              //
+              // SCOPE. This is NOT generic. On boards outside this regime DT
+              // peaks over-detect roughly 2x with ~0.5 half-width error
+              // (r-f091e9e9 59 peaks for 19 pills, s-0bfc44d8 50 for 34), so
+              // it must fire only where placements are stamped and share ONE
+              // template -- exactly the arithmetic-count regime. The
+              // predicate is clean and cheap: every placement stamp-owned and
+              // minorSpread == 0. Measured, that selects {salmon, beige-1,
+              // beige-2, lightblue} and rejects healthy boards (r-f091e9e9
+              // spread 0.356, s-0bfc44d8 1.14).
+              //
+              // A marker only moves to a peak that is UNCLAIMED and within
+              // one pill-width, so the assignment stays one-to-one and no
+              // marker can cross to a distant pill. The count is untouched.
+              if (!regions.__dtSnap) {
+                regions.__dtSnap = { done: true, peaks: null };
+                let allStamped = true, n0 = 0;
+                const mins = [];
+                for (const g2 of regions) {
+                  const list = (g2.pills && g2.pills.length) ? g2.pills : null;
+                  if (!list) { if (g2.shape && g2.shape.minor > 0) { mins.push(g2.shape.minor); n0++; allStamped = false; } continue; }
+                  for (const p3 of list) { if (p3.minor > 0) mins.push(p3.minor); n0++; if (!g2.stamp) allStamped = false; }
+                }
+                mins.sort((a2, b2) => a2 - b2);
+                const medMin = mins.length ? mins[mins.length >> 1] : 0;
+                const spread = medMin ? (mins[mins.length - 1] - mins[0]) / medMin : 9;
+                if (allStamped && n0 >= 12 && medMin > 0 && spread < 1e-6) {
+                  // MEASURE OVER THE SURFACE THE STAMP COUNTED ON, not
+                  // activeMd. activeMd is a LABELLED watershed map at this
+                  // point, so a distance transform over it measures distance
+                  // to label boundaries and finds 130 peaks for 92 pills --
+                  // the standalone probe got 89/89 only because it ran on
+                  // the mask-used stage. Same algorithm, wrong input.
+                  const fgSnap = stampFgUsed || activeMd;
+                  const DT = new Float32Array(w * h);
+                  for (let i2 = 0; i2 < w * h; i2++) DT[i2] = fgSnap[i2] > 0 ? 1e9 : 0;
+                  for (let y2 = 0; y2 < h; y2++) for (let x2 = 0; x2 < w; x2++) {
+                    const i2 = y2 * w + x2; if (!DT[i2]) continue;
+                    let v2 = DT[i2];
+                    if (y2 > 0) { v2 = Math.min(v2, DT[i2 - w] + 1);
+                      if (x2 > 0) v2 = Math.min(v2, DT[i2 - w - 1] + 1.414);
+                      if (x2 < w - 1) v2 = Math.min(v2, DT[i2 - w + 1] + 1.414); }
+                    if (x2 > 0) v2 = Math.min(v2, DT[i2 - 1] + 1);
+                    DT[i2] = v2;
+                  }
+                  for (let y2 = h - 1; y2 >= 0; y2--) for (let x2 = w - 1; x2 >= 0; x2--) {
+                    const i2 = y2 * w + x2; if (!DT[i2]) continue;
+                    let v2 = DT[i2];
+                    if (y2 < h - 1) { v2 = Math.min(v2, DT[i2 + w] + 1);
+                      if (x2 > 0) v2 = Math.min(v2, DT[i2 + w - 1] + 1.414);
+                      if (x2 < w - 1) v2 = Math.min(v2, DT[i2 + w + 1] + 1.414); }
+                    if (x2 < w - 1) v2 = Math.min(v2, DT[i2 + 1] + 1);
+                    DT[i2] = v2;
+                  }
+                  const candP = [];
+                  for (let y2 = 1; y2 < h - 1; y2++) for (let x2 = 1; x2 < w - 1; x2++) {
+                    const i2 = y2 * w + x2, v2 = DT[i2];
+                    if (!(v2 > 0.25 * medMin)) continue;
+                    let top = true;
+                    for (let dy2 = -1; dy2 <= 1 && top; dy2++) for (let dx2 = -1; dx2 <= 1; dx2++) {
+                      if (!dx2 && !dy2) continue;
+                      if (DT[i2 + dy2 * w + dx2] > v2) { top = false; break; }
+                    }
+                    if (top) candP.push([v2, x2, y2]);
+                  }
+                  candP.sort((a2, b2) => b2[0] - a2[0]);
+                  const keptP = [], RR = 0.55 * medMin, RR2 = RR * RR;
+                  for (const [, x2, y2] of candP) {
+                    let ok2 = true;
+                    for (const q2 of keptP) { const dx2 = q2.x - x2, dy2 = q2.y - y2;
+                      if (dx2 * dx2 + dy2 * dy2 < RR2) { ok2 = false; break; } }
+                    if (ok2) keptP.push({ x: x2, y: y2, used: false });
+                  }
+                  regions.__dtSnap.peaks = keptP;
+                  regions.__dtSnap.medMin = medMin;
+                  opts.debug?.({ stage: 'dtsnap', peaks: keptP.length, placements: n0, medMin: +medMin.toFixed(1) });
+                }
+              }
+              // ASSIGNMENT MUST BE GLOBAL, NOT PER-MARKER GREEDY. Walking
+              // the markers in region order and giving each its nearest
+              // unclaimed peak scrambles the board: an early marker takes a
+              // peak that belongs to a different pill and the error
+              // cascades. Measured, that version read 36/89 against the
+              // annotation -- worse than the 79/89 it was meant to fix.
+              // Sorting ALL (marker, peak) pairs by distance and consuming
+              // closest-first is the standard fix and is done once, lazily,
+              // for the whole board.
+              const snap = regions.__dtSnap;
+              if (snap && snap.peaks && snap.peaks.length) {
+                if (!snap.assigned) {
+                  snap.assigned = new Map();
+                  const all = [];
+                  for (const g2 of regions) {
+                    if (!g2.stamp || !g2.pills) continue;
+                    for (const p3 of g2.pills) all.push(p3);
+                  }
+                  const LIM2 = snap.medMin * snap.medMin;
+                  const pairs = [];
+                  for (let a2 = 0; a2 < all.length; a2++) {
+                    for (let b2 = 0; b2 < snap.peaks.length; b2++) {
+                      const dx2 = snap.peaks[b2].x - all[a2].cx;
+                      const dy2 = snap.peaks[b2].y - all[a2].cy;
+                      const dd2 = dx2 * dx2 + dy2 * dy2;
+                      if (dd2 <= LIM2) pairs.push([dd2, a2, b2]);
+                    }
+                  }
+                  pairs.sort((x2, y2) => x2[0] - y2[0]);
+                  const tookM = new Uint8Array(all.length), tookP = new Uint8Array(snap.peaks.length);
+                  let nMoved = 0;
+                  for (const [, a2, b2] of pairs) {
+                    if (tookM[a2] || tookP[b2]) continue;
+                    tookM[a2] = 1; tookP[b2] = 1;
+                    snap.assigned.set(all[a2], snap.peaks[b2]);
+                    nMoved++;
+                  }
+                  // SECOND PASS AT A WIDER RADIUS. The first pass caps a
+                  // move at one pill width so nothing can jump to a distant
+                  // pill, but that leaves markers stranded when their own
+                  // peak is further away than that: measured on salmon, 5
+                  // markers unmoved with 4 peaks still free. Those 5 sit at
+                  // DT 4.0-12.4 -- on SEAMS, at a fraction of the 37.4 pill
+                  // radius -- while all 87 placed markers sit at DT
+                  // 35.2-43.7. Two real pills (DT 37.6 each) had no marker
+                  // at all. So the leftovers are misplaced claims and the
+                  // free peaks are the pills they belong on; pairing them is
+                  // a correction, not a stretch. Still closest-first, still
+                  // one-to-one, and still only onto a genuine DT peak.
+                  const pairs2 = [];
+                  for (let a2 = 0; a2 < all.length; a2++) {
+                    if (tookM[a2]) continue;
+                    for (let b2 = 0; b2 < snap.peaks.length; b2++) {
+                      if (tookP[b2]) continue;
+                      const dx2 = snap.peaks[b2].x - all[a2].cx;
+                      const dy2 = snap.peaks[b2].y - all[a2].cy;
+                      pairs2.push([dx2 * dx2 + dy2 * dy2, a2, b2]);
+                    }
+                  }
+                  pairs2.sort((x2, y2) => x2[0] - y2[0]);
+                  let nSecond = 0;
+                  for (const [, a2, b2] of pairs2) {
+                    if (tookM[a2] || tookP[b2]) continue;
+                    tookM[a2] = 1; tookP[b2] = 1;
+                    snap.assigned.set(all[a2], snap.peaks[b2]);
+                    nMoved++; nSecond++;
+                  }
+                  let freePeaks = 0;
+                  for (let b3 = 0; b3 < snap.peaks.length; b3++) if (!tookP[b3]) freePeaks++;
+                  opts.debug?.({ stage: 'dtsnap-assign', markers: all.length,
+                    peaks: snap.peaks.length, moved: nMoved, second: nSecond,
+                    unmovedMarkers: all.length - nMoved, freePeaks });
+                }
+                for (const p2 of g.pills) {
+                  const q2 = snap.assigned.get(p2);
+                  if (q2) { p2.cx = q2.x; p2.cy = q2.y; }
+                }
+                continue;
+              }
+              // ...EXCEPT to re-centre a stamp that sits on its own pill.
+              //
+              // The hazard above is real, so this does not run the refiner.
+              // It applies one measured translation, and only where the
+              // hazard cannot apply: the stamp's own footprint must be
+              // FULLY covered by activeMd. If the stamp's material were
+              // invisible to activeMd (the otsu case the comment warns
+              // about) the footprint would read background and this is
+              // skipped -- there is nothing to drag it onto.
+              //
+              // WHY IT IS NEEDED. A stamp single is synthesised from the
+              // template and never registered against the pill it lands on:
+              // measured on salmon, its four isolated markers carry
+              // stamp=true, label=undefined, and sit 6-9px ABOVE their
+              // pills' centres of mass (median offset 0.180 half-widths,
+              // bias (-0.03,-0.16), coherence 0.91). A healthy board, whose
+              // singles are drawn from their own blob geometry instead,
+              // reads 0.022 with no coherent direction. The mask is not at
+              // fault: blob centre of mass agrees with bounding-box centre
+              // to within 0.06 half-widths, so the pill is symmetric and the
+              // marker really is off it. This is the operator's report --
+              // "the centre should be the centre of mass".
+              //
+              // WHY NOT THE EXISTING SEARCH. poseScore saturates: its sample
+              // ellipse is 0.46x the pill's axes, so inside an 85x89 tablet
+              // every pose within several pixels covers only foreground and
+              // scores IDENTICALLY. Over the +-8px neighbourhood of those
+              // four markers, 24-42% of poses tie the incumbent and for two
+              // of the four NO pose scores strictly better. On a pentagon a
+              // shift clips a corner on one side and gains flat edge on the
+              // other, so the tie is exact, not merely close. There is no
+              // gradient to climb and a wider window would not find one --
+              // the correction has to be measured directly.
+              //
+              // Refuted on the way here, both by measurement: adding a
+              // centring tiebreak to fitScore/poseScore changed nothing
+              // (neither path reaches a stamp single), and routing singles
+              // through the Lloyd path made centring WORSE everywhere --
+              // healthy r-f091e9e9 0.022 -> 0.119, r-fd69dff9 0.028 -> 0.144
+              // -- while salmon did not improve at all.
+              for (const p2 of g.pills) for (let pass = 0; pass < 4; pass++) {
+                const a = 0.46 * p2.major, b = 0.46 * p2.minor;
+                const c = Math.cos(p2.theta || 0), s2 = Math.sin(p2.theta || 0);
+                let n = 0, bg = 0;
+                for (let i = 0; i < 9; i++) for (let j = 0; j < 5; j++) {
+                  const u = (i / 8) * 2 - 1, v = (j / 4) * 2 - 1;
+                  if (u * u + v * v > 1.05) continue;
+                  const x = p2.cx + u * a * c - v * b * s2;
+                  const y = p2.cy + u * a * s2 + v * b * c;
+                  if (fgAt(x, y)) n++; else bg++;
+                }
+                if (n < 6) continue;
+                // TARGET THE BLOB'S CENTRE OF MASS, NOT THE SAMPLE GRID'S.
+                // The grid's own foreground centroid is dragged by the same
+                // overhang that makes the marker wrong, so aiming at it
+                // barely moves and the improvement test then rejects the
+                // step. The connected component under the marker is the
+                // honest target -- measured, its centre of mass agrees with
+                // its bounding-box centre to within 0.06 half-widths, so it
+                // is the pill's true centre and not a shadow artifact.
+                // Flood is bounded by the stamp's own footprint box, so cost
+                // stays proportional to one pill regardless of raft size.
+                const rad = Math.ceil(Math.max(p2.major, p2.minor) * 0.75);
+                const bx0 = Math.max(0, Math.round(p2.cx) - rad);
+                const bx1 = Math.min(w - 1, Math.round(p2.cx) + rad);
+                const by0 = Math.max(0, Math.round(p2.cy) - rad);
+                const by1 = Math.min(h - 1, Math.round(p2.cy) + rad);
+                const sxi = Math.round(p2.cx), syi = Math.round(p2.cy);
+                if (!fgAt(sxi, syi)) continue;
+                const bw = bx1 - bx0 + 1, bh2 = by1 - by0 + 1;
+                const seenB = new Uint8Array(bw * bh2);
+                const stack = [(syi - by0) * bw + (sxi - bx0)];
+                seenB[stack[0]] = 1;
+                let bn = 0, bsx = 0, bsy = 0;
+                while (stack.length) {
+                  const q = stack.pop();
+                  const qx = q % bw, qy = (q / bw) | 0;
+                  bn++; bsx += qx + bx0; bsy += qy + by0;
+                  if (qx > 0 && !seenB[q - 1] && fgAt(qx - 1 + bx0, qy + by0)) { seenB[q - 1] = 1; stack.push(q - 1); }
+                  if (qx < bw - 1 && !seenB[q + 1] && fgAt(qx + 1 + bx0, qy + by0)) { seenB[q + 1] = 1; stack.push(q + 1); }
+                  if (qy > 0 && !seenB[q - bw] && fgAt(qx + bx0, qy - 1 + by0)) { seenB[q - bw] = 1; stack.push(q - bw); }
+                  if (qy < bh2 - 1 && !seenB[q + bw] && fgAt(qx + bx0, qy + 1 + by0)) { seenB[q + bw] = 1; stack.push(q + bw); }
+                }
+                if (bn < 40) continue;
+                // THE BLOB MUST BE ONE PILL, OR ITS CENTRE OF MASS IS NOT
+                // THIS PILL'S CENTRE.
+                //
+                // Without this the correction chases a false target on a
+                // FUSED blob: on t3-cream-caplets-wood a marker was dragged
+                // toward the centre of mass of a multi-caplet component 51px
+                // away, and the gate's worst offset went 1.403 -> 2.359 pill
+                // half-widths -- two full pill widths off, a visibly worse
+                // picture than the one being fixed. The median improved at
+                // the same time, which is exactly how a bad correction hides.
+                //
+                // A stamp knows its own expected footprint, so the test is
+                // local and needs no population statistic: the component may
+                // not hold materially more area than one stamp covers.
+                // 1.6x leaves room for the mask's own dilation and for a
+                // pill touching a speck, while a genuine two-pill fusion is
+                // ~2x and is refused.
+                if (bn > 1.6 * Math.PI * (p2.major / 2) * (p2.minor / 2)) continue;
+                const dx = bsx / bn - p2.cx, dy = bsy / bn - p2.cy;
+                const half = Math.max(1, 0.5 * (p2.minor || 0));
+                const off = Math.hypot(dx, dy) / half;
+                // Only correct a VISIBLE error, and never move further than
+                // the measurement supports: a quarter half-width is the bar
+                // the centroid gate flags at, and the step is capped there.
+                if (off < 0.08) continue;
+                // The cap bounds a single correction to a quarter half-width
+                // -- the bar the centroid gate flags at -- so no marker can
+                // be thrown across a seam by one step. Iterating lets a
+                // larger genuine error close over several passes, each one
+                // still required to reduce background.
+                const cap = Math.min(1, 0.25 / off);
+                const nx = p2.cx + dx * cap, ny = p2.cy + dy * cap;
+                // GUARD THE DESTINATION, NOT THE ORIGIN. Requiring the
+                // incumbent to be fully on foreground rejects exactly the
+                // markers that need help: an off-centre stamp necessarily
+                // pokes a few samples past its pill's edge (the four salmon
+                // singles read bg=3,3,3,4 of 25). That overhang IS the
+                // signal. So the move is admitted on a measured improvement
+                // instead -- the new pose must claim strictly less
+                // background than the old one, and must not increase
+                // penetration into a neighbour.
+                let nb = 0;
+                for (let i = 0; i < 9; i++) for (let j = 0; j < 5; j++) {
+                  const u = (i / 8) * 2 - 1, v = (j / 4) * 2 - 1;
+                  if (u * u + v * v > 1.05) continue;
+                  if (!fgAt(nx + u * a * c - v * b * s2,
+                    ny + u * a * s2 + v * b * c)) nb++;
+                }
+                // ADMIT ON BACKGROUND, OR ON A SHORTER STEP THAT DOES NOT
+                // COST BACKGROUND.
+                //
+                // A strict reduction alone (nb < bg) is too conservative:
+                // it fired only once on beige-round-cluster-black-2, whose
+                // SIX off-centre singles are all stamp-placed, leaving that
+                // board at 0.261 median -- worse than salmon. But admitting
+                // any equal-background step let a marker OVERSHOOT (salmon's
+                // worst 0.180 -> 0.275, past the gate's own bar), because
+                // nothing then stopped a step that traded no background for
+                // no progress.
+                //
+                // So an equal-background step is admitted only when it also
+                // strictly shortens the distance to the blob's centre of
+                // mass. That is the quantity being corrected, so a step that
+                // does not shorten it has no business being taken, and one
+                // that does cannot overshoot -- the distance is measured to
+                // the target itself, not along a fixed direction.
+                if (nb > bg) continue;
+                // The distance to the target must strictly shrink on ANY
+                // admitted step, equal-background or not. Without this a
+                // capped step can carry the marker PAST the centre of mass
+                // and out the other side: salmon's worst read 0.275 -- past
+                // the gate's own 0.25 bar -- until this was required of
+                // every step rather than only the equal-background ones.
+                {
+                  const dOld = Math.hypot(bsx / bn - p2.cx, bsy / bn - p2.cy);
+                  const dNew = Math.hypot(bsx / bn - nx, bsy / bn - ny);
+                  if (!(dNew < dOld - 0.01)) continue;
+                }
+                if (penetration(p2, nx, ny, p2.theta)
+                  > penetration(p2, p2.cx, p2.cy, p2.theta) + 0.01) continue;
+                p2.cx = nx; p2.cy = ny;
+                opts.debug?.({ stage: 'stamp-recentre', off: +off.toFixed(3),
+                  bg, nb, dx: +(dx * cap).toFixed(2), dy: +(dy * cap).toFixed(2) });
+              }
+              continue;
+            }
             for (const p2 of g.pills) {
               // The incumbent pose pays the same penetration charge as every
               // challenger; otherwise an already-overlapping pill scores as if
@@ -9421,7 +9773,7 @@ export function countPills(cv, source, opts = {}) {
       // ---- rigid-body relaxation over every placement ----
       const bodies = [];
       for (const g of regions) {
-        if (g.pills) for (const p2 of g.pills) bodies.push({ p: p2, movable: !g.stamp, single: false });
+        if (g.pills) for (const p2 of g.pills) bodies.push({ p: p2, movable: !g.stamp, single: false, owner: g });
         else if ((g.units || 1) === 1 && g.shape)
           bodies.push({ p: { cx: g.cx, cy: g.cy, theta: g.shape.theta || 0, major: g.shape.major, minor: g.shape.minor },
             movable: false, single: true, owner: g });
@@ -9468,6 +9820,34 @@ export function countPills(cv, source, opts = {}) {
           }
         }
         if (freed) opts.debug?.({ stage: 'physics-unpin', freed });
+      }
+      // CO-INCIDENT CLAIM WITNESS, RECORDED BEFORE RELAXATION.
+      //
+      // The final physics audit runs AFTER this relaxation loop, by which
+      // point the loop has pushed every deep overlap apart -- measured on
+      // browserpng advil-scatter-dark-2, worstBefore 52.6 -> worstAfter 3.4
+      // and the audit then sees ZERO overlapping pairs. The audit is
+      // therefore structurally blind to the one arrangement it exists to
+      // catch: two claims landing on the SAME pill body. Relaxation slides
+      // them onto their neighbours' rims, which looks legal and counts one
+      // too many.
+      //
+      // So the witness is taken here, at the only moment it is still in the
+      // geometry, and handed to the audit. The statistic is centre distance
+      // over claimed width. Recording is deliberately permissive (0.85, the
+      // geomgate dup law's own window); the audit's conviction and
+      // arbitration rules -- not this radius -- do the selecting.
+      {
+        const coincident = [];
+        for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
+          const A = bodies[i].p, B = bodies[j].p;
+          const wref = (A.minor + B.minor) / 2;
+          if (!(wref > 0)) continue;
+          const r2 = Math.hypot(A.cx - B.cx, A.cy - B.cy) / wref;
+          if (r2 < 0.85) coincident.push({ r: r2, a: bodies[i], b: bodies[j] });
+        }
+        coincident.sort((x2, y2) => x2.r - y2.r);
+        if (coincident.length) regions.__coincident = coincident;
       }
       let pairsFixed = 0, worstBefore = 0, worstAfter = 0;
       for (let iter = 0; iter < 12; iter++) {
@@ -10406,6 +10786,102 @@ export function countPills(cv, source, opts = {}) {
           area: victim.area, partnerArea: victim === A ? bArea : aArea,
           conf: victim.conf });
       }
+      // ---- CO-INCIDENT CLAIM ARM -------------------------------------
+      // Everything above measures penetration AFTER the relaxation loop has
+      // already pushed the deep overlaps apart, so the one arrangement the
+      // scope invariant forbids outright -- two claims on ONE pill body --
+      // never reaches it. The witness for that arrangement was recorded
+      // pre-relaxation (regions.__coincident); this arm spends it.
+      //
+      // MEASURED on browserpng advil-scatter-dark-2 (31 for 30). Chrome's
+      // decode webs one more pill into the giant blob's watershed starfish:
+      // region lbl15 covers FOUR pill bodies with 40610px, and 40610/7812
+      // rounds to FIVE, so Lloyd plants a fifth centre and two of the five
+      // land on the same pill (centres 55.2px apart at a claimed width of
+      // 104.7 -- r = 0.527). Relaxation then slides them onto the rims of
+      // the two neighbours and worstAfter reads a healthy 3.4.
+      //
+      // CONVICTION, same principle as the arm above: physics identifies the
+      // PAIR, an independent weakness witness names the victim. Here the
+      // asymmetry is provenance, not mass -- a conf-low CLUMP placement
+      // (a Lloyd centre, no pixels of its own) against a conf-HIGH WHOLE
+      // SINGLE region (an ellipse fitted to its own connected component).
+      // When those two claim one body, the fitted single is the real pill.
+      //
+      // ARBITRATION IS BY IoU MARGIN, NOT BY TIGHTNESS -- and this is the
+      // part that had to be measured rather than guessed. This board offers
+      // up to THREE candidates that all pass conviction, because relaxation
+      // scattered all five clump centres onto their neighbours' rims:
+      //   r = 0.527  clump IoU 0.571 vs single 0.624   margin  0.053
+      //   r = 0.725  clump IoU 0.627 vs single 0.541   margin -0.086
+      //   r = 0.754  clump IoU 0.581 vs single 0.855   margin  0.274  <- the false claim
+      // Killing the TIGHTEST pair gives the right count over a WRONG
+      // picture: 30, but one real pill loses its only marker while the
+      // duplicate survives (verified against the Node-exact placements --
+      // one unmatched). Ranking by margin picks the true redundant claim
+      // and every Node placement is then matched, median displacement 0.1px.
+      //
+      // THE BAR IS FROM THE JITTER SWEEP, NOT FROM ONE SAMPLE. Fitting 0.25
+      // to the un-jittered decode alone looked clean and was wrong: under
+      // tools/jitter the same true victim reads margin 0.274 / 0.239 /
+      // (absent) / 0.214 / 0.199 / 0.245 / 0.267 over seven samples, so a
+      // 0.25 bar fired on only 2 of 7 and the image stayed at 31 for the
+      // rest. The best NON-victim over the same seven reads 0.053 / 0.032 /
+      // 0.076 / 0.032 / 0.029 / 0.025 / 0.067 -- max 0.076. Bar 0.15 sits in
+      // the empty band between 0.076 and 0.199 and fires on 6 of 7; sample 2
+      // never presents the victim as a candidate at all (the co-incident
+      // pair does not form) and no bar can reach it.
+      //
+      // WHY THIS IS NOT THE REFUTED DUPLICATE-KILL (known-issues
+      // 'final-physics-audit' -> refuted-v2-duplicate-kill). That lever
+      // measured centre distance AFTER relaxation over ALL placements, so
+      // it found killable-looking pairs on right-counted scattered boards
+      // (503b3041 20->18, r-cc7a2ada 19->17). Read PRE-relaxation with the
+      // provenance asymmetry required, those same boards present no
+      // candidate at all -- measured, lined-503b3041, r-cc7a2ada and
+      // s-0bfc44d8 have NO pre-relaxation pair inside 0.85. The boards that
+      // do have one are excluded by conviction, not by radius:
+      //   r-2c50d34e   r = 0.470  conf-HIGH clump vs conf-undefined single
+      //   s111 (60)    r = 0.789  both conf-high, and the SAME region
+      //   lined-69204ff4 r = 0.742, 0.799  single vs single, no clump
+      // All three still count exactly with this arm live.
+      if (killed < 3 && regions.__coincident && regions.__iouOf) {
+        const iouOf2 = regions.__iouOf;
+        const iouB = (b2) => (b2.p.iou !== undefined ? b2.p.iou
+          : +iouOf2({ cx: b2.p.cx, cy: b2.p.cy, theta: b2.p.theta || 0,
+            major: b2.p.major, minor: b2.p.minor }).toFixed(3));
+        const cands = [];
+        for (const c of regions.__coincident) {
+          const gA = c.a.owner, gB = c.b.owner;
+          if (!gA || !gB || gA === gB) continue;
+          // victim = a conf-low CLUMP placement; partner = a conf-high
+          // WHOLE SINGLE region (an ellipse fitted to its own component).
+          let vb = null, vg = null, pb = null;
+          if (!c.a.single && gA.confidence === 'low' && c.b.single && gB.confidence === 'high') { vb = c.a; vg = gA; pb = c.b; }
+          else if (!c.b.single && gB.confidence === 'low' && c.a.single && gA.confidence === 'high') { vb = c.b; vg = gB; pb = c.a; }
+          if (!vb || !vg.pills || vg.pills.length < 2) continue;
+          const margin = iouB(pb) - iouB(vb);
+          cands.push({ c, vb, vg, margin, viou: iouB(vb), piou: iouB(pb) });
+        }
+        cands.sort((x2, y2) => y2.margin - x2.margin);
+        for (const cd of cands) {
+          if (killed >= 3) break;
+          if (!(cd.margin >= 0.15)) continue;
+          const idx = cd.vg.pills.indexOf(cd.vb.p);
+          if (idx < 0) continue;
+          cd.vg.pills.splice(idx, 1);
+          cd.vg.units = Math.max(1, (cd.vg.units || 1) - 1);
+          killed++;
+          killedUnits += 1;
+          count -= 1;
+          opts.debug?.({ stage: 'physaudit', kind: 'coincident',
+            r: +cd.c.r.toFixed(3), margin: +cd.margin.toFixed(3),
+            viou: cd.viou, piou: cd.piou,
+            cx: Math.round(cd.vb.p.cx), cy: Math.round(cd.vb.p.cy),
+            regArea: cd.vg.area, regUnits: cd.vg.units });
+        }
+      }
+      delete regions.__coincident;
       // `out` snapshots count before the solver and this audit run.
       // Propagate ONLY this audit's kills: the solver's own `count -=
       // removed` has been dead code since it was moved after out-creation,
