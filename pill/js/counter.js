@@ -3293,6 +3293,8 @@ export function countPills(cv, source, opts = {}) {
         const b2 = seedBlob[s];
         if (b2) seedCount.set(b2, (seedCount.get(b2) || 0) + 1);
       }
+      let fgTotal = 0;
+      for (let l2 = 1; l2 < blobAreas.length; l2++) fgTotal += blobAreas[l2] || 0;
       for (let l = 1; l < blobAreas.length; l++) {
         if (!blobAreas[l] || peaks[l] <= 1.4 * radiusEst) continue;
         const capacity = blobAreas[l] / pillArea;
@@ -3348,11 +3350,40 @@ export function countPills(cv, source, opts = {}) {
           const sheetLike = capacity >= 20 && radiusEst > 0
             && peaks[l] >= 2.5 * radiusEst
             && blobAreas[l] >= 20 * Math.PI * radiusEst * radiusEst;
-          if ((compact || sheetLike) && capacity >= 6) {
+          // TEXTURE-SHATTER VETO. Both arms above admit a deep medial axis as
+          // "one layer" on the theory that a wide sheet of pills is deep
+          // BECAUSE it is wide -- which needs radiusEst to be the PILL scale.
+          // When the mask instead adopted a large uniform NON-PILL object and
+          // radiusEst came from that object's surface texture, both arms admit
+          // it and the rescue reseeds at texture scale, minting one "pill" per
+          // texture cell: the wild purple counting tray (pc_1h0P) is a 528k-px
+          // disc with peak 315 against radiusEst 9 (thickR 35), and it counted
+          // 704 for ~30 real tablets that were not even in the mask.
+          //
+          // thickR ALONE CANNOT DECIDE THIS, and an earlier thickR-only veto
+          // was reverted for proving it: r-90dbe20e is a fabric-weave board
+          // whose radiusEst 3.5 is ALREADY the weave, so it carries the same
+          // thickR 15-25 signature honestly, and vetoing it turned an exact 3/3
+          // into 12/3 -- on CHROME pixels only, which is why a Node-only
+          // negative control missed it (ledger: texture-shatter-veto).
+          //
+          // Frame dominance is the discriminator that separates them on
+          // structure rather than on a fitted number: the failure mode requires
+          // the non-pill object to BE the foreground (tray domFrac ~1.0), while
+          // r-90dbe20e's vetoed blobs are three of many on a busy board. A blob
+          // that is essentially the entire foreground AND reads 12x its own
+          // pill scale is not a sheet of pills.
+          const domFrac = fgTotal > 0 ? blobAreas[l] / fgTotal : 0;
+          const textureScale = peaks[l] > 12 * radiusEst && domFrac >= 0.85;
+          if ((compact || sheetLike) && capacity >= 6 && !textureScale) {
             singleLayer = true;
             opts.debug?.({ stage: 'compact-raft', blob: l, peak: +peaks[l].toFixed(1),
               rEq: +rEq.toFixed(1), capacity: +capacity.toFixed(1),
               via: compact ? 'disc' : 'sheet' });
+          } else if ((compact || sheetLike) && capacity >= 6 && textureScale) {
+            opts.debug?.({ stage: 'texture-shatter', blob: l, peak: +peaks[l].toFixed(1),
+              radiusEst: +radiusEst.toFixed(1), domFrac: +domFrac.toFixed(3),
+              thickR: +(peaks[l] / radiusEst).toFixed(2), capacity: +capacity.toFixed(1) });
           }
         }
         // The capacity >= 8 floor excluded small rafts outright. Measured on
@@ -4652,6 +4683,40 @@ export function countPills(cv, source, opts = {}) {
         p.sy += (i / w) | 0;
       }
       const pieces = [...pieceStats.values()].filter((p) => p.area >= absFloor);
+      // FUSED-RAFT PIECE CROSS-CHECK. The raft rescue above replaces the
+      // blob-median unit with pi*radiusEst^2, but radiusEst there is the
+      // raft's DT peak, and on a grout-filled raft the peak sits at pill
+      // JUNCTIONS and over-reads the pill half-width (the sheet comments
+      // above measure that bias capping near 2x). Measured on wild cc-i03
+      // (14 large embossed tablets fused into one 608k blob): peak 154.9 vs
+      // true half-width ~117, so the geometric unit came out 75416 against a
+      // true ~44k and the mass count read 8 of 14. The crease-cut pieces are
+      // DIRECT area evidence of the same pills — their large cluster sat at
+      // 30-47k — so when a dominant piece cluster disagrees well below the
+      // geometric unit, believe the pieces. Guards: fires only when the raft
+      // rescue fired, needs >=4 cluster pieces, the cluster median must sit
+      // in [0.35, 0.67]x of the geometric unit (speckle fragments fall below
+      // the band; agreement sits above it — and score-cut HALF pills at
+      // ~0.5x are excluded by the coverage test below, since half-pieces
+      // co-exist with whole-pill pieces and fragments), and the cluster must
+      // carry >=60% of all piece area. Replayed against the corpus debug
+      // traces (docs/test-debug.json): the raft rescue fires on 53 boards,
+      // this cross-check on NONE of them.
+      if (raftUnitFired && pieces.length) {
+        const big = pieces.map((p) => p.area).filter((a) => a >= 0.25 * unit)
+          .sort((a, b) => a - b);
+        if (big.length >= 4) {
+          const mid = big.length >> 1;
+          const M = big.length % 2 ? big[mid] : (big[mid - 1] + big[mid]) / 2;
+          const cover = big.reduce((s, a) => s + a, 0)
+            / Math.max(1, pieces.reduce((s, p) => s + p.area, 0));
+          if (unit > 1.5 * M && M >= 0.35 * unit && cover >= 0.6) {
+            opts.debug?.({ stage: 'raft-unit-pieces', from: Math.round(unit),
+              to: Math.round(M), nBig: big.length, cover: +cover.toFixed(2) });
+            unit = M;
+          }
+        }
+      }
       const unit2 = estimateUnitArea(pieces.map((p) => p.area));
       opts.debug?.({ stage: 'unitprov', unitBlob: +unit.toFixed(0),
         cal: calList.map((l) => blobAreas[l]), raftUnitFired,
@@ -6856,8 +6921,9 @@ export function countPills(cv, source, opts = {}) {
             // ~2*pi*pk^2 and keep their raise.
             if (arcTo > circOn) {
               opts.debug?.({ stage: 'arccap', blob: l, arcTo, circOn,
-                area: blobAreas[l], lim: +(1.55 * Math.PI * peaks[l] * peaks[l]).toFixed(0), pk: +peaks[l].toFixed(1) });
-              if (blobAreas[l] <= 1.55 * Math.PI * peaks[l] * peaks[l])
+                area: blobAreas[l], lim: +(1.55 * Math.PI * peaks[l] * peaks[l]).toFixed(0), pk: +peaks[l].toFixed(1),
+                census: circOn >= 2 });
+              if (blobAreas[l] <= 1.55 * Math.PI * peaks[l] * peaks[l] || circOn >= 2)
                 arcTo = Math.min(arcTo, Math.max(kFinal0h, circOn));
             }
             opts.debug?.({ stage: 'hsum', blob: l, hV, circOn, kFinal0h, arcTo, cap, massFrac: +massFrac.toFixed(2) });
@@ -7683,12 +7749,55 @@ export function countPills(cv, source, opts = {}) {
               if (cxi >= 0 && cyi >= 0 && cxi < w && cyi < h && bl[cyi * w + cxi]) massBacked++;
             }
           }
+          // GROUNDLESS CIRCLES NEVER ENTER THE BUDGET. The residual-material
+          // gate below already refuses to PLACE a circle that stands on no
+          // mask and lifts no material off the surface model — but vEff was
+          // computed before it, so those same circles still bought count.
+          // That asymmetry is the phantom's whole entry: a flash hotspot on
+          // glossy board wears a circular Hough ring and passes the
+          // photometric verify, so it funds a pill the placement stage then
+          // (correctly) refuses to draw, and some other stage spends the
+          // budget instead. Measured on wild/mk_3 (25 white tablets on
+          // cardboard, flash hotspot above the top row): 5 of 25 "verified"
+          // circles read maskFrac 0.00 with dbIn-dbOut of 0/2/-3/-2/0 while
+          // every real pill reads +16..+77 — the same separation, and the
+          // same bar (6), the placement gate was already calibrated on.
+          // Applied ONLY to circles that are off-mask entirely (maskFrac
+          // < 0.30): a crowded interior pill reads maskFrac 1.00 and keeps
+          // its credit even when its annulus is starved, so this cannot
+          // touch the camouflage rescues the budget exists for.
+          const groundless = (hx, hy) => {
+            let mOn = 0, mAll = 0;
+            const dbI = [], dbO = [];
+            for (let a5 = 0; a5 < 12; a5++) {
+              const cA = Math.cos(a5 * Math.PI / 6), sA = Math.sin(a5 * Math.PI / 6);
+              for (const rf of [0.25, 0.5, 0.72]) {
+                const xi = Math.round(hx + cA * radiusEst * rf), yi = Math.round(hy + sA * radiusEst * rf);
+                if (xi < 0 || yi < 0 || xi >= w || yi >= h) continue;
+                mAll++; if (bl[yi * w + xi]) mOn++;
+                dbI.push(distBg.data[yi * w + xi]);
+              }
+              for (const rf of [1.4, 1.6]) {
+                const xi = Math.round(hx + cA * radiusEst * rf), yi = Math.round(hy + sA * radiusEst * rf);
+                if (xi < 0 || yi < 0 || xi >= w || yi >= h) continue;
+                if (bl[yi * w + xi]) continue;
+                dbO.push(distBg.data[yi * w + xi]);
+              }
+            }
+            if (!mAll || mOn / mAll >= 0.30) return false;   // on mask: keep
+            if (dbO.length < 6) return false;                 // no reading: keep
+            const md = (arr) => { const q = arr.slice().sort((p, r) => p - r); return q[q.length >> 1]; };
+            return (md(dbI) - md(dbO)) < 6;
+          };
+          const vKept = verified.filter(([hx, hy]) => !groundless(hx, hy));
+          const dropped = verified.length - vKept.length;
+          if (dropped) { verified.length = 0; for (const v5 of vKept) verified.push(v5); }
           // A census that dwarfs the mask count is the PHANTOM signature,
           // not a rescue: legitimate camouflage recoveries measured +8-15%
           // (29->30, 111->120); the failures measured +104% and +354%
           // (advil glare, ibuprofen countertop). Bound the rescue.
           const vEff = verified.length + massBacked;
-          opts.debug?.({ stage: 'htopup-pre', verified: verified.length, massBacked, count });
+          opts.debug?.({ stage: 'htopup-pre', verified: verified.length, massBacked, count, groundlessDropped: dropped });
           if (vEff > count && vEff <= count * 1.25 + 2) {
             // The uncounted pills are the verified circles farthest from any
             // counted detection — place the top-up there.

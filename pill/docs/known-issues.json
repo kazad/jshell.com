@@ -582,5 +582,92 @@
     "judge-validated": "The SHIPPED judge came out strengthened: on 6 newly-covered boards it adopts only where adoption is safe (beige-1/2 cov 5.5-7.1, lightblue-1 cov 7.0 -- all stay exact under adoption) and rejects every catastrophic mask (yellow-2 cov 0.77 would be -9, 554c3c1a cov 0.43 would be -11, dbe1f2d8 cov 0.70 would be -5). The cov >= 1.2 floor is doing exactly its job; the fused band below it is genuinely unjudgeable.",
     "open-lead-placement-only": "The one live idea left: forced SAM improves PER-PILL placement broadly even where counts are neutral (fd69dff9 15->19 matched with 0 spurious is the largest picture win in the corpus). A placement-only adoption -- use the SAM mask for marker placement while keeping the classical count -- would capture that without count risk, but needs its own design round.",
     "rule": "Do not revisit fused-regime COUNT adoption without a fundamentally new signal; 22 boards say the judge features cannot separate. The matrix lives in this entry; sam-gen can regenerate masks for any board in seconds."
+  },
+  "wild-photo-validation-round-1": {
+    "date": "2026-08-27",
+    "status": "OPEN — first wild sweep done, corpus additions pending",
+    "what": "6 internet photos (not from our corpus pipeline) run through the production route via tools/validate-external.mjs",
+    "results": {
+      "mk_1.jpg": "count=13 conf=0.77 — visually ~13-15, roughly right; several pills standing on edge (scope stretch); one double-marker",
+      "mk_2.png": "count=8 conf=0.94 — truth 9: 6 caplets + 3 small rounds = MIXED MEDICATIONS (scope violation); dropped the isolated round",
+      "mk_3.jpg": "count=28 markers=17 conf=0.62 — truth ~25-27; count near-right by arithmetic but placement failed on right half of raft",
+      "pc_1h0P.jpg": "count=704 conf=0.25 — CATASTROPHIC surface/pill inversion: purple counting tray adopted as pill mass (mask-final = entire tray body), watershed shattered it into ~600 texture cells (medSingle 614px2); real yellow tablets NOT in mask. UI conf gate (<0.6) correctly refuses and asks for overhead retake. Photo is out of scope (mid-pour, pills cut at frame edge).",
+      "pc_4OUi.jpg": "count=1 conf=0.642 — steep-oblique white-on-white pharmacy tray with ~55 packed tablets; whole tray+pills fused to one blob (area 247k, gloss 0.83), shape verdict circle, collapse to 1. SLIPS the 0.6 UI gate by 0.04. Out of scope (oblique product shot).",
+      "pc_1mNf.jpg": "count=11 conf=0.85 — truth ~13-14 glossy red/white capsules; modest undercount on the historically-hard glossy class"
+    },
+    "conf-gate-analysis": "Raising the UI refusal gate from 0.6 to catch pc_4OUi (0.642) is REFUTED: four exactly-correct raft boards (t2-beige 90/90 x2, t3-white 70/70, salmon 90/90) score conf 0.225, and r-2448027d correct-ish at 0.274. Confidence does not separate correct from catastrophic. Separate finding: confidence is under-calibrated on stamped rafts — exact counts presented to the user at 23%.",
+    "lesson": "The corpus never contained a large uniform colored NON-PILL object; wild photos expose surface/pill inversion as a real failure class. Mitigation today is the conf gate, which catches the 704 case but not the fused-oblique case."
+  },
+  "raft-unit-pieces-crosscheck": {
+    "date": "2026-08-27",
+    "status": "SHIPPED pending browser-pixel + adv gates",
+    "what": "Fused-raft unit cross-check: when the raft-unit rescue (unit := pi*radiusEst^2) fires, compare against the crease-cut piece cluster; adopt the piece median when it disagrees well below.",
+    "why": "radiusEst for a fused blob is its DT peak; on a grout-filled raft the peak sits at pill junctions and over-reads pill half-width (bias caps near 2x per the sheet comments). wild cc-i03: peak 154.9 vs true ~117 -> unit 75416 vs true ~44k -> count 8/14 at conf 0.69 (slips the UI gate).",
+    "guards": ">=4 pieces >=0.25*geomUnit; cluster median in [0.35,0.67]x geomUnit; cluster covers >=60% of piece area. Replayed on docs/test-debug.json corpus traces: raft-unit fires on 53 boards, cross-check on ZERO.",
+    "result": "cc-i03 8 -> 12 (unit 75416->44994, capacity 13.5; panel blends to 12 because ws=6/crease=10 drag mass 13.52 down — the residual -2 is the fused-panel disagreement class). Node bake identical 258/266 exact, 261 within1.",
+    "residual": "i03 remaining -2: watershed sees 6 basins in 14 embossed pills; circle witness blocked because arccal is poisoned by ZD4522 embossing (capR 32, ok:false) even though the Hough band [112,198] contains the true 117. A future arccal-independent roundPop admission could recover it."
+  },
+  "mk3-flash-phantom": {
+    "date": "2026-08-27",
+    "status": "OPEN — root cause proven, principled fix in design",
+    "what": "wild/mk_3.jpg counts 32 for 25 tablets. NOT raft-mask grout inflation (that hypothesis is REFUTED).",
+    "root-cause": "A 39439px FLASH HOTSPOT on glossy cardboard above the top pill row is absorbed into mask-final as ~6.15 phantom units. Counterfactual proof: cloning clean board over the hotspot with all 25 pills untouched moves the count 32 -> 26. The raft mask itself is healthy: 136657px for 20 pills = 1.066x expected. Visually confirmed in stages/mask-final.png — the phantom is a ragged non-circular blob where input.png shows no pills.",
+    "design-bug": "js/counter.js ~6877  hV = Math.max(hV, Math.min(circOn, Math.floor(massFrac + 0.55))). Its comment states the premise: a glare phantom adds a pill the mask CANNOT back. That inverts when the glare IS mask material — the phantom supplies its own corroborating mass (massFrac 27.48 for 25 pills). hverify ALREADY rejects the 3 phantom circles correctly (hV=16); this line overwrites that correct answer to 23.",
+    "the-lever": "The `dome` statistic (counter.js ~6861) separates cleanly and spatially: the 3 circles inside the phantom region (hy 119/112/58, all y<215) read dome 3.4/2.1/3.4; all 20 raft circles read 9.8-54.9. No overlap. Verified independently by the orchestrator from hverify events.",
+    "refuted-discriminators": {
+      "brightness/glare cut": "phantom meanLum 212 vs pill p75 214 — same brightness, no bar exists",
+      "board-chromaticity": "phantom dC-board 32.6 vs real pills 31.5/31.3 — cuts real pills first",
+      "interior texture": "phantom frac(grad>=10)=0.360 but count-exact r-2c50d34e reads 0.598 (speckled caplets)",
+      "DT overthickness thickR": "mk_3 Dmax 2.05R / frac>1.5R 0.063 vs count-exact cc-d01 1.98R / 0.074 — INVERTS. 9 corpus boards have thickR>=2.0 (t2-salmon 3.66)"
+    },
+    "rejected-stopgap": "Bounding the arcrec/houghrec raise-to-floor at <=3 (corpus-inert: max corpus jump is +3, mk_3 asks +9). Gets mk_3 32 -> 22 vs truth 25. REJECTED: it caps the ladder without removing the 6.15 phantom units, so the count still rests on a wrong picture (see placement-vs-count). The mass floor it disarms is load-bearing on 454 events across 83 boards.",
+    "next": "Dome-withdrawal: let mask material that FAILS the dome/verify test withdraw its mass from massFrac, instead of capping downstream consumers of inflated mass. Needs a negative-control matrix across the 83 mass-floor-dependent boards."
+  },
+  "texture-shatter-veto": {
+    "date": "2026-08-27",
+    "status": "SHIPPED (v2, frame-dominance scoped). v1 was reverted — see WHY-V1-FAILED.",
+    "what": "Veto on the compact-raft admission in the sheet rescue: refuse when peaks[l] > 12*radiusEst AND the blob is >=85% of total foreground area (domFrac).",
+    "why": "The compact/sheetLike arms admit a deep medial axis as one layer on the theory that a wide sheet of pills is deep BECAUSE it is wide — which needs radiusEst to be the PILL scale. The wild purple counting tray (pc_1h0P) is a 528k-px disc, peak 315 vs radiusEst 9 (thickR 35): admitted via the disc arm, reseeded at 9px texture scale, minting 704 pills for ~30 real tablets that were not even in the mask.",
+    "WHY-V1-FAILED": "thickR ALONE CANNOT DECIDE THIS. v1 (thickR>12 only) turned real/r-90dbe20e from 3/3 exact into 12/3 — a fabric-weave board whose radiusEst 3.5 is ALREADY the weave, so it carries the same thickR 15-25 signature HONESTLY. The veto premise is true for both boards. Critically the regression appeared ONLY on CHROME pixels; the Node-only negative control missed it entirely.",
+    "the-discriminator": "Frame dominance separates them on STRUCTURE, not a fitted number: the failure mode requires the non-pill object to BE the foreground (tray domFrac ~1.0), while r-90dbe20e vetoed blobs are three of many on a busy board. Corpus-wide, r-90dbe20e is the ONLY board of 262 carrying the thickR>12 signature at all (3 sheet events) — so the veto had exactly one board it could hurt, and the domFrac scope excludes it structurally.",
+    "result": "pc_1h0P 704 -> 17, conf 0.253 -> 0.196 (40x error becomes <2x; confidence collapses well below the 0.6 UI refusal gate instead of sitting marginally under it). r-90dbe20e 3/3 on BOTH pixel paths (Node conf 0.4, Chrome conf 0.805). Gates all identical to baseline with md5 pinned: Node 258/266 exact 261 within1, browser 260/266 exact 263 within1, adversarial 51/56 per-pill 799/1020.",
+    "residual": "The guard stops the inflation but does NOT fix the mask — the tray body is still adopted as pill mass, so the real tablets stay uncounted. This is honest failure (refused by the UI), not a correct count. Scoped to the compact-raft admission only; the ordinary peaks<=2.4*radiusEst path cannot produce this failure by construction."
+  },
+  "cc-c18-speckle-shatter-NO-SAFE-GUARD": {
+    "date": "2026-08-27",
+    "status": "REFUTED — no landable guard found; documented so nobody re-walks it",
+    "what": "wild/cc-c18.jpg (19 large speckled tan ovals, low angle) counts 296 at conf 0.604 — 0.004 ABOVE the UI refusal gate, so it slips by a hair. Distinct mechanism from the tray (pc_1h0P); the texture-shatter veto does not touch it (unchanged 296).",
+    "where-it-breaks": "Damage is upstream of the sheet stage: `refine` set unitArea:0 with pillRatio 0.031 (vs salmon 5630.5 / 0.452), so the whole scale chain was grounded in speckle before sheet ran. Its sheet thickR values are all healthy (1.4-2.9) — the blobs never look anomalous there.",
+    "refuted-guards": {
+      "mask-fragmentation veto": "REFUTED by a near-twin. approx/t2-salmon-pentagon is 90/90 EXACT and nearly indistinguishable on every mask-shattered field: comps 236 vs 299, medianArea 33 vs 30, largest 15358 vs 17805, radiusEst 10.6 vs 9.7. Any threshold catching cc-c18 kills an exact 90-pill board.",
+      "comps-vs-count ratio": "Blind by construction. cc-c18 is 188/296 = 0.64, well inside healthy range; the corpus top ratios are legit boards (r-90dbe20e 13.0, salmon 1.39).",
+      "per-pill mask area floor": "Knife edge. cc-c18 461 px/pill vs corpus floor 496 (r-1af0a96c, 19/19 exact) — a 7% gap, with legit adv-dense-120 at 573. Per mask-bakeoff five-probe-trap: a 7% margin measured on one wild photo is not landable.",
+      "relief/autocorr certification": "Unreachable. The small-raft certifier is scoped to capacity 4-8; cc-c18 blobs run capacity 11-60. Only 9 of 262 corpus boards reach `refine` at all — too sparse to calibrate against."
+    },
+    "note": "Raising the 0.6 UI gate to catch it is separately REFUTED (four exactly-correct rafts sit at conf 0.225)."
+  },
+  "groundless-circle-budget": {
+    "date": "2026-08-27",
+    "status": "SHIPPED — all three gates identical to baseline",
+    "what": "Two blocks. (A) htopup: circles that stand on NO mask and lift no material off the surface model are filtered out of `verified` BEFORE vEff is computed. (B) arcrec: the arcTo>circOn cap arm also fires when circOn>=2.",
+    "the-real-mechanism": "IMPORTANT CORRECTION to the mk3-flash-phantom entry: the blamed line (hV = Math.max(hV, min(circOn, floor(massFrac+0.55))), ~6877) is NOT the culprit. Deleting it entirely leaves mk_3 at 32, because houghrec never fires there (hsum hV:23, kFinal0h:18, arcTo:27 — the raise gate 23>27 is false). Its true corpus blast radius is ONE blob. Also: dome alone does NOT separate — corpus failing-circle dome p75 is 27.85, far above the bar, and 4 of hverify7 rejects on mk_3 are REAL interior pills rejected for freeSec 2-3, not phantoms.",
+    "actual-cause": "Two stages inflate, and the second silently compensates for any fix to the first: (1) arcrec raises blob 2 from 18 to 27 via kMass=round(27.48)=27, both witnesses corrupted by the same 39439px flash hotspot; (2) htopup computes vEff = verified(25)+massBacked(7) = 32 and drives the count regardless — capping arcrec alone yields 32 -> 32 as htopup re-adds 4 singles.",
+    "the-asymmetry-fixed": "htopup candProfile ALREADY refuses to PLACE groundless circles (dbIn-dbOut >= 6), but vEff was computed BEFORE that gate — so circles the placement stage correctly refuses to draw still bought count. On mk_3, 5 of 25 verified circles read maskFrac 0.00 with dbIn-dbOut of 0/2/-3/-2/0 while every real pill reads +16..+77. Same separation, same already-calibrated bar. Guarded: maskFrac>=0.30 keeps crowded interior pills, <6 annulus samples keeps starved readings.",
+    "block-B-invariant": "Across 351 corpus blobs with circOn>=2, arcLo>circOn occurs ZERO times (max ratio exactly 1.000); mk_3 blob 2 sits at 27/23=1.17. Verified independently: all 4 corpus arccap events have circOn=1, so the new arm is provably inert on the corpus.",
+    "result": "mk_3 32 -> 27 (truth 25; error +7 -> +2). Gates ALL identical to baseline: Node 258/266 exact 261 within1, browser 260/266 exact 263 within1, adversarial 51/56 per-pill 799/1020. r-90dbe20e stays 3/3 at conf 0.805.",
+    "negative-controls": "All 84 htopup boards (complete blast radius): 0 changed. glare/ suite 36 boards (5 families x 6 intensities): 0 changed. real/ 29, shiny/+lined/ 5, wild/ 4: 0 changed. The 2 gate-open boards (vEff>count) both hold EXACT — s250 dropped 1 groundless wood-grain circle and still counts 30.",
+    "residual": "mk_3 is +2, not exact. The remaining error is 3 massBacked credits at (777,119),(887,112),(731,58) — circles standing ON the phantom mask, so bl[] passes and the residual test cannot reach them. At the CIRCLE level, flash-hotspot mask is indistinguishable from pill mask; closing this needs a MASK-stage fix, not a counting-stage one."
+  },
+  "PROCESS-single-writer-violation-2026-08-27": {
+    "date": "2026-08-27",
+    "status": "INCIDENT — recorded so the process rule is not softened",
+    "what": "A diagnosis subagent wrote js/counter.js despite an explicit do-not-edit instruction, clobbering an applied-and-gated patch between my `git add` and the gate runs.",
+    "how-it-surfaced": "After committing, `wc -c js/counter.js` read the PRE-patch byte count. grep for the new comment marker returned 0 in BOTH the working tree and the commit: `git show --stat HEAD` showed only docs files, no counter.js. The commit message described a code change that was not in the tree.",
+    "damage": "The groundless-circle patch had to be reapplied and ALL THREE gates re-run, because the earlier green results may have been measured against the clobbered file. The earlier piece cross-check (8914a6f) survived — it was already committed.",
+    "rules-reinforced": [
+      "SINGLE WRITER: only the orchestrator edits js/counter.js and js/stamp.js. Subagents propose exact old/new blocks and build test copies from `git show HEAD:js/counter.js`, never from the working tree.",
+      "VERIFY THE COMMIT, NOT THE INTENT: after committing a code change, run `git show --stat HEAD | grep <file>` and grep the file for a marker string from the patch. A passing gate does not prove the patch was in the file that was gated.",
+      "PIN THE ARTIFACT: capture md5 of counter.js before a gate run and re-check it after; a changed hash invalidates the run."
+    ]
   }
 }
