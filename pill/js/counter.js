@@ -11082,9 +11082,34 @@ export function countPills(cv, source, opts = {}) {
     // Measured behaviour: high scores concentrate on images we count exactly,
     // and the paper-towel/lined failures score low.
     if (regions.length) {
-      const areas = regions.map((r) => r.area).filter((a) => a > 0).sort((a, b) => a - b);
-      const u = unitArea > 0 ? unitArea : (areas[areas.length >> 1] || 1);
-      // Singles: blobs within 35% of the unit. A healthy photo is mostly these.
+      const shaped = regions.filter((r) => r.area > 0);
+      // ONE FOOTING. Every term below used to divide a RAW BLOB AREA by
+      // `unitArea`, and on a fused raft those two live on different footings:
+      // the blob area includes the grout between pills, while the raft rescue
+      // separately corrected `unitArea` DOWNWARD to a bare pill (salmon:
+      // 2537 -> 352). Measured consequence: four exactly-correct 90/70-pill
+      // rafts scored 0.225 — below every wrong board but one — because
+      // "singles" was empty and all four area terms collapsed to worst-case.
+      // The unit that is actually on the answer's footing is the per-pill
+      // area the pipeline itself assigned: median(blobArea / blobUnits).
+      // Salmon areaEstimate 156 -> 86 for a correct 90; beige 434 -> 87;
+      // t3-white 1751 -> 70. It is still a real cross-check, not a tautology:
+      // it asks whether every blob's unit assignment is mutually coherent,
+      // and it stays low where the count is wrong (r-2448027d 23 vs 17,
+      // 0bfc 39 vs 32, lined-503b3041 22 vs 18).
+      const perUnit = shaped.map((r) => r.area / Math.max(1, r.units || 1)).sort((a, b) => a - b);
+      const u = perUnit.length ? perUnit[perUnit.length >> 1]
+        : (unitArea > 0 ? unitArea : 1);
+      // The population being judged is PILLS, not blobs: a raft of 83 must
+      // contribute 83 samples at its per-pill area, otherwise a board whose
+      // pills are all in one blob has a sample size of one.
+      const areas = [];
+      for (const r of shaped) {
+        const n = Math.max(1, r.units || 1), a = r.area / n;
+        for (let i = 0; i < n; i++) areas.push(a);
+      }
+      areas.sort((a, b) => a - b);
+      // Singles: pills within 35% of the unit. A healthy photo is mostly these.
       const singles = areas.filter((a) => a > u * 0.65 && a < u * 1.35);
       const unitClarity = Math.min(1, singles.length / Math.max(3, areas.length * 0.4));
       // Spread of the singles: identical pills should cluster tightly.
@@ -11095,7 +11120,10 @@ export function countPills(cv, source, opts = {}) {
         shapeAgreement = Math.max(0, 1 - cv2 * 3); // cv 0.10 -> 0.70, cv 0.33 -> 0
       }
       // How much of the count is inferred from clumps rather than observed?
-      const fromClumps = areas.reduce((s, a) => s + Math.max(0, Math.round(a / u) - 1), 0);
+      // Read it off the pipeline's own split decisions rather than re-deriving
+      // it by area division — `units - 1` IS the number of pills this blob
+      // contributed by being divided.
+      const fromClumps = shaped.reduce((s, r) => s + Math.max(0, (r.units || 1) - 1), 0);
       const clumpBurden = count > 0 ? Math.min(1, fromClumps / count) : 1;
       const flagPenalty = count > 0 ? Math.min(1, (out.lowConfidence || 0) / count) : 1;
       // CROSS-CHECK: an independent estimate from pure area division. When two
@@ -11103,9 +11131,23 @@ export function countPills(cv, source, opts = {}) {
       // corroboration; when they diverge the count is a guess wearing a
       // number. This term does the most work — without it a confidently wrong
       // count (r-cc7a2ada, 17 vs 19) scored as high as a correct one.
-      const areaEstimate = areas.reduce((s, a) => s + Math.max(1, Math.round(a / u)), 0);
+      const areaEstimate = shaped.reduce((s, r) => s + Math.max(1, Math.round(r.area / u)), 0);
       const divergence = count > 0 ? Math.abs(areaEstimate - count) / count : 1;
-      const agreement = Math.max(0, 1 - divergence * 4); // 5% apart -> 0.80, 25% -> 0
+      let agreement = Math.max(0, 1 - divergence * 4); // 5% apart -> 0.80, 25% -> 0
+      // A ONE-BLOB BOARD CANNOT CORROBORATE ITSELF. areaEstimate divides each
+      // blob's area by u = median(area / units), so with a SINGLE region those
+      // are the same quantity and agreement is 1.000 by construction — however
+      // wrong the count is. Measured on adv-shadowchain-wood, which counts 1
+      // for a truth of 7: regions=1, agreement=1, confidence 0.642, i.e. a
+      // six-pill miss presented as trustworthy above the 0.6 refusal gate.
+      // Capping the vacuous term returns it to 0.492 (refused) while the
+      // exact one-blob board t3-white-round-cluster-lightblue-1 (70/70) still
+      // clears at 0.702, carried by the terms that DO have evidence.
+      // NOTE this costs AUC on paper (the term stops helping on 1-region
+      // boards) and was rejected on that basis upstream; AUC weights every
+      // board equally, but a confidently-wrong severe undercount is the one
+      // outcome this app must not produce.
+      if (shaped.length < 2) agreement = Math.min(agreement, 0.5);
       const score = 0.25 * shapeAgreement + 0.20 * unitClarity
                   + 0.15 * (1 - clumpBurden) + 0.10 * (1 - flagPenalty)
                   + 0.30 * agreement;
