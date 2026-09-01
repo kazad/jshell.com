@@ -669,5 +669,35 @@
       "VERIFY THE COMMIT, NOT THE INTENT: after committing a code change, run `git show --stat HEAD | grep <file>` and grep the file for a marker string from the patch. A passing gate does not prove the patch was in the file that was gated.",
       "PIN THE ARTIFACT: capture md5 of counter.js before a gate run and re-check it after; a changed hash invalidates the run."
     ]
+  },
+  "orphan-js-modules": {
+    "date": "2026-08-31",
+    "status": "COSMETIC — noted, not acted on (no production impact)",
+    "what": "js/find-surface.js and js/template-count.js are not deployed; fetching them from jshell.com/pill returns the 15834-byte SPA fallback HTML, not the module.",
+    "is-this-a-bug": "NO. The live import graph is exactly four modules — counter.js -> {cluster.js, stamp.js}, app.js -> {counter.js, sam.js} — and ALL FOUR are byte-verified live. Nothing imports the two orphans at runtime.",
+    "usage": "template-count.js is imported only by tools/triangulate.mjs (a dev tool, runs in Node). find-surface.js has ZERO references anywhere in the repo including tools.",
+    "why-recorded": "So a future reader who byte-compares js/*.js against live does not mistake the SPA fallback for a broken deploy. The identical 15834 size for two different files IS the fallback signature (see the standing rule: verify deploys by BYTE SIZE, never status code — Pages serves SPA HTML with 200 for missing assets).",
+    "if-cleaning-up": "find-surface.js can be deleted outright. template-count.js must stay while tools/triangulate.mjs exists."
+  },
+  "low-conf-warning-erased-by-sam": {
+    "date": "2026-08-31",
+    "status": "SUPERSEDED by low-conf-refusal-was-never-visible — the SAM path was only one of four erasers.",
+    "what": "The low-confidence refusal message could be wiped to empty by the SAM refinement path, leaving the user a bare count with NO indication the counter distrusts it.",
+    "mechanism": "showResult writes the warning when confidence < 0.6. maybeRefineWithSam then ran asynchronously and blanked els.helperReact.textContent on three exit paths (no mask, mask rejected by the judge, and the catch), plus overwrote it with an AI-success note on the happy path.",
+    "the-overlap-is-not-hypothetical": "The two conditions coincide precisely where the warning matters. Measured: approx/t2-salmon-pentagon-tablets-teal.jpg is conf 0.225 AND samWanted=true — a real corpus board whose refusal was being erased. samWanted fires on mask FRAGMENTATION, which is the same signature that drives confidence down, so the overlap is structural rather than coincidental.",
+    "fix": "Extracted lowConfNote(result): writes the warning when confidence < 0.6, otherwise clears. Every SAM exit path now calls it instead of writing empty, and the AI-success note is suppressed when the refined result is still below 0.6 (a still-untrusted count must not be dressed up as a success).",
+    "verified": "In a real browser against the served app.js: helper emits the warning at conf 0.225 (23%) and 0.196 (20%), clears at exactly 0.6, at 0.85, and on undefined confidence. maybeRefineWithSam now contains 0 blanking sites and 4 lowConfNote calls. Page loads with no console errors; UI renders correctly.",
+    "note": "UI-only change; no counting code touched, so corpus/adversarial scores are unaffected by construction."
+  },
+  "low-conf-refusal-was-never-visible": {
+    "date": "2026-08-31",
+    "status": "FIXED in js/app.js",
+    "severity": "HIGH — user-facing. The counter had a refusal message that users almost certainly never saw.",
+    "what": "The low-confidence warning (conf < 0.6: \"I am not confident in this one — straight overhead, then Snap again?\") was overwritten on EVERY path, so it was dead on arrival.",
+    "the-decisive-one": "showResult() writes the warning and then calls updateCountUI() a few lines later, which wrote els.helperReact unconditionally — \"I count 90!\". Same tick, same element. So the refusal was erased on every low-confidence photo regardless of route, not merely on the SAM ones found first.",
+    "the-other-three": "(1) maybeRefineWithSam blanked the line on three exit paths and overwrote it with an AI-success note on the fourth. (2) The frame-median steadying path wrote \"Steadied across N frames\". (3) Its spread arm wrote \"Frames ranged ...\". Path 2/3 sit on the app PRIMARY flow: analyze() is called with spare frames from the live-camera Snap, and `risky` includes confidence < 0.85, so every low-confidence capture reached them.",
+    "fix": "lowConfNote(result) is the single writer for this message. updateCountUI now checks untrusted = confidence < 0.6 && !userAdjusted FIRST and returns early, so the refusal outranks every cheerful message; target guidance still renders in targetInfo (\"90 counted (target 90) — but the photo needs a retake\"). The SAM and frame-median paths call lowConfNote instead of overwriting. A manual +/- nudge sets result.userAdjusted, which clears the refusal — once the user owns the number, telling them to retake is wrong.",
+    "verified": "Exercised the REAL app.js updateCountUI + lowConfNote in a browser against the served source with a stubbed DOM, 7 cases: low-conf with/without target, low-conf with flagged badges, post-nudge, and three healthy cases. Refusal survives in all low-conf cases, clears after a nudge, and healthy photos are byte-identical in behaviour. No console errors.",
+    "note": "UI-only; no counting code touched, so corpus and adversarial scores are unaffected by construction."
   }
 }

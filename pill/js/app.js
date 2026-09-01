@@ -510,14 +510,26 @@ async function analyze(sourceCanvas, extraFrames) {
           if (spread >= 2) best.result.lowConfidence = Math.max(best.result.lowConfidence || 0, 1);
           showPhoto(best.canvas);
           showResult(best.canvas, best.result);
-          els.helperReact.textContent =
-            `Steadied across ${votes.length} frames: ${median}. ` +
-            (spread >= 2 ? `They ranged ${counts.join('/')} — worth a quick check. 🐾` : '🐾');
+          // Same rule as the SAM path: a still-untrusted count keeps its
+          // refusal. `risky` includes confidence < 0.85, so every
+          // low-confidence camera capture reaches here — writing over the
+          // warning would erase it on the app's PRIMARY flow.
+          if ((best.result.confidence ?? 1) < 0.6) {
+            lowConfNote(best.result);
+          } else {
+            els.helperReact.textContent =
+              `Steadied across ${votes.length} frames: ${median}. ` +
+              (spread >= 2 ? `They ranged ${counts.join('/')} — worth a quick check. 🐾` : '🐾');
+          }
         } else if (spread >= 2) {
           state.result.lowConfidence = Math.max(state.result.lowConfidence || 0, 1);
           updateCountUI();
-          els.helperReact.textContent =
-            `Frames ranged ${counts.join('/')} — kept ${median}, but double-check the clusters. 🐾`;
+          if ((state.result.confidence ?? 1) < 0.6) {
+            lowConfNote(state.result);
+          } else {
+            els.helperReact.textContent =
+              `Frames ranged ${counts.join('/')} — kept ${median}, but double-check the clusters. 🐾`;
+          }
         }
       })();
     }
@@ -561,17 +573,28 @@ function showPhoto(sourceCanvas) {
   requestAnimationFrame(syncOverlayBox); // after the screen is visible
 }
 
+// Restores the low-confidence refusal if this result warrants one, otherwise
+// clears the line. Used both when a result is first shown and by any later
+// stage that would otherwise wipe the warning.
+function lowConfNote(result) {
+  const conf = result && result.confidence;
+  els.helperReact.textContent = (typeof conf === 'number' && conf < 0.6)
+    ? `I'm not confident in this one (${Math.round(conf * 100)}%). ` + 'Straight overhead, pills fully in frame, then Snap again? 🐾'
+    : '';
+}
+
 function showResult(sourceCanvas, result) {
   // Photo is already on screen (showPhoto); add the overlay + numbers.
   // Confidence gate: a count the evidence does not support must not present
   // itself like a clean one. Measured on a junk oblique frame: count 76,
   // confidence 0.50 — the score catches it, so the UI has to act on it.
-  const conf = result.confidence;
-  if (typeof conf === 'number' && conf < 0.6) {
-    els.helperReact.textContent =
-      `I'm not confident in this one (${Math.round(conf * 100)}%). ` +
-      'Straight overhead, pills fully in frame, then Snap again? 🐾';
-  }
+  // The low-confidence warning is the ONLY signal that a count is untrusted,
+  // so it must survive every later message. maybeRefineWithSam used to blank
+  // helperReact on its exit paths, and the two conditions OVERLAP exactly
+  // where it matters: approx/t2-salmon-pentagon is conf 0.225 AND samWanted,
+  // so the refusal was erased and the user saw a bare number. Anything that
+  // clears the line now calls this instead of writing ''.
+  lowConfNote(result);
   const dw = els.photoCanvas.width;
   // result coords are in processed-resolution space; map to display px
   const overlayScale = dw / result.width;
@@ -725,6 +748,21 @@ function updateCountUI() {
   els.countValue.textContent = state.count;
   const flagged = state.result?.lowConfidence || 0;
   const target = parseInt(els.targetInput?.value ?? '', 10);
+  // THE REFUSAL OUTRANKS EVERY CHEERFUL MESSAGE BELOW. showResult writes the
+  // low-confidence warning and then calls this function, which used to
+  // overwrite it unconditionally ("I count 90!") — so the warning was dead on
+  // arrival on EVERY low-confidence photo, not just the SAM ones. When the
+  // evidence does not support the count, that is the only thing worth saying;
+  // the badge/target guidance still renders in targetInfo below.
+  const untrusted = (state.result?.confidence ?? 1) < 0.6 && !state.result?.userAdjusted;
+  if (untrusted) {
+    lowConfNote(state.result);
+    els.targetInfo.textContent = Number.isFinite(target) && target > 0
+      ? `${state.count} counted (target ${target}) — but the photo needs a retake`
+      : '';
+    els.targetInfo.className = 'target-info over';
+    return;
+  }
   if (flagged > 0) {
     els.helperReact.textContent = flagged === 1
       ? 'One group has a “?” badge — I’m not sure about it. Mind double-checking that spot for me? 🐾'
@@ -880,21 +918,27 @@ async function maybeRefineWithSam(sourceCanvas, primary) {
         els.helperReact.textContent = `Refining with on-device AI… ${Math.round(100 * i / n)}% ✨`;
       } });
     if (state.result !== primary || els.resultScreen.hidden) return;
-    if (!sm) { els.helperReact.textContent = ''; return; }
+    if (!sm) { lowConfNote(primary); return; }
     const r2 = countPills(state.cv, sourceCanvas, { maxDim: 1280,
       variant: 'consensus', maskCandidate: sm.cand });
     if (state.result !== primary || els.resultScreen.hidden) return;
-    if (r2.maskChosen !== 'ext') { els.helperReact.textContent = ''; return; }
+    if (r2.maskChosen !== 'ext') { lowConfNote(primary); return; }
     state.result = r2;
     state.count = r2.count;
     showResult(state.sourceCanvas, r2);
-    els.helperReact.textContent = r2.count === primary.count
-      ? 'AI segmentation agreed with the count. ✨'
-      : `AI segmentation refined the count: ${primary.count} → ${r2.count} ✨`;
+    // A refined count that is STILL untrusted must not be dressed up as a
+    // success: the warning outranks the AI note.
+    if ((r2.confidence ?? 1) < 0.6) {
+      lowConfNote(r2);
+    } else {
+      els.helperReact.textContent = r2.count === primary.count
+        ? 'AI segmentation agreed with the count. ✨'
+        : `AI segmentation refined the count: ${primary.count} → ${r2.count} ✨`;
+    }
     autoUpload(r2);
   } catch (e) {
     console.warn('sam refinement skipped', e);
-    if (state.result === primary) els.helperReact.textContent = '';
+    if (state.result === primary) lowConfNote(primary);
   }
 }
 
@@ -1209,8 +1253,16 @@ els.liveFps.addEventListener('change', () => { if (state.live) setLive(true); })
   });
 }
 els.useCount.addEventListener('click', () => analyze(grabFrame())); // full-res commit
-els.adjustMinus.addEventListener('click', () => { state.count = Math.max(0, state.count - 1); updateCountUI(); });
-els.adjustPlus.addEventListener('click', () => { state.count += 1; updateCountUI(); });
+// A manual nudge means the user has taken ownership of the number, so the
+// "I don't trust this photo" refusal stops applying — they are no longer
+// relying on the counter's own reading. Clearing the flag also lets the badge
+// and target guidance below reach them again.
+function userAdjusted() {
+  if (state.result) state.result.userAdjusted = true;
+  updateCountUI();
+}
+els.adjustMinus.addEventListener('click', () => { state.count = Math.max(0, state.count - 1); userAdjusted(); });
+els.adjustPlus.addEventListener('click', () => { state.count += 1; userAdjusted(); });
 els.targetInput?.addEventListener('input', updateCountUI);
 // Report a wrong count WITHOUT saving it as a good one: asks for the true
 // count (pre-filled with the current, possibly +/- adjusted number) and an
