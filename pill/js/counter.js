@@ -8,6 +8,15 @@ import { solveCluster, overlapDepth as clusterPen } from './cluster.js';
 import { stampArbitrate, stadArea as stampStadArea,
   buildSeamMask, calibrateMatch, matchQuality } from './stamp.js';
 
+// Wall-clock budget for one countPills call (ms). Sized from measurement:
+// see the BUDGET note inside countPills. Callers may override via
+// opts.budgetMs (tests, benchmarks).
+const BUDGET_MS_DEFAULT = 180000;
+// Largest collision cluster the deep cluster solver is asked to legalise.
+// Measured: every accepted solve on the corpus has n <= 6; n = 142 ran 215s
+// and was rejected. See the clusterskip note at the solver call site.
+const CLUSTER_SOLVE_MAX_N = 12;
+
 let cvReady = null;
 
 export function loadCV(src = 'vendor/opencv.js') {
@@ -2183,6 +2192,30 @@ export function countPills(cv, source, opts = {}) {
   let groutFired = false; // set when rescue's board-grout veto fires (see call site)
   const maxDim = opts.maxDim || 1280;
   const withOverlay = opts.overlay !== false;
+  // WALL-CLOCK BUDGET. Every stage below is bounded by image size except the
+  // ones that scale with the number of PLACEMENTS -- and a shattered mask can
+  // mint thousands of those (texture read as pill scale: blur2-wood 837,
+  // empty-yellow 2023). Measured before this existed: c5-exp160-dark never
+  // returned (>900s), c4-blur2-wood 355-612s. A phone user sees a frozen tab.
+  // Past the budget the placement-quality stages are skipped and the result
+  // is returned with confidence forced to <= 0.3 so the UI refuses it and
+  // asks for a retake -- an honest "I could not count this" instead of a
+  // frozen tab or a fabricated number. The budget is generous by design:
+  // measured standalone, no corpus or adversarial board comes near it (see
+  // the note at BUDGET_MS_DEFAULT); it exists to bound the runaway class only.
+  const nowMs = () => (typeof performance !== 'undefined' && performance.now)
+    ? performance.now() : Date.now();
+  const tBudget0 = nowMs();
+  const budgetMs = opts.budgetMs > 0 ? opts.budgetMs : BUDGET_MS_DEFAULT;
+  let budgetHit = null;
+  const overBudget = (where) => {
+    if (budgetHit) return true;
+    const el = nowMs() - tBudget0;
+    if (el <= budgetMs) return false;
+    budgetHit = where;
+    opts.debug?.({ stage: 'budget', where, ms: Math.round(el), budgetMs });
+    return true;
+  };
 
   // Kept for the stamp router's interior photometry (it samples the ORIGINAL
   // photo, not the working-scale flattened copy). For ImageData-like sources
@@ -2954,6 +2987,12 @@ export function countPills(cv, source, opts = {}) {
       if (blobAreas[l] >= absFloor && peaks[l] >= MIN_PEAK) candPeaks.push(peaks[l]);
     }
     let radiusEst = median(candPeaks) || mm.maxVal;
+    // Set when the autocorrelation pitch replaces the DT-peak ridge below.
+    // That is the ONE point where radiusEst becomes evidence independent of
+    // the blobs it is later asked to judge; without it, pi*radiusEst^2 on a
+    // one- or two-blob photo is a circle inscribed in the very contour under
+    // judgment (read by the consolidation referee and the smooth-split guard).
+    let acScaleFired = false;
 
     // AUTOCORRELATION SCALE CHECK. radiusEst above is the median DT thickness,
     // so it is only ever as good as the mask. On a LOW-CONTRAST board a pale
@@ -3159,6 +3198,7 @@ export function countPills(cv, source, opts = {}) {
         opts.debug?.({ stage: 'acscale', from: +radiusEst.toFixed(1), to: +acR.toFixed(1),
           ratio: +(acR / radiusEst).toFixed(2) });
         radiusEst = acR;
+        acScaleFired = true;
       }
 
       // GRAIN PURGE. absFloor is a fraction of the IMAGE (0.012 * min side)^2,
@@ -4573,6 +4613,12 @@ export function countPills(cv, source, opts = {}) {
     // never silently wrong (see docs/consensus-design.md).
     let lowConfidence = 0;
     let consensusEligible = Infinity;
+    // How many pill-sized blobs the unit could calibrate on (the solidList
+    // below), and the id-mask of every smooth-ellipse outer contour, frame-
+    // touching included — both read by the smooth-split confidence guard.
+    let solidPop = Infinity;
+    let smoothOutlineMask = null;
+    let smoothOutlineAreas = null;
     if (opts.variant === 'consensus') {
       for (const r of regions) r.confidence = 'high';
 
@@ -4636,6 +4682,7 @@ export function countPills(cv, source, opts = {}) {
       const dropped = blobList.length - solidList.length;
       const debrisDominates = dropped > solidList.length;
       const calList = (debrisDominates && solidList.length >= 3) ? solidList : blobList;
+      solidPop = solidList.length;
       if (calList.length !== blobList.length) {
         opts.debug?.({ stage: 'fragfilter', blobs: blobList.length, kept: calList.length, hiArea });
       }
@@ -7916,6 +7963,13 @@ export function countPills(cv, source, opts = {}) {
       const idMask = track(cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC1));
       const ells = [null];
       let cid = 0;
+      // Every smooth-ellipse outline, INCLUDING frame-touching ones that the
+      // merge below rightly refuses to act on. The confidence guard at the
+      // end reads it: pills counted by dividing a smooth convex outline, with
+      // no independent scale to back the division, are a self-contradiction.
+      const smoothAll = track(cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC1));
+      const smoothAllAreas = [0];
+      let sid = 0;
       for (let i = 0; i < contoursC.size() && cid < 254; i++) {
         const c = contoursC.get(i);
         const area = cv.contourArea(c);
@@ -7969,6 +8023,11 @@ export function countPills(cv, source, opts = {}) {
             || r.x + r.width >= src.cols - 1 || r.y + r.height >= src.rows - 1;
         }
         opts.debug?.({ stage: 'contour', area: Math.round(area), solidity: +solidity.toFixed(3), fillR: +fillR.toFixed(3), aspect: +aspect.toFixed(2), maxDefect: +maxDefect.toFixed(1), minorHalf: +minorHalf.toFixed(1), touchesFrame });
+        if (solidity >= 0.92 && fillR >= 0.85 && fillR <= 1.15 && aspect <= 3.5 && smoothOutline && sid < 254) {
+          sid++;
+          cv.drawContours(smoothAll, contoursC, i, new cv.Scalar(sid), -1);
+          smoothAllAreas.push(area);
+        }
         if (!touchesFrame && solidity >= 0.92 && fillR >= 0.85 && fillR <= 1.15 && aspect <= 3.5 && smoothOutline) {
           cid++;
           cv.drawContours(idMask, contoursC, i, new cv.Scalar(cid), -1);
@@ -7976,6 +8035,7 @@ export function countPills(cv, source, opts = {}) {
         }
       }
       contoursC.delete();
+      if (sid) { smoothOutlineMask = smoothAll.data; smoothOutlineAreas = smoothAllAreas; }
       if (cid) {
         // Size sanity: consolidation says "this smooth ellipse is ONE pill".
         // A contour many times larger than the typical counted region is a
@@ -8013,12 +8073,31 @@ export function countPills(cv, source, opts = {}) {
         // however smooth its outline. Only blocks the RAISE — the original
         // fragment rescue is untouched whenever the contour really is
         // pill-sized.
+        //
+        //
+        // ...but only when radiusEst really is independent. With ONE or TWO
+        // pill-sized blobs and no autocorrelation pitch, radiusEst is the
+        // blob's own DT peak (or a coin flip between two), i.e. the minor
+        // half-axis of the very contour being judged — and the contour gates
+        // above ADMIT a single pill of aspect 3.5 at fillR 1.15, whose area is
+        // 4.0x the circle of that half-axis. In that sparse regime the bar is
+        // 4x, the gate's own admission ceiling. Measured: one capsule filling
+        // the frame (aspect 2.81) read ratio 3.03 and shipped as 8 pills at
+        // conf 0.78; two round tablets with two frame-corner slivers read 3.5
+        // (the sliver peaks pull the DT-peak median to half a pill) and
+        // shipped 7 for 2. Every genuine raft reaching this branch sits far
+        // above 4 (corpus salmon 15.1, adversarial hex rafts 20-40, rings 21).
+        // The relaxation is NOT population-wide: adv-shadowpair-light (six
+        // blobs, radius 12.6 from a real population, arccal ok) holds a
+        // shadow-bridged pair at ratio 3.6 that a blanket 4x bar merged,
+        // 12/12 -> 11. With a population behind it the 3x referee stands.
         if (cid && medRegion) {
           const smoothAreas = ells.slice(1).map((e) => e.area);
           const pillArea = radiusEst > 0 ? Math.PI * radiusEst * radiusEst : 0;
+          const refereeBar = (!acScaleFired && solidPop <= 2) ? 4 : 3;
           if (smoothAreas.length && smoothAreas.every((a) => a > maxPill)) {
             const medSmooth = median(smoothAreas);
-            if (pillArea > 0 && medSmooth > 3 * pillArea) {
+            if (pillArea > 0 && medSmooth > refereeBar * pillArea) {
               opts.debug?.({ stage: 'consolidate-cap-refused', med: +medSmooth.toFixed(0),
                 pillArea: +pillArea.toFixed(0), ratio: +(medSmooth / pillArea).toFixed(1) });
             } else {
@@ -8218,7 +8297,7 @@ export function countPills(cv, source, opts = {}) {
       // arbiter when the photo's pills are not stadiums — the template card
       // must show it instead of the parametric silhouette
       let stampKernelCard = null;
-      if (opts.variant === 'consensus' && stampOtsu && regions.length) {
+      if (opts.variant === 'consensus' && stampOtsu && regions.length && !overBudget('stamp')) {
         const tS0 = Date.now();
         const bwd = bw.data;
         // ---- HIGH-CONTRAST SEPARATION PROBE (measurement only) ----
@@ -8868,6 +8947,7 @@ export function countPills(cv, source, opts = {}) {
           if (arr) arr.push(i);
         }
         for (const g of needPlace) {
+          if (overBudget('placement')) break;
           const idx = wantLbl.get(g.label);
           if (!idx || idx.length < 40) continue;
           const k = g.units;
@@ -9441,6 +9521,7 @@ export function countPills(cv, source, opts = {}) {
           return tot;
         };
         const refinePoses = () => {
+          if (overBudget('refine')) return;
           for (const g of regions) {
             if (!g.pills) continue;
             // Stamp placements are already coordinate-ascent refined against
@@ -9960,6 +10041,7 @@ export function countPills(cv, source, opts = {}) {
       }
       let pairsFixed = 0, worstBefore = 0, worstAfter = 0;
       for (let iter = 0; iter < 12; iter++) {
+        if (overBudget('physics')) break;
         let worst = 0;
         for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
           const A = bodies[i].p, B = bodies[j].p;
@@ -10128,6 +10210,21 @@ export function countPills(cv, source, opts = {}) {
         for (const idxs of comps.values()) {
           if (idxs.length < 2) continue;
           if (!idxs.some((k) => !nodes[k].fixed)) continue;   // nothing may move
+          // A CLUSTER THE SOLVER CANNOT LEGALISE IS NOT WORTH SOLVING. The
+          // search is O(n^3 * box) -- re-pose tries 224 candidates per pill,
+          // each scored against every pill over the cluster's box -- so cost
+          // explodes with cluster size while success collapses: every solve
+          // the corpus ever ACCEPTED had n <= 6, and adv-dense-light-n120's
+          // single 142-body raft ran 215s (of a 222s count) only to be
+          // rejected as still illegal (worst 8.9px). c5-exp160-dark formed a
+          // 206-body cluster and never returned at all. Skip clusters above
+          // the size the solver has ever legalised; the pipeline's count and
+          // placements stand exactly as they would after a rejected solve.
+          if (idxs.length > CLUSTER_SOLVE_MAX_N) {
+            opts.debug?.({ stage: 'clusterskip', n: idxs.length, max: CLUSTER_SOLVE_MAX_N });
+            continue;
+          }
+          if (overBudget('clustersolve')) break;
           candidates++;
           const inSet = new Set(idxs);
           const members = idxs.map((k) => nodes[k]);
@@ -10280,6 +10377,7 @@ export function countPills(cv, source, opts = {}) {
           return n3 ? ok / n3 + 0.1 * (sum / n3) / 255 : 0;
         };
         for (const list of strandedByLbl.values()) for (const { g, p2, st3 } of list) {
+          if (overBudget('recovery')) break;
           const idx = homePx.get(g.label) || [];
           const stride = Math.max(1, (idx.length / 160) | 0);
           const sibs = g.pills.filter((q) => q !== p2).map(segPts);
@@ -10380,7 +10478,7 @@ export function countPills(cv, source, opts = {}) {
     // Every threshold here is derived from the photo's own verified pills
     // through calibrateMatch/scoreFromComponents, never from a fixed
     // constant -- the same discipline matchQuality itself is built on.
-    if (regions.length) try {
+    if (regions.length && !overBudget('fitgate')) try {
       const fitFg = new Uint8Array(w * h);
       for (let i2 = 0; i2 < w * h; i2++) fitFg[i2] = activeMd && activeMd[i2] > 0 ? 1 : 0;
       const fitLuma = new Float64Array(w * h);
@@ -10394,17 +10492,20 @@ export function countPills(cv, source, opts = {}) {
       for (let y2 = 1; y2 < h - 1; y2++) for (let x2 = 1; x2 < w - 1; x2++) {
         const i2 = y2 * w + x2;
         if (!fitFg[i2]) continue;
+        // Chebyshev distance to the nearest non-foreground (or out-of-frame)
+        // pixel, capped at 6. Same quantity as before; written without the
+        // per-pixel array allocations that made this loop the single slowest
+        // fixed cost in the pipeline (measured 22s of a 28s run on
+        // r-90dbe20e, where the mask covers most of the frame).
         let d2 = 6;
-        for (let rr = 1; rr <= 5; rr++) {
-          let edge = false;
-          for (let a2 = -rr; a2 <= rr && !edge; a2++) {
-            const cand = [[x2 + a2, y2 - rr], [x2 + a2, y2 + rr],
-              [x2 - rr, y2 + a2], [x2 + rr, y2 + a2]];
-            for (const [X, Y] of cand) {
-              if (X < 0 || Y < 0 || X >= w || Y >= h || !fitFg[Y * w + X]) { edge = true; break; }
-            }
+        ring: for (let rr = 1; rr <= 5; rr++) {
+          const xl = x2 - rr, xr = x2 + rr, yt = y2 - rr, yb = y2 + rr;
+          if (xl < 0 || yt < 0 || xr >= w || yb >= h) { d2 = rr; break; }
+          const rt = yt * w, rb = yb * w;
+          for (let a2 = -rr; a2 <= rr; a2++) {
+            const ra = (y2 + a2) * w;
+            if (!fitFg[rt + x2 + a2] || !fitFg[rb + x2 + a2] || !fitFg[ra + xl] || !fitFg[ra + xr]) { d2 = rr; break ring; }
           }
-          if (edge) { d2 = rr; break; }
         }
         fitDd[i2] = d2;
       }
@@ -10474,6 +10575,7 @@ export function countPills(cv, source, opts = {}) {
 
           // ---- stage 1: SCORE every final placement -----------------------
           for (const f of fitPlaces) {
+            if (overBudget('fitgate-score')) { f.q0 = null; continue; }
             f.th0 = poseTh(f.o); f.x0 = f.o.cx; f.y0 = f.o.cy;
             const m = Q(f, f.x0, f.y0, f.th0);
             f.m0 = m; f.q0 = m ? m.q : null;
@@ -10573,6 +10675,7 @@ export function countPills(cv, source, opts = {}) {
           const origins = scored.map((f) => [f.x0, f.y0]);
           let nRef = 0, nImp = 0;
           for (const f of scored) {
+            if (overBudget('fitgate-refine')) break;
             if (f.q0 >= refineBar) continue;
             nRef++;
             const cap = 0.5 * f.min;               // (a) half a pill width
@@ -10662,6 +10765,7 @@ export function countPills(cv, source, opts = {}) {
           };
           let nFlag = 0, nIou = 0;
           for (const f of scored) {
+            if (overBudget('fitgate-flag')) break;
             const q = f.qF !== undefined ? f.qF : f.q0;
             const m = f.mF !== undefined ? f.mF : f.m0;
             f.o.mq = +q.toFixed(3);
@@ -11160,6 +11264,47 @@ export function countPills(cv, source, opts = {}) {
         areaEstimate,
         flagged: out.lowConfidence || 0,
       };
+      // SMOOTH-SPLIT GUARD. A close-up of one or two pills has no population
+      // to calibrate on: the unit collapses to the largest coherent PIECE (an
+      // imprint groove, a capsule shoulder) and each pill is divided by it,
+      // and the terms above then score the fragments as a coherent
+      // population (measured: 1 capsule -> 8 at 0.781, 2 tablets -> 13 at
+      // 0.618). The pipeline already holds the contradiction: the outer
+      // contour is a single smooth convex ellipse — the consolidation stage's
+      // own definition of ONE pill — yet several pills were placed inside
+      // it, and nothing independent (no autocorrelation pitch, no population
+      // of pill-sized blobs) backs the division. When a third or more of the
+      // placed pills are such excess, refuse. Scoped to <=4 calibration blobs
+      // so a populated board is untouched; a pitch-backed raft (acscale
+      // fired) is exempt — the adversarial hex rafts are smooth outlines
+      // legitimately divided. Only outlines that COULD be one pill at the
+      // measured radius count (area <= 4x pi*radiusEst^2, the consolidation
+      // gate's own ceiling): the adversarial ring of 12 is one blob whose
+      // OUTER contour is a smooth disc of 21 pill-areas holding 12 correct
+      // pills at conf 0.988 — a raft, not a pill, and it must not enter.
+      // Corpus one-blob rafts (cc-c01 9/9, cc-i03) have scalloped outlines
+      // (solidity 0.84/0.85) and never enter; a flush pair among 3-4 pills is
+      // one excess and stays below the bar.
+      if (smoothOutlineMask && !acScaleFired && solidPop <= 4) {
+        const inside = new Map();
+        let placed = 0;
+        const onePill = 4 * Math.PI * radiusEst * radiusEst;
+        for (const r of shaped) {
+          const n = Math.max(1, r.units || 1);
+          placed += n;
+          const k = smoothOutlineMask[Math.round(r.cy) * w + Math.round(r.cx)];
+          if (k && smoothOutlineAreas[k] <= onePill) inside.set(k, (inside.get(k) || 0) + n);
+        }
+        let excess = 0;
+        for (const n of inside.values()) excess += Math.max(0, n - 1);
+        opts.debug?.({ stage: 'smooth-split', excess, placed, count, solidPop,
+          outlines: inside.size, conf: out.confidence });
+        if (excess >= 2 && excess * 3 >= placed) {
+          out.lowConfidence = Math.max(1, out.lowConfidence || 0);
+          if (out.confidence > 0.5) out.confidence = 0.5;
+          out.confidenceParts.smoothSplit = excess;
+        }
+      }
     } else {
       out.confidence = 0;
     }
@@ -11182,6 +11327,14 @@ export function countPills(cv, source, opts = {}) {
       out.lowConfidence = Math.max(1, out.lowConfidence || 0);
       if (out.confidence > 0.4) out.confidence = 0.4;
       if (out.confidenceParts) out.confidenceParts.rimLace = 1;
+    }
+    // Budget floor: stages were skipped, so the placements (and possibly
+    // the count) were never finished. Never let that pass as a count.
+    if (budgetHit) {
+      out.budgetExceeded = { where: budgetHit, ms: Math.round(nowMs() - tBudget0), budgetMs };
+      out.lowConfidence = Math.max(1, out.lowConfidence || 0);
+      if (out.confidence > 0.3) out.confidence = 0.3;
+      if (out.confidenceParts) out.confidenceParts.budget = budgetHit;
     }
 
     if (opts.returnImage) out.image = new Uint8ClampedArray(src.data); // RGBA at processed resolution

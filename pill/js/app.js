@@ -609,6 +609,15 @@ function lowConfNote(result) {
       'I don\u2019t see any pills in this one. Straight overhead, pills fully in frame, then Snap again? \ud83d\udc3e';
     return;
   }
+  // The counter ran out of its time budget and skipped placement stages, so
+  // the number is unfinished (confidence is forced <= 0.3). This happens when
+  // a busy surface is read as thousands of tiny "pills"; the honest advice is
+  // a plainer background, not a steadier hand.
+  if (result && result.budgetExceeded) {
+    els.helperReact.textContent =
+      'That one took too long to work out \u2014 the surface may be too busy. Try a plain, matte background and Snap again. \ud83d\udc3e';
+    return;
+  }
   els.helperReact.textContent = (typeof conf === 'number' && conf < 0.6)
     ? `I'm not confident in this one (${Math.round(conf * 100)}%). ` + 'Straight overhead, pills fully in frame, then Snap again? 🐾'
     : '';
