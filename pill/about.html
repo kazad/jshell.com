@@ -68,9 +68,9 @@
   <p><strong>ValEye counts pills from a single overhead photo, entirely on your device.</strong>
   The vision pipeline runs in your browser via <strong>OpenCV</strong> compiled to
   WebAssembly, works offline once installed, and takes roughly a quarter-second per
-  image. Photos stay on your device — unless you explicitly tick
-  <em>“Share this photo”</em> on a result, which contributes that one photo (plus your
-  corrected count) to ValEye’s test suite to improve future counting.</p>
+  image. Every photo you count is also uploaded to ValEye’s own server, where it becomes
+  a test case: your corrections (the +/− nudge, the thumbs-up, the “Wrong” report) are the
+  ground truth the counter is measured against. All of your devices share one history.</p>
 
   <p>The problem sounds easy — "count the blobs" — but real trays have touching pills,
   shadows, white pills on white counters, engraved trays, and piles. The pipeline below is

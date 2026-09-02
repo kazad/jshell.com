@@ -761,7 +761,7 @@
   },
   "PRIVACY-every-photo-uploaded-history-unauthenticated": {
     "date": "2026-09-01",
-    "status": "OPEN — OWNER DECISION REQUIRED. Facts only; nothing changed.",
+    "status": "CLOSED by owner decision 2026-09-02: all users are the owner on different devices; shared cloud history is intentional. Remaining action: make about.html truthful (done).",
     "facts": [
       "autoUpload(result) posts the full analysis-resolution image (<=1280px JPEG q0.85) plus count/lowConfidence/build to api/submit on EVERY analyze(): camera Snap, Use-this-count, and Choose-photo. It fires again with the refined result after SAM. Failed sends are queued as data URLs in localStorage and retried later.",
       "reportSession(‘wild-variation’) auto-uploads 3 live viewfinder frames with no user action when the live window’s spread is wide (<=1/min).",
@@ -834,5 +834,12 @@
       "t2-white-capsules-wood: exact (8) on Node pixels; 9 on Chrome pixels at conf 0.861. A pre-existing Chrome-pixel miss that the old fallback hid."
     ],
     "lesson": "A board without a browserpng is not gated on Chrome pixels at all. The fallback in tools/bake-worker.mjs should at least WARN. Freeze browserpng for every JPEG in the corpus (tools/browser-decode.mjs) before trusting a browser-gate number."
+  },
+  "texture-rim-contrast-REFUTED": {
+    "date": "2026-09-02",
+    "status": "REFUTED — do not re-walk",
+    "what": "Photometric rim contrast per placed pill (|luma inside 0.5r − luma in ring 1.15-1.4r| / image std, median over placements) as a texture-invention veto. tools/rim-contrast.mjs.",
+    "numbers": "Texture failures: empty-wood 0.309, text 0.415, empty-yellow 0.088, qr 0.835, checker 1.333. Exact boards: cc-d01 2.80, r-90dbe20e 1.91, r-7ff7fd99 1.84, t2-white-capsules-wood 1.27 — and t2-salmon-pentagon (90/90 exact) 0.028, BELOW every failure.",
+    "why": "On a fused raft the ring samples land on neighbouring pills, so contrast collapses exactly like texture. The signal separates ISOLATED pills from texture, which is the case that already works. A checkerboard is genuinely high-contrast blobs and beats the capsule board."
   }
 }
