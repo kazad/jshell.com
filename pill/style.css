@@ -7,7 +7,7 @@
   --accent: #2fb380;
   --accent-dark: #1f8f65;
   --accent-soft: #e3f5ec;
-  --warn: #e9a13b;
+  --warn: #b26a00; /* was #e9a13b: 2.18:1 on white, on the very states that say "don't trust this" */
   --danger: #e2606f;
   --radius: 18px;
   --shadow: 0 2px 14px rgba(45, 49, 66, 0.08);
@@ -537,7 +537,7 @@ body {
   align-items: center;
   gap: 10px;
 }
-.panel-main .icon-btn.big { width: 42px; height: 42px; font-size: 22px; flex: 0 0 auto; }
+.panel-main .icon-btn.big { width: 48px; height: 48px; font-size: 22px; flex: 0 0 auto; }
 .panel-main #save-btn { margin-left: auto; padding: 11px 22px; }
 
 .count-display { display: flex; align-items: baseline; gap: 6px; }
@@ -574,6 +574,13 @@ body {
 .panel-tools #med-name { flex: 1 1 60px; min-width: 0; }
 
 .helper-strip {
+  /* It also carries .helper, which is position:absolute; bottom:10px — so it
+     floated over whichever panel row was last: the Retake/Adjust row while
+     counting, the rating row afterwards. Make it an ordinary flex row of the
+     panel instead, so it always has its own space. */
+  position: static;
+  left: auto; right: auto; bottom: auto;
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 7px;

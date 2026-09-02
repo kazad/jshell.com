@@ -711,5 +711,83 @@
     "gates": "md5 pinned 261d30cb7e08eec1ede8c600801e2de0 across the whole run. Node 258/266 exact 261 within1; browser 260/266 exact 263 within1; adversarial 51/56, per-pill 799/1020. All identical to baseline — the block is write-only (out.confidence / out.confidenceParts) and nothing downstream reads it.",
     "known-remaining": "adv-ring-noise-n12 counts 8 of 12 and scores high: the counter found 8 pills as 8 clean regions and MISSED 4 entirely, so the picture it built is internally perfect and simply incomplete. No self-consistency metric can see a missing pill; only `flagged` (weight 0.10) speaks to it. wild/cc-i03 is likewise blind by construction (its error is a grout-biased unit, internally consistent).",
     "side-effect": "app.js risky = clumpBurden > 0 || conf < 0.85 loses its flag on 8 boards, ALL EXACT — no wrong board loses it."
+  },
+  "cc-c18-flagged-fraction-lead": {
+    "date": "2026-08-31",
+    "status": "REFUTED — do not re-walk. The corpus-only measurement was misleading; the adversarial suite kills it.",
+    "what": "Hypothesis: cc-c18 (19 speckled ovals counted as 296, conf 0.652, slips the 0.6 gate) flags 180 of 296 regions = 0.61 flagged-fraction, so overwhelming self-doubt could be made decisive and force a refusal.",
+    "why-it-looked-strong": "Across all 266 CORPUS boards the maximum flagged-fraction is 0.333 and that board (r-90dbe20e) is EXACT; wrong boards top out at 0.083. cc-c18 at 0.61 looked nearly 2x out-of-distribution.",
+    "WHY-IT-IS-REFUTED": "The adversarial suite contains EXACT boards far above cc-c18: adv-hexraft-light-n37 flags 0.78 and counts 37/37 at conf 0.89; adv-hexraft-light-n7 flags 0.71 and counts 7/7 at conf 0.906; adv-hexraft-light-n19-t96 flags 0.68 and counts 19/19. Any bar catching 0.61 refuses several perfectly correct hex rafts first. Full HIGH list (>=0.30) measured 2026-08-31 and kept in this entry.",
+    "adversarial-high-flag-boards": "0.78 hexraft-light-n37 EXACT | 0.71 hexraft-light-n7 EXACT | 0.68 hexraft-light-n19-t96 EXACT | 0.65 dense-light-n120 WRONG(142/120) | 0.50 pair-light-n8 EXACT | 0.47 hexraft-light-n19 EXACT | 0.44 stack-dark-n8 WRONG | 0.43 hexraft-noise-n7 EXACT | 0.43 hexraft-noise-n37 EXACT | 0.37 hexraft-wood-n19 EXACT | 0.37 hexraft-light-n19-t104 EXACT | 0.35 hexraft-dark-n37 EXACT | 0.32 hexraft-noise-n19 EXACT | 0.32 hexraft-wood-n37 EXACT | 1.00 shadowchain-wood WRONG (already refused at 0.492 by the single-region guard)",
+    "the-general-lesson": "A flagged region means the consensus panel could not agree, which is the NORMAL state for a dense hex raft where every pill touches its neighbours. High self-doubt tracks PACKING DENSITY, not incorrectness. Measuring only the corpus hid this because the corpus has few tight synthetic rafts; the adversarial suite is where that regime lives. ALWAYS check both before believing a separation.",
+    "still-open": "cc-c18 remains the one wild photo with no safe guard (see cc-c18-speckle-shatter-NO-SAFE-GUARD for the four refuted mask-statistic guards). It counts 296 for 19 at conf 0.652 and is NOT refused. Both the mask-statistic family and the self-doubt family are now closed."
+  },
+  "empty-surface-behaviour": {
+    "date": "2026-09-01",
+    "status": "MEASURED — wrong-but-REFUSED; acceptable, with a caveat on the number shown",
+    "what": "What the counter does on a photo with NO pills. Two genuinely pill-free fixtures (verified by eye after two earlier fixture mistakes that were mine, not the counter): a 900x480 crop of plain cardboard from wild/mk_3, and a synthetic noisy flat colour.",
+    "results": "cardboard: count=960 conf=0.4 (841 regions — the cardboard grain). flat noise: count=17 conf=0.4. Both land exactly on the grain-blind confidence floor (counter.js ~11173 caps confidence at 0.4 when the population is board texture), so the UI REFUSES both with the retake message.",
+    "verdict": "WRONG-BUT-REFUSED. Safe, now that the refusal message is actually visible (see low-conf-refusal-was-never-visible). The displayed number (960) is absurd but is shown alongside the refusal.",
+    "why-not-zero": "The grain-blind floor already knows the population is texture (confidenceParts.grainBlind=1). Forcing the count to 0 there is NOT safe: real/r-90dbe20e is grain-blind AND holds 3 real pills counted exactly (3/3 at conf 0.4). A message like \"I only see texture\" would be wrong on that board. Left as-is deliberately.",
+    "fixture-lesson": "Two of my three empty crops were not empty (one was the whole 20-pill board because the source was only 393px; one had two pills peeking in at the bottom edge). LOOK at the fixture before trusting a count on it."
+  },
+  "app-shell-corner-cases-2026-09-01": {
+    "date": "2026-09-01",
+    "status": "FIXED (13 items) in js/app.js, js/sam.js, style.css — UI-only, counting code untouched",
+    "method": "Independent audit of the app shell (not the pipeline) for unhandled corner cases, verified in a real browser with a local server; each fix re-verified for VISIBILITY (element geometry + hidden ancestors), not just DOM text, after two of the orchestrator’s own first-pass fixes turned out to write into a hidden screen.",
+    "fixed": {
+      "upload: undecodable file did nothing": "loadPhotoFile had no onerror. An iPhone HEIC on Chrome/Android, a PDF, a 0-byte or corrupt file: tap Choose photo, pick it, silence. Now onerror -> message on the CAMERA screen (helperTip; the first version wrote to helperReact inside the hidden result screen and was invisible). HEIC named specifically with the fix (Most compatible / share as JPEG).",
+      "upload: full-res draw before downscale": "A 48MP photo was drawn at native size (190MB canvas; iOS Safari blanks canvases above ~16.7MP) and SAM getImageData copied it again. Now capped at UPLOAD_MAX_EDGE=2048 on decode (pipeline works at <=1280, nothing lost).",
+      "upload: centred SQUARE crop silently dropped side pills": "CAPTURE_INSET took 96% of the SHORT edge as a square: the outer 28% of a 4:3 upload and 44% of a 16:9 upload were discarded with no indication. Camera path is fine (the on-screen guide shows the square); uploads have no guide. Now 96% inset on BOTH axes, aspect preserved. Also aligns the app with what the corpus bake certifies (full frames). Measured neutral on cc-d01 (10 both ways); the win is on any photo with pills near the sides. BEHAVIOUR CHANGE — flagged to the owner.",
+      "count failure: blocking alert + stuck screen": "countPills exceptions showed alert(‘Could not analyze’) and left the result screen at ‘…’ / ‘Counting…’ forever. Now an in-app message suggesting a closer/smaller photo, count shows —.",
+      "count 0: message overwritten": "The empty-frame path returns early with NO confidence key, so ‘I count 0! Check my badges’ overwrote the zero message. updateCountUI now treats count 0 as its own state: ‘I don’t see any pills in this one’.",
+      "manual nudge overwritten by SAM / frame fusion": "userAdjusted set a flag but state.result identity was unchanged, so every `state.result !== primary` guard still passed and SAM or the frame-median replaced the user’s +/- count seconds later. Guards now also check primary.userAdjusted; report-sheet submit and thumbs-up set the flag too.",
+      "SAM exit paths blanked the normal line": "After the confidence refactor, lowConfNote(primary) writes ‘’ when confident, so a no-WebGPU / no-mask / judge-rejected exit left the helper strip empty. Now updateCountUI().",
+      "opencv load failure reported as ‘still loading’": "loadCV caches its rejection, so a failed engine can never recover without reload; analyze() said ‘Engine still loading…’ forever in a 12px chip. Now state.cvFailed -> ‘didn’t load, check connection, tap the logo to reload’ in the helper.",
+      "Adjust crop box drawn at zoom× size": "drawCropBox measured the transformed rect for an element already inside #zoom-wrap -> scaled twice (2312px box on a 925px photo at 2.5x). Now offsetWidth-based.",
+      "pinch-zoom reset on any reflow": "syncOverlayBox always resetZoom(); a ResizeObserver fires on helper-text reflow and keyboard open, throwing away the user’s zoom. Now resets only when the wrapper size actually changed.",
+      "double Snap ran two analyses": "Second tap in the ~240ms burst window drew A’s badges on B’s photo until B finished. Shutter now returns while state.busy.",
+      "camera errors: raw exception names, iOS-only instructions": "‘Camera unavailable. (TypeError)’ and ‘Settings → Safari’ shown on Android/desktop. Now distinguishes denied / in-use / no-device, iOS text only on iOS, no exception names.",
+      "SAM sessions: no in-flight guard": "Retake during the first ~42MB download then another glossy board started a second parallel download and GPU session. sam.js now caches the promise; a rejection clears it.",
+      "helper strip overlapped the Retake row": "The strip carries .helper (position:absolute; bottom:10px) so it floated over whichever panel row was last. Now position:static, its own flex row.",
+      "dead tip": "TIPS promised ‘Set a target count…’ for a field removed in 427cdae. Deleted.",
+      "touch/contrast": "+/- nudge 42 -> 48px (Material 48). --warn #e9a13b (2.18:1 on white, used on the very states that say don’t-trust-this) -> #b26a00."
+    },
+    "not-changed-deliberately": {
+      "rating shown for count 0": "A thumbs-up on an empty photo labels it correct in the corpus, which is useful. Left.",
+      "upload of count 0": "Server rejects <40KB; a real empty-tray JPEG is larger and would upload. Tied to the privacy decision below.",
+      "grain-blind 960 shown alongside the refusal": "See empty-surface-behaviour."
+    }
+  },
+  "PRIVACY-every-photo-uploaded-history-unauthenticated": {
+    "date": "2026-09-01",
+    "status": "OPEN — OWNER DECISION REQUIRED. Facts only; nothing changed.",
+    "facts": [
+      "autoUpload(result) posts the full analysis-resolution image (<=1280px JPEG q0.85) plus count/lowConfidence/build to api/submit on EVERY analyze(): camera Snap, Use-this-count, and Choose-photo. It fires again with the refined result after SAM. Failed sends are queued as data URLs in localStorage and retried later.",
+      "reportSession(‘wild-variation’) auto-uploads 3 live viewfinder frames with no user action when the live window’s spread is wide (<=1/min).",
+      "Server: photo -> R2 photos/<day>/<uuid>.jpg; row -> D1 submissions incl. User-Agent; Save adds med name + target via api/annotate.",
+      "No opt-out or consent text anywhere in index.html.",
+      "about.html says ‘Photos stay on your device — unless you explicitly tick Share this photo on a result.’ That checkbox does not exist (0 hits in index.html/js). The statement is FALSE as shipped.",
+      "api/history has no auth and no per-user key: SELECT … ORDER BY ts DESC returns every submission from every device. api/photo/<id> is public and history hands out the ids. The in-app History screen therefore shows EVERY user’s medication photos, med names and notes to every user, and the sw caches them on-device. Only api/admin checks a key."
+    ],
+    "why-not-fixed-here": "Whether photos should upload at all, and whether history is per-device or per-account, is a product decision, and the correct fix direction for about.html depends on it (make the text true vs make the behaviour match the text). Flagged as the single highest-severity item of the audit.",
+    "options": "(a) opt-in toggle (persisted) gating autoUpload + reportSession, default OFF, and correct about.html; (b) keep uploads but key history/photo by a per-device id (or auth) so users only see their own; (c) both. None is a one-line change."
+  },
+  "input-corner-case-sweep-2026-09-01": {
+    "date": "2026-09-01",
+    "status": "MEASURED — 24 of 75 edge inputs CONFIDENTLY-WRONG (shown above the 0.6 gate), 1 HANG. Fixes in progress by mechanism.",
+    "method": "75 synthetic edge inputs generated from six exact boards (empty crops, 1-2 pill close-ups, frame cuts, blur 2/4/8, exposure -60..+60%, 320..6000px, rotations, EXIF-only, non-pill images, scope violations, tiny/huge pills) run through the production route. Inputs under testdata/tmp-agentG/, traces under debug-out/tmp-agentG_*.",
+    "the-hang": "c5-exp160-dark.jpg (advil on dark felt, brightness +60%): countPills never returned; killed after >810s at 96% CPU. c4-blur2-wood.jpg (sigma-2 blur on cc-d01) finished in 355-419s counting 837 for 10 at conf 0.70. Slow cases correlate with HIGH-CAPACITY SHEET ADMISSIONS (capacity 112/121/448/594/895 — hundreds of Lloyd-placed texture units), not with image size: 6000x4001 counts in 16s. A phone user gets a frozen tab.",
+    "mechanisms": {
+      "1 texture read as pill scale": "Smoothed wood grain / felt / JPEG mottling gives radiusEst 5-18; every grain patch becomes a starved sheet. empty-wood 292@0.656, blur2-wood 837@0.70, qr 270@0.697, checker 19@1.000 (32 identical squares saturate every confidence term). The texture-shatter veto fires only when ONE blob is >=85% of foreground; here the texture is split across many blobs, and even where it fires (text 6@0.708, empty-yellow 20@0.653) the residual clears the gate.",
+      "2 sparse population shredded by embossing": "1-2 pill close-ups: single-wood-tight 21 for 1 @0.821; single-caps-tight 8 for 1 @0.781 (raftUnit gives unit = 1/3 of the capsule); huge-wood-2h 7 for 2 @0.692; huge-oval-2 8 for 2 @0.851. With no population, unitprov collapses to the largest coherent piece (a groove or shoulder) and divides each pill by it. Highly realistic input (\"the two pills I have left\").",
+      "3 rot90 anisotropy": "cc-d01 rot90 71 for 10 @0.734 (rot180/270 exact). Widens the stress-suite-findings rot90 class to a second board.",
+      "4 tiny pills": "~8px pills: 9 for 33 @0.673 (physics vetoes cull real pills — a severe UNDERCOUNT above the gate). ~15px: 32/33. cream 142px: 146 for 48 @0.70 (grout-scale seeding, cc-i03 mechanism).",
+      "5 scope violations not refused": "mixed meds 59 for 28 @0.706; mixed sizes 39 for 36 @0.81; 3 stacked pills invisible (33 shown for 36 physical). Dense piles ARE refused (716@0.40, 173@0.558 — the capsule pile is 0.04 from being shown as plausible).",
+      "6 confidence blind to small errors": "blur8-yellow 31 for 33 @0.955; res320 31@0.952; exp160-wood 11 for 10 @0.909."
+    },
+    "handled-correctly": "Real blank boards -> 0 with the no-pills message; solid grey and round UI buttons -> 0; noise refused at 0.40; exposure -60..+40% exact on all boards; 640-6000px exact and no WASM throw; rot180/270 exact; EXIF tag ignored harmlessly (pixels rule); blur sigma 2-4 exact on two of three boards.",
+    "frame-cut-pills": "Counted inconsistently: 1/3, 2/2, ~5/6, 0/8 of sliced pills — depends on how much sliver survives the mask, not on a policy.",
+    "priority": "(1) the hang / runaway sheet admissions — an app must never freeze; (2) sparse-population close-ups — realistic and 7-21x wrong; (3) texture inventions above the gate; (4) scope refusal; rot90 remains diagnosed-not-fixed (4 layers deep, ledger stress-suite-findings)."
   }
 }

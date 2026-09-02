@@ -217,7 +217,18 @@ function finishUnion(uni, nMasks, nw, nh, outW, outH) {
 // keep the classical count. The encoder ships in two chunks because
 // Cloudflare Pages caps files at 25MiB.
 let _samSessions = null;
-export async function samSessions() {
+// Cache the IN-FLIGHT promise, not just the resolved value: a retake during
+// the first ~42MB download followed by another glossy board started a second
+// parallel download and a second GPU session. A rejection clears the cache so
+// the next attempt can retry.
+let _samPromise = null;
+export function samSessions() {
+  if (!_samPromise) {
+    _samPromise = loadSamSessions().catch((e) => { _samPromise = null; throw e; });
+  }
+  return _samPromise;
+}
+async function loadSamSessions() {
   if (_samSessions) return _samSessions;
   if (typeof navigator === 'undefined' || !navigator.gpu) {
     throw new Error('sam requires webgpu');

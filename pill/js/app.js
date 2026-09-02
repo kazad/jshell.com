@@ -47,7 +47,6 @@ const TIPS = [
   'Shoot from straight above, like a bird (or a very tall dog).',
   'Pills can touch, just don’t stack them on top of each other!',
   'Plain backgrounds work best. Kitchen counters are my favorite.',
-  'Set a target count and I’ll tell you if you’re over or short.',
 ];
 let tipIndex = 0;
 
@@ -72,6 +71,7 @@ async function initEngine() {
     setTimeout(() => els.status.classList.add('fade'), 1500);
   } catch (e) {
     console.error(e);
+    state.cvFailed = true;
     els.status.textContent = 'Engine failed to load';
   }
 }
@@ -114,11 +114,17 @@ async function initCamera() {
       // NotAllowedError = permission denied, which is a user-fixable state,
       // not a broken app. Say how to fix it instead of "unavailable".
       const denied = e.name === 'NotAllowedError';
+      const busy = e.name === 'NotReadableError' || e.name === 'AbortError';
+      const none = e.name === 'NotFoundError' || e.name === 'OverconstrainedError';
+      const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
       els.cameraFallback.querySelector('p').textContent =
-        denied ? 'Camera access is off' : 'Camera unavailable.';
+        denied ? 'Camera access is off' : busy ? 'Camera is in use by another app' : none ? 'No camera found' : 'Camera unavailable';
       els.cameraFallback.querySelector('.sub').textContent = denied
-        ? 'Allow it in Settings → Safari → Camera (or tap “aA” in the address bar → Website Settings). Tap here to pick a photo instead.'
-        : `Tap here to choose a photo instead. (${e.name})`;
+        ? (ios
+          ? 'Allow it in Settings \u2192 Safari \u2192 Camera (or tap \u201caA\u201d in the address bar \u2192 Website Settings). Tap here to pick a photo instead.'
+          : 'Allow camera access for this site in your browser\u2019s site settings (the lock icon by the address bar). Tap here to pick a photo instead.')
+        : busy ? 'Close the other app using the camera, then reload. Tap here to pick a photo instead.'
+        : 'Tap here to choose a photo instead.';
       els.shutter.disabled = true;
       els.liveToggle.disabled = true;
     }
@@ -456,7 +462,17 @@ function scheduleLiveTick() {
 // ---------- counting ----------
 
 async function analyze(sourceCanvas, extraFrames) {
-  if (!state.cv) { els.status.classList.remove('fade'); els.status.textContent = 'Engine still loading…'; return; }
+  if (!state.cv) {
+    // A failed engine used to be reported as "still loading" forever, in a
+    // 12px status chip most people never notice. loadCV caches its rejection,
+    // so the only recovery is a reload — say so, where the user is looking.
+    els.status.classList.remove('fade');
+    els.status.textContent = state.cvFailed ? 'Engine failed to load' : 'Engine still loading…';
+    els.helperTip.textContent = state.cvFailed
+      ? 'The vision engine didn\u2019t load \u2014 check your connection, then tap the ValEye logo to reload. \ud83d\udc3e'
+      : 'One moment \u2014 the vision engine is still loading\u2026 \ud83d\udc3e';
+    return;
+  }
   state.busy = true;
   els.shutter.classList.add('working');
 
@@ -490,12 +506,12 @@ async function analyze(sourceCanvas, extraFrames) {
         for (const f of extraFrames) {
           await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 60)));
           // Abandon silently if the user moved on (retake, adjust, new photo).
-          if (state.result !== primary || els.resultScreen.hidden) return;
+          if (state.result !== primary || primary.userAdjusted || els.resultScreen.hidden) return;
           try {
             votes.push({ canvas: f, result: countPills(state.cv, f, { maxDim: 1280, variant: 'consensus' }) });
           } catch { /* a failed spare just doesn't vote */ }
         }
-        if (votes.length < 2 || state.result !== primary || els.resultScreen.hidden) return;
+        if (votes.length < 2 || state.result !== primary || primary.userAdjusted || els.resultScreen.hidden) return;
         const counts = votes.map((v) => v.result.count).sort((a, b) => a - b);
         const median = counts[counts.length >> 1];
         const spread = counts[counts.length - 1] - counts[0];
@@ -541,7 +557,14 @@ async function analyze(sourceCanvas, extraFrames) {
     maybeRefineWithSam(sourceCanvas, result);
   } catch (e) {
     console.error('count failed', e);
-    alert('Could not analyze that image.');
+    // A blocking alert() on a phone, and after dismissing it the result
+    // screen still showed "\u2026" and "Counting\u2026" forever. Say it in the
+    // app's own voice, in the place every other message lives, and suggest
+    // the fix that actually works for the usual cause (WASM out of memory on
+    // an enormous photo).
+    els.countValue.textContent = '\u2014';
+    els.helperReact.textContent =
+      'Something went wrong analyzing that photo. Try a closer or smaller photo, then Snap again. \ud83d\udc3e';
   } finally {
     state.busy = false;
     els.shutter.classList.remove('working');
@@ -578,6 +601,14 @@ function showPhoto(sourceCanvas) {
 // stage that would otherwise wipe the warning.
 function lowConfNote(result) {
   const conf = result && result.confidence;
+  // Zero regions yields confidence 0, which used to read "I'm not confident
+  // in this one (0%)" — technically true, but the honest message for an empty
+  // frame is that nothing pill-like was found.
+  if (result && result.count === 0) {
+    els.helperReact.textContent =
+      'I don\u2019t see any pills in this one. Straight overhead, pills fully in frame, then Snap again? \ud83d\udc3e';
+    return;
+  }
   els.helperReact.textContent = (typeof conf === 'number' && conf < 0.6)
     ? `I'm not confident in this one (${Math.round(conf * 100)}%). ` + 'Straight overhead, pills fully in frame, then Snap again? 🐾'
     : '';
@@ -724,9 +755,15 @@ function syncOverlayBox() {
   // (badge 19 in the field report) was clipped by overflow:hidden.
   const availH = box.height || window.innerHeight * 0.52;
   const s = Math.min(availW / cw, availH / ch);
-  els.zoomWrap.style.width = Math.round(cw * s) + 'px';
-  els.zoomWrap.style.height = Math.round(ch * s) + 'px';
-  resetZoom();   // a freshly sized photo starts fully visible
+  const w = Math.round(cw * s) + 'px', h = Math.round(ch * s) + 'px';
+  const resized = els.zoomWrap.style.width !== w || els.zoomWrap.style.height !== h;
+  els.zoomWrap.style.width = w;
+  els.zoomWrap.style.height = h;
+  // Only a genuinely re-sized photo starts over fully visible. This also runs
+  // from a ResizeObserver on the panel, which fires when the helper text
+  // reflows or the keyboard opens — that used to throw away the user's
+  // pinch-zoom mid-inspection.
+  if (resized) resetZoom(); else { clampPan(); applyZoom(); }
 }
 window.addEventListener('resize', syncOverlayBox);
 window.addEventListener('orientationchange', () => setTimeout(syncOverlayBox, 200));
@@ -754,6 +791,15 @@ function updateCountUI() {
   // arrival on EVERY low-confidence photo, not just the SAM ones. When the
   // evidence does not support the count, that is the only thing worth saying;
   // the badge/target guidance still renders in targetInfo below.
+  // The empty-frame path returns early from the pipeline with NO confidence
+  // key, so it never reached the untrusted branch and "I count 0! Check my
+  // badges" overwrote the zero message. Zero is its own state.
+  if (state.result && state.result.count === 0 && !state.result.userAdjusted) {
+    lowConfNote(state.result);
+    els.targetInfo.textContent = '';
+    els.targetInfo.className = 'target-info';
+    return;
+  }
   const untrusted = (state.result?.confidence ?? 1) < 0.6 && !state.result?.userAdjusted;
   if (untrusted) {
     lowConfNote(state.result);
@@ -903,7 +949,7 @@ async function flushQueue() {
 async function maybeRefineWithSam(sourceCanvas, primary) {
   try {
     if (!samWanted(primary)) return;
-    if (state.result !== primary || els.resultScreen.hidden) return;
+    if (state.result !== primary || primary.userAdjusted || els.resultScreen.hidden) return;
     els.helperReact.textContent = 'Shiny pills — refining with on-device AI… ✨';
     const { ort, enc, dec } = await samSessions();
     const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true });
@@ -917,12 +963,12 @@ async function maybeRefineWithSam(sourceCanvas, primary) {
         if (state.result !== primary) return;
         els.helperReact.textContent = `Refining with on-device AI… ${Math.round(100 * i / n)}% ✨`;
       } });
-    if (state.result !== primary || els.resultScreen.hidden) return;
-    if (!sm) { lowConfNote(primary); return; }
+    if (state.result !== primary || primary.userAdjusted || els.resultScreen.hidden) return;
+    if (!sm) { updateCountUI(); return; }
     const r2 = countPills(state.cv, sourceCanvas, { maxDim: 1280,
       variant: 'consensus', maskCandidate: sm.cand });
-    if (state.result !== primary || els.resultScreen.hidden) return;
-    if (r2.maskChosen !== 'ext') { lowConfNote(primary); return; }
+    if (state.result !== primary || primary.userAdjusted || els.resultScreen.hidden) return;
+    if (r2.maskChosen !== 'ext') { updateCountUI(); return; }
     state.result = r2;
     state.count = r2.count;
     showResult(state.sourceCanvas, r2);
@@ -938,7 +984,7 @@ async function maybeRefineWithSam(sourceCanvas, primary) {
     autoUpload(r2);
   } catch (e) {
     console.warn('sam refinement skipped', e);
-    if (state.result === primary) lowConfNote(primary);
+    if (state.result === primary) updateCountUI();
   }
 }
 
@@ -1088,6 +1134,7 @@ function showScreen(name) {
 // the full-quality pass (1280px, consensus with self-flagging). Same camera,
 // already streaming, so the capture itself is instant.
 els.shutter.addEventListener('click', async () => {
+  if (state.busy) return; // a second tap inside the ~240ms burst window ran two analyses and drew A's badges on B's photo
   // Prefer the in-app viewfinder: it is the only path that shows the square
   // framing guide. If the stream is merely still warming up, wait briefly
   // rather than dropping the user into the guide-less native camera.
@@ -1170,24 +1217,51 @@ els.libraryInput.addEventListener('change', () => {
   if (file) loadPhotoFile(file);
   els.libraryInput.value = '';
 });
+// Longest edge we will ever draw a chosen photo at. The pipeline works at
+// <=1280, so nothing above this improves the count, while a 48MP phone photo
+// drawn at native size is a 190MB canvas that iOS Safari silently blanks
+// (its canvas ceiling is ~16.7M pixels) and that SAM's getImageData then
+// copies again. 2048 keeps headroom for every consumer and stays well under
+// the limit.
+const UPLOAD_MAX_EDGE = 2048;
+
+function unreadablePhoto(file) {
+  // The decode never fired onload, so without this the tap did NOTHING —
+  // no message, no screen change. The commonest cause is an iPhone HEIC
+  // opened in a browser that cannot decode it (Chrome, Android, older
+  // desktop Safari), so name that case specifically.
+  const heic = /hei[cf]/i.test(file.type || '') || /\.hei[cf]$/i.test(file.name || '');
+  (els.resultScreen.hidden ? els.helperTip : els.helperReact).textContent = heic
+    ? 'I can\u2019t open HEIC photos in this browser. Set the camera to \u201cMost compatible\u201d (JPEG), or share the photo as a JPEG and try again. \ud83d\udc3e'
+    : 'I couldn\u2019t open that file \u2014 it doesn\u2019t look like a photo I can read. Try a JPEG or PNG. \ud83d\udc3e';
+}
+
 function loadPhotoFile(file) {
   const img = new Image();
+  const url = URL.createObjectURL(file);
   img.onload = () => {
-    // Photos from the NATIVE camera (or the library) never saw our on-screen
-    // guide, so apply the same centered-square rule here. That keeps frame
-    // edges/corners — a known source of phantom "pills" — out of the count
-    // regardless of which capture path produced the image.
-    const side = Math.round(Math.min(img.naturalWidth, img.naturalHeight) * CAPTURE_INSET);
-    const sx = Math.round((img.naturalWidth - side) / 2);
-    const sy = Math.round((img.naturalHeight - side) / 2);
+    URL.revokeObjectURL(url);
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    if (!iw || !ih) { unreadablePhoto(file); return; }
+    // Trim the frame border on BOTH axes (borders and corners are a known
+    // source of phantom "pills") but keep the photo's own aspect. This used to
+    // force a centered SQUARE of the short edge, which silently discarded the
+    // outer 28% of a 4:3 photo and 44% of a 16:9 one — every pill near the
+    // sides of an uploaded photo was dropped with no indication. The camera
+    // path can square-crop because the on-screen guide shows the user the
+    // square; a chosen photo has no guide, so the whole photo must count.
+    // Full-frame counting is also what the corpus bake certifies.
+    const cw = Math.round(iw * CAPTURE_INSET), ch = Math.round(ih * CAPTURE_INSET);
+    const sx = Math.round((iw - cw) / 2), sy = Math.round((ih - ch) / 2);
+    const s = Math.min(1, UPLOAD_MAX_EDGE / Math.max(cw, ch));
     const c = document.createElement('canvas');
-    c.width = side;
-    c.height = side;
-    c.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, side, side);
-    URL.revokeObjectURL(img.src);
+    c.width = Math.max(1, Math.round(cw * s));
+    c.height = Math.max(1, Math.round(ch * s));
+    c.getContext('2d').drawImage(img, sx, sy, cw, ch, 0, 0, c.width, c.height);
     analyze(c);
   };
-  img.src = URL.createObjectURL(file);
+  img.onerror = () => { URL.revokeObjectURL(url); unreadablePhoto(file); };
+  img.src = url;
 }
 
 els.fileInput.addEventListener('change', () => {
@@ -1210,6 +1284,7 @@ els.liveFps.addEventListener('change', () => { if (state.live) setLive(true); })
     b.addEventListener('click', () => {
       const good = b.dataset.rate === 'good';
       if (good) {
+        if (state.result) state.result.userAdjusted = true; // a confirmed count is the user's now
         annotate({ adjusted: state.count, note: 'confirmed correct' });
         els.helperReact.textContent = 'Thank you! I logged this one as correct. 🎾';
         rating.hidden = true;
@@ -1318,6 +1393,7 @@ document.getElementById('sheet-submit').addEventListener('click', () => {
   }
 
   state.count = n;
+  if (state.result) state.result.userAdjusted = true; // a reported count is the user's; SAM/fusion must not replace it
   updateCountUI();
   els.reportBtn.textContent = `✓ Sent (${n})`;
   els.reportBtn.classList.add('sent');
@@ -1569,7 +1645,10 @@ function drawCropBox() {
   const s = cropToPhotoScale();
   const disp = els.photoCanvas.getBoundingClientRect();
   const wrap = els.zoomWrap.getBoundingClientRect();
-  const k = disp.width / els.photoCanvas.width; // css px per canvas px
+  // Layout px per canvas px. The box lives INSIDE #zoom-wrap, so it is
+  // already transformed with the photo; measuring the transformed rect here
+  // scaled it a second time (2312px box on a 925px photo at 2.5x zoom).
+  const k = els.photoCanvas.offsetWidth / els.photoCanvas.width;
   box.style.left = `${(els.photoCanvas.offsetLeft) + crop.x * s * k}px`;
   box.style.top = `${(els.photoCanvas.offsetTop) + crop.y * s * k}px`;
   box.style.width = `${crop.w * s * k}px`;
