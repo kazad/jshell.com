@@ -61,17 +61,186 @@ const state = {
 };
 
 // ---------- engine ----------
+// Counting runs in a Web Worker (js/count-worker.js) so the tab stays
+// responsive during a 2-30s (phones: up to 180s) count and so a count can be
+// CANCELLED by terminating the worker. OpenCV is loaded in the worker; the
+// main-thread copy (loadCV) is loaded only if the worker cannot start -- old
+// browser without module workers, blocked eval -- or for the debug sheet,
+// which needs the synchronous stage-capture path. Two OpenCV instances
+// reserve 2 x 128MB of wasm heap, which matters on iOS, so the main-thread
+// one is lazy.
+
+const wk = {
+  w: null,          // the live Worker, or null
+  ready: null,      // promise: resolves when the worker's OpenCV is up
+  pending: new Map(), // id -> { resolve, reject, onProgress }
+  nextId: 1,
+  disabled: false,  // worker path unusable; every count runs on the main thread
+  why: '',
+};
+let countGen = 0;   // bumped by cancelCounts(); async chains bail when it moves
+
+class CancelledError extends Error {
+  constructor(why) { super('count cancelled: ' + why); this.cancelled = true; }
+}
+
+function spawnWorker() {
+  if (wk.disabled || typeof Worker === 'undefined') return null;
+  let w;
+  try {
+    w = new Worker(new URL('./count-worker.js', import.meta.url), { type: 'module' });
+  } catch (e) {
+    disableWorker('Worker construction failed: ' + (e && e.message));
+    return null;
+  }
+  wk.w = w;
+  wk.ready = new Promise((resolve, reject) => {
+    // A browser that ignores {type:'module'} loads the file as a classic
+    // script and fires `error` on the first `import`; a broken opencv load
+    // reports ready:false. Either way: no handshake => sync fallback.
+    const timer = setTimeout(() => reject(new Error('worker ready timeout')), 90000);
+    w.addEventListener('message', function onReady(e) {
+      if (!e.data || !('ready' in e.data)) return;
+      w.removeEventListener('message', onReady);
+      clearTimeout(timer);
+      if (e.data.ready) resolve();
+      else reject(new Error(e.data.error || 'worker opencv failed'));
+    });
+    w.addEventListener('error', (e) => {
+      clearTimeout(timer);
+      reject(new Error('worker error: ' + (e.message || 'unknown')));
+    }, { once: true });
+  });
+  wk.ready.catch((e) => { if (wk.w === w) disableWorker(String(e.message || e)); });
+  w.onmessage = (e) => {
+    const m = e.data;
+    if (!m || m.id == null) return;
+    const job = wk.pending.get(m.id);
+    if (!job) return; // stale id (cancelled) -- ignore
+    if (m.progress) { job.onProgress?.(m.progress); return; }
+    wk.pending.delete(m.id);
+    if (m.ok) job.resolve(m.stages ? Object.assign(m.result, { __stages: m.stages }) : m.result);
+    else job.reject(new Error(m.error?.message || 'count failed in worker'));
+  };
+  w.onerror = (e) => {
+    // A crash mid-count (wasm OOM on a huge photo) takes the worker with it:
+    // fail every queued job (countAsync retries each on the main thread) and
+    // start a fresh worker for the next photo.
+    console.warn('count worker crashed:', e.message);
+    const jobs = [...wk.pending.values()];
+    wk.pending.clear();
+    try { w.terminate(); } catch { /* already dead */ }
+    if (wk.w === w) { wk.w = null; wk.ready = null; }
+    jobs.forEach((j) => j.reject(new Error('worker crashed: ' + (e.message || ''))));
+  };
+  return w;
+}
+
+function disableWorker(why) {
+  console.warn('count worker unavailable, counting on the main thread:', why);
+  wk.disabled = true;
+  wk.why = why;
+  const jobs = [...wk.pending.values()];
+  wk.pending.clear();
+  try { wk.w?.terminate(); } catch { /* ignore */ }
+  wk.w = null; wk.ready = null;
+  jobs.forEach((j) => j.reject(new Error('worker disabled: ' + why)));
+  ensureCV(); // the fallback needs the main-thread engine
+}
+
+// Main-thread OpenCV, loaded on demand (fallback path, debug sheet).
+function ensureCV() {
+  if (state.cv) return Promise.resolve();
+  return loadCV().then((c) => { state.cv = c; }).catch((e) => {
+    console.error(e);
+    state.cvFailed = true;
+    throw e;
+  });
+}
+
+const engineReady = () => (!wk.disabled && !!wk.w) || !!state.cv;
+
+// The wasm fallback, but with the same async shape as the worker path: yield
+// a frame first so the "Counting…" state paints before the thread freezes.
+async function countSync(canvas, opts) {
+  await ensureCV();
+  await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30)));
+  const o = Object.assign({}, opts);
+  if (opts.onProgress) o.debug = (ev) => opts.onProgress(ev); // (the DOM cannot repaint mid-count here, but the callback contract holds)
+  else if (typeof o.debug !== 'function') delete o.debug;
+  delete o.onProgress;
+  if (o.stages === true) { const st = {}; o.stages = (k, v) => { st[k] = v; }; const r = countPills(state.cv, canvas, o); r.__stages = st; return r; }
+  delete o.stages;
+  return countPills(state.cv, canvas, o);
+}
+
+// countPills, off the main thread. Resolves with the same result object
+// countPills returns (structured-cloned: plain data, verified identical).
+// opts.onProgress(ev) receives the pipeline's debug events as they happen.
+// Rejects with CancelledError if cancelCounts() runs while this is queued.
+function countAsync(canvas, opts = {}) {
+  if (wk.disabled) return countSync(canvas, opts);
+  if (!wk.w) spawnWorker();
+  if (!wk.w) return countSync(canvas, opts);
+  const w = wk.w;
+  const gen = countGen;
+  const id = wk.nextId++;
+  const job = new Promise((resolve, reject) => {
+    wk.pending.set(id, { resolve, reject, onProgress: opts.onProgress });
+    wk.ready.then(() => {
+      if (wk.w !== w || gen !== countGen) return; // cancelled while opencv was loading
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const o = Object.assign({}, opts);
+      delete o.onProgress;
+      if (typeof o.debug === 'function' || opts.onProgress) o.debug = true; // worker forwards events
+      if (typeof o.stages === 'function') o.stages = true;
+      w.postMessage({ id, cmd: 'count', image: { data: img.data.buffer, width: img.width, height: img.height }, opts: o },
+        [img.data.buffer]);
+    }, () => { /* ready rejection is handled by disableWorker */ });
+  });
+  return job.catch((e) => {
+    if (e && e.cancelled) throw e;
+    // Worker failure (not a cancel): count this photo on the main thread so
+    // the user still gets an answer. A pipeline error inside countPills is
+    // deterministic and would recur -- rethrow those instead.
+    if (!/worker/.test(e.message)) throw e;
+    if (gen !== countGen) throw new CancelledError('superseded');
+    return countSync(canvas, opts);
+  });
+}
+
+// Drop every in-flight and queued count. countPills is synchronous inside
+// the worker, so the only way to stop a running count is to kill the worker;
+// it is respawned at once so OpenCV is warm again (~1-2s, in the background)
+// before the next Snap. Cheap when nothing is pending.
+function cancelCounts(why = 'cancel') {
+  countGen++;
+  if (!wk.pending.size) return;
+  const jobs = [...wk.pending.values()];
+  wk.pending.clear();
+  jobs.forEach((j) => j.reject(new CancelledError(why)));
+  if (wk.w) {
+    try { wk.w.terminate(); } catch { /* ignore */ }
+    wk.w = null; wk.ready = null;
+    spawnWorker();
+  }
+}
 
 async function initEngine() {
   els.status.textContent = 'Loading vision engine…';
   try {
-    state.cv = await loadCV();
+    if (!spawnWorker()) throw new Error(wk.why || 'no worker');
+    await wk.ready;
+  } catch (e) {
+    // Worker path unusable: the classic in-page engine takes over.
+    try { await ensureCV(); } catch { /* reported below */ }
+  }
+  if (engineReady()) {
     els.status.textContent = 'Ready';
     els.status.classList.add('ready');
     setTimeout(() => els.status.classList.add('fade'), 1500);
-  } catch (e) {
-    console.error(e);
-    state.cvFailed = true;
+  } else {
     els.status.textContent = 'Engine failed to load';
   }
 }
@@ -266,11 +435,11 @@ function liveMapping() {
 let liveThr = 0;
 let lastWildReport = 0;
 
-function liveTick() {
+async function liveTick() {
   // Analyze ONLY real camera frames. Without this the loop counted an empty
   // canvas and produced phantom counts (observed: "~57" over a blank screen
   // while the camera was not running).
-  if (!state.cv || state.busy || document.hidden) return;
+  if (!engineReady() || !state.live || state.busy || document.hidden) return;
   if (!state.stream || els.video.readyState < 2 || !els.video.videoWidth) {
     els.liveCount.hidden = true;
     els.liveOverlay.hidden = true;
@@ -281,13 +450,19 @@ function liveTick() {
   els.liveOverlay.hidden = false;
   let r;
   const tPass = performance.now();
+  const gen = liveGen;
   try {
     // overlay: true so the live view can draw the actual pill OUTLINES, not
     // just numbered dots. Field report: "it's hard to see where the bounds
     // are" — a bare badge says how many, never which pixels the counter
     // thinks are pill, so a bad segmentation looks identical to a good one.
-    r = countPills(state.cv, probe, { maxDim: 640, overlay: true, variant: 'baseline', thrHint: liveThr });
+    // Off the main thread: a live pass measured 119-283ms on this Mac (2-3x
+    // on phones), which stalled the 8fps preview on every tick.
+    r = await countAsync(probe, { maxDim: 640, overlay: true, variant: 'baseline', thrHint: liveThr });
   } catch { return; }
+  // The frame was counted while the loop may have been frozen (Snap) or
+  // paused; a late result must not paint over the result screen.
+  if (gen !== liveGen || !state.live || state.busy || els.liveOverlay.hidden) return;
   liveThr = r.thr || 0; // temporal threshold smoothing across frames
   // ADAPTIVE RATE. A live pass costs 119ms on matte caplets but 283ms on
   // glossy beads (measured), and phones run 2-3x slower — at a fixed 2fps
@@ -441,6 +616,7 @@ function setLive(on) {
   clearInterval(state.liveTimer);
   clearTimeout(state.liveTimer);
   livePassMs = 0;
+  liveGen++;
   if (on) scheduleLiveTick();
 }
 
@@ -449,20 +625,65 @@ function setLive(on) {
 // gets a gap to repaint the camera and the whole view feels stuck. Chaining
 // the next tick AFTER the current one finishes keeps the preview fluid even
 // when a frame is expensive.
+// liveGen: the tick is now async (the count runs in the worker), so a tick
+// can still be in flight when Snap/pause/resume happens. Every (re)start of
+// the loop bumps the generation; a chain whose generation is stale ends
+// instead of rescheduling, which is what stops two chains from running.
+let liveGen = 0;
 function scheduleLiveTick() {
   clearTimeout(state.liveTimer);
+  const gen = liveGen;
   const fps = parseFloat(els.liveFps?.value || '2');
   const wanted = 1000 / (fps || 2);
   const delay = Math.max(wanted, livePassMs * 3);   // never eat >1/3 of the thread
   state.liveTimer = setTimeout(() => {
-    try { liveTick(); } finally { if (els.liveToggle.classList.contains('active')) scheduleLiveTick(); }
+    if (gen !== liveGen) return;
+    liveTick().catch(() => {}).finally(() => {
+      if (gen === liveGen && state.live && els.liveToggle.classList.contains('active')) scheduleLiveTick();
+    });
   }, Math.round(delay));
 }
 
 // ---------- counting ----------
 
+// While a count is running the Retake button is the Cancel button: same
+// action (back to the camera), and cancelCounts() in its handler kills the
+// worker. No new markup; the label says what it does.
+const RETAKE_LABEL = els.retake.textContent;
+function setCounting(on) {
+  els.retake.textContent = on ? '✕ Cancel' : RETAKE_LABEL;
+}
+
+// Stage hint from the pipeline's debug events: the counter emits dozens of
+// internal stage names; they fall into four phases a person can follow. The
+// hint only ever advances, so a late event from an early stage cannot make
+// the text go backwards.
+const PHASES = [
+  'separating pills from the background',
+  'measuring pill size',
+  'placing each pill',
+  'checking the count',
+];
+function phaseOf(stage) {
+  const s = String(stage || '');
+  if (/^(smooth-split|mixed-sizes|lone-pill)$/.test(s)) return 3;
+  if (/^(quot|consensus|arc|hough|census|twotone|massoverride|combiner|panel|hverify|hsum|shadowlobe|kseam|lencap|evalk|seam|orphan|htopup|contour|consolidate|labelmiss|hcprobe|stamp|chroma|hc-|placeaxis|clumpfit|dtsnap|physics|cluster|fitgate|physaudit|phantom|piletile|matchq|reseat|hcretry|clearseam|lensingle)/.test(s)) return 2;
+  if (/^(seedscale|photoseed|floodloss|splotch|collapse|mass|unit|pass2|fragfilter|raft-unit|shapelen|unitfix|clumpunit|lengthcal|lenjunk|shape|blobgeo|pairveto)/.test(s)) return 1;
+  return 0;
+}
+let hintPhase = -1;
+function countingHint(ev) {
+  if (!state.busy || !ev) return;
+  if (ev.stage === 'budget') { els.helperReact.textContent = 'Counting… 👀 this one is taking a while'; return; }
+  const p = phaseOf(ev.stage);
+  if (p <= hintPhase) return;
+  hintPhase = p;
+  els.helperReact.textContent = `Counting… 👀 ${PHASES[p]}`;
+}
+
+let analyzeSeq = 0;
 async function analyze(sourceCanvas, extraFrames) {
-  if (!state.cv) {
+  if (!engineReady()) {
     // A failed engine used to be reported as "still loading" forever, in a
     // 12px status chip most people never notice. loadCV caches its rejection,
     // so the only recovery is a reload — say so, where the user is looking.
@@ -473,8 +694,13 @@ async function analyze(sourceCanvas, extraFrames) {
       : 'One moment \u2014 the vision engine is still loading\u2026 \ud83d\udc3e';
     return;
   }
+  cancelCounts('new photo'); // nothing from an earlier photo may land on this one
+  const gen = countGen;
+  const run = ++analyzeSeq;
   state.busy = true;
   els.shutter.classList.add('working');
+  setCounting(true);
+  hintPhase = -1;
 
   // Perceived speed: show the captured photo IMMEDIATELY; the count and
   // overlay fill in when analysis lands a moment later.
@@ -483,12 +709,23 @@ async function analyze(sourceCanvas, extraFrames) {
   els.targetInfo.textContent = '';
   els.helperReact.textContent = 'Counting… 👀';
   showScreen('result');
-  await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30))); // let UI paint
+  // Let the UI paint — but never WAIT on a paint: requestAnimationFrame does
+  // not fire in a hidden tab (user switched apps right after Snap, or the
+  // tab is in the background), and the count used to stall until the tab
+  // was visible again. Race it against a short timeout.
+  await new Promise((r) => {
+    let done = false; const go = () => { if (!done) { done = true; r(); } };
+    requestAnimationFrame(() => setTimeout(go, 30));
+    setTimeout(go, 250);
+  });
 
   try {
     state.sourceCanvas = sourceCanvas; // full-res original, for re-cropping
     state.croppedCanvas = null;
-    let result = countPills(state.cv, sourceCanvas, { maxDim: 1280, variant: 'consensus' });
+    // In the worker: the tab stays live (progress, Cancel, pinch-zoom on the
+    // photo) for the whole 2-30s, and Retake/Cancel terminates the work.
+    let result = await countAsync(sourceCanvas, { maxDim: 1280, variant: 'consensus', onProgress: countingHint });
+    if (gen !== countGen) return; // cancelled: the camera screen is already back
 
     // PROGRESSIVE FUSION. A full pass costs ~2s per frame on real hardware,
     // so the spares are counted AFTER the main result is already on screen,
@@ -506,12 +743,12 @@ async function analyze(sourceCanvas, extraFrames) {
         for (const f of extraFrames) {
           await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 60)));
           // Abandon silently if the user moved on (retake, adjust, new photo).
-          if (state.result !== primary || primary.userAdjusted || els.resultScreen.hidden) return;
+          if (gen !== countGen || state.result !== primary || primary.userAdjusted || els.resultScreen.hidden) return;
           try {
-            votes.push({ canvas: f, result: countPills(state.cv, f, { maxDim: 1280, variant: 'consensus' }) });
-          } catch { /* a failed spare just doesn't vote */ }
+            votes.push({ canvas: f, result: await countAsync(f, { maxDim: 1280, variant: 'consensus' }) });
+          } catch { /* a failed (or cancelled) spare just doesn't vote */ }
         }
-        if (votes.length < 2 || state.result !== primary || primary.userAdjusted || els.resultScreen.hidden) return;
+        if (gen !== countGen || votes.length < 2 || state.result !== primary || primary.userAdjusted || els.resultScreen.hidden) return;
         const counts = votes.map((v) => v.result.count).sort((a, b) => a - b);
         const median = counts[counts.length >> 1];
         const spread = counts[counts.length - 1] - counts[0];
@@ -556,6 +793,7 @@ async function analyze(sourceCanvas, extraFrames) {
     autoUpload(result); // every analyzed photo feeds the regression suite
     maybeRefineWithSam(sourceCanvas, result);
   } catch (e) {
+    if (e && e.cancelled) return; // Retake/Cancel: nothing to report
     console.error('count failed', e);
     // A blocking alert() on a phone, and after dismissing it the result
     // screen still showed "\u2026" and "Counting\u2026" forever. Say it in the
@@ -566,8 +804,13 @@ async function analyze(sourceCanvas, extraFrames) {
     els.helperReact.textContent =
       'Something went wrong analyzing that photo. Try a closer or smaller photo, then Snap again. \ud83d\udc3e';
   } finally {
-    state.busy = false;
-    els.shutter.classList.remove('working');
+    // A cancelled run may finish AFTER the next one started; only the
+    // newest run owns the busy state.
+    if (run === analyzeSeq) {
+      state.busy = false;
+      els.shutter.classList.remove('working');
+      setCounting(false);
+    }
   }
 }
 
@@ -613,6 +856,11 @@ function lowConfNote(result) {
   // the number is unfinished (confidence is forced <= 0.3). This happens when
   // a busy surface is read as thousands of tiny "pills"; the honest advice is
   // a plainer background, not a steadier hand.
+  if (result && result.confidenceParts && result.confidenceParts.mixedSizes) {
+    els.helperReact.textContent =
+      'These look like two different sizes \u2014 I count one medication at a time. Separate them and Snap again? \ud83d\udc3e';
+    return;
+  }
   if (result && result.budgetExceeded) {
     els.helperReact.textContent =
       'That one took too long to work out \u2014 the surface may be too busy. Try a plain, matte background and Snap again. \ud83d\udc3e';
@@ -829,8 +1077,20 @@ function updateCountUI() {
     return;
   }
   if (!Number.isFinite(target) || target <= 0) {
-    els.targetInfo.textContent = '';
-    els.targetInfo.className = 'target-info';
+    // Pills sliced by the frame are counted or not depending on how much of
+    // them survives the mask; only the user can fix that, by pulling back.
+    const touch = state.result?.edgeTouch || 0;
+    // >=3% of the frame border is pill material. Calibrated on the corpus
+    // (tools/borderfg.mjs, 2026-09-02): 250/266 boards read 0; at 1% the hint
+    // fires on exact field photos (r-1af0a96c 2.7%, r-fd69dff9 3.9%); at 3%
+    // it fires on the sliced fixtures (3.0%, 9.6%) and on 8 corpus boards that
+    // really do have pills at the frame (cc-i03 7.4%, ibuprofen 11.1%).
+    const cut = (state.result?.maskStats?.borderFg || 0) >= 0.03;
+    els.targetInfo.textContent = touch > 0
+      ? `${touch} pill${touch === 1 ? '' : 's'} touch${touch === 1 ? 'es' : ''} the edge of the photo \u2014 pull back a little to be sure`
+      : cut ? 'Something is cut off at the edge of the photo \u2014 pull back a little to be sure'
+      : '';
+    els.targetInfo.className = (touch > 0 || cut) ? 'target-info over' : 'target-info';
     els.helperReact.textContent = `I count ${state.count}! Check my badges and nudge with + / − if I missed one. 🐶`;
     return;
   }
@@ -974,7 +1234,7 @@ async function maybeRefineWithSam(sourceCanvas, primary) {
       } });
     if (state.result !== primary || primary.userAdjusted || els.resultScreen.hidden) return;
     if (!sm) { updateCountUI(); return; }
-    const r2 = countPills(state.cv, sourceCanvas, { maxDim: 1280,
+    const r2 = await countAsync(sourceCanvas, { maxDim: 1280,
       variant: 'consensus', maskCandidate: sm.cand });
     if (state.result !== primary || primary.userAdjusted || els.resultScreen.hidden) return;
     if (r2.maskChosen !== 'ext') { updateCountUI(); return; }
@@ -992,6 +1252,7 @@ async function maybeRefineWithSam(sourceCanvas, primary) {
     }
     autoUpload(r2);
   } catch (e) {
+    if (e && e.cancelled) return; // Retake while refining: nothing to restore
     console.warn('sam refinement skipped', e);
     if (state.result === primary) updateCountUI();
   }
@@ -1181,6 +1442,7 @@ els.shutter.addEventListener('click', async () => {
 function freezeLive() {
   clearInterval(state.liveTimer);
   state.liveTimer = null;
+  liveGen++; // an in-flight async tick must not reschedule itself
   clearInterval(previewTimer);
   previewTimer = null;
   state.live = false;
@@ -1451,8 +1713,11 @@ function openDebugSheet(canvas, label) {
   state.debugSource = canvas || null;
   state.debugLabel = label || '';
   document.getElementById('debug-sheet').hidden = false;
+  // The sheet needs the in-page engine (synchronous stage capture); it is
+  // loaded on first use because normal counting lives in the worker.
+  document.getElementById('debug-sub').textContent = 'Loading engine…';
   // Paint the sheet first, then run the expensive pipeline pass.
-  requestAnimationFrame(() => requestAnimationFrame(renderDebugSheet));
+  ensureCV().catch(() => {}).then(() => requestAnimationFrame(() => requestAnimationFrame(renderDebugSheet)));
 }
 
 function renderDebugSheet() {
@@ -1466,7 +1731,7 @@ function renderDebugSheet() {
   // whatever is currently on the result screen.
   const src = state.debugSource || state.croppedCanvas || state.sourceCanvas;
   if (!src || !state.cv) {
-    sub.textContent = state.debugLabel || 'No photo to inspect yet.';
+    sub.textContent = !state.cv ? 'Engine failed to load.' : (state.debugLabel || 'No photo to inspect yet.');
     return;
   }
 
@@ -1664,21 +1929,34 @@ function drawCropBox() {
   box.style.height = `${crop.h * s * k}px`;
 }
 
+// One recount in flight at a time. A drag fires many debounced recounts and
+// each is a full-quality pass (2-30s); queueing them all would leave the
+// worker replaying stale boxes for minutes. Instead, a recount that arrives
+// while one is running marks it dirty, and the LATEST box is counted once
+// the current one lands.
+let cropJob = null;
+let cropDirty = false;
 function recountCropped() {
   if (!state.sourceCanvas) return;
+  if (cropJob) { cropDirty = true; return; }
   const c = document.createElement('canvas');
   c.width = Math.max(16, Math.round(crop.w));
   c.height = Math.max(16, Math.round(crop.h));
   c.getContext('2d').drawImage(state.sourceCanvas,
     Math.round(crop.x), Math.round(crop.y), Math.round(crop.w), Math.round(crop.h),
     0, 0, c.width, c.height);
-  try {
-    const r = countPills(state.cv, c, { maxDim: 1280, variant: 'consensus' });
+  const gen = countGen;
+  cropJob = countAsync(c, { maxDim: 1280, variant: 'consensus' }).then((r) => {
+    if (gen !== countGen) return; // retake/new photo while counting
     state.result = r;
     state.count = r.count;
     state.croppedCanvas = c;
-    els.countValue.textContent = r.count;
-  } catch { /* keep previous count */ }
+    if (crop.on) els.countValue.textContent = r.count;
+    else { showPhoto(c); showResult(c, r); } // box was committed while this ran
+  }).catch(() => { /* keep previous count */ }).finally(() => {
+    cropJob = null;
+    if (cropDirty) { cropDirty = false; if (gen === countGen) recountCropped(); }
+  });
 }
 
 function setAdjust(on) {
@@ -1754,6 +2032,7 @@ els.adjustBtn.addEventListener('click', () => setAdjust(!crop.on));
 }
 
 els.retake.addEventListener('click', () => {
+  cancelCounts('retake'); // doubles as Cancel while a count is running
   setAdjust(false);
   showScreen('camera');
   if (state.stream) setLive(true); // un-freeze: the stream is still open
@@ -1773,7 +2052,11 @@ els.historyClear.addEventListener('click', () => {
 // Test hook: lets the harness drive the multi-frame path directly
 // (?dev=1 only — analyze is otherwise module-private by design).
 if (new URLSearchParams(location.search).has('dev')) {
-  window.__valeye = { analyze, countPills: (c, o) => countPills(state.cv, c, o), state };
+  window.__valeye = {
+    analyze, state, wk,
+    countAsync, cancelCounts, ensureCV,
+    countPills: (c, o) => countPills(state.cv, c, o), // main-thread path (call ensureCV() first)
+  };
 }
 
 // ---------- boot ----------

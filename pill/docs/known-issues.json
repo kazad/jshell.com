@@ -841,5 +841,18 @@
     "what": "Photometric rim contrast per placed pill (|luma inside 0.5r − luma in ring 1.15-1.4r| / image std, median over placements) as a texture-invention veto. tools/rim-contrast.mjs.",
     "numbers": "Texture failures: empty-wood 0.309, text 0.415, empty-yellow 0.088, qr 0.835, checker 1.333. Exact boards: cc-d01 2.80, r-90dbe20e 1.91, r-7ff7fd99 1.84, t2-white-capsules-wood 1.27 — and t2-salmon-pentagon (90/90 exact) 0.028, BELOW every failure.",
     "why": "On a fused raft the ring samples land on neighbouring pills, so contrast collapses exactly like texture. The signal separates ISOLATED pills from texture, which is the case that already works. A checkerboard is genuinely high-contrast blobs and beats the capsule board."
+  },
+  "quick-bake-does-not-refresh-traces": {
+    "date": "2026-09-02",
+    "status": "PROCESS FACT — recorded in HANDOFF",
+    "what": "tools/bake-parallel.mjs writes docs/test-debug.json ONLY without --quick (line ~119: if (!quick)). Every --quick bake leaves the trace file from the last FULL bake; only its counterHash field changes.",
+    "consequence": "All trace replays this session (raft-unit-pieces, texture veto, groundless circles, sheet capacity, flagged-fraction, smooth-split) ran against traces from the last full bake. The stages they replayed were unchanged in code, so the conclusions hold, but boards added since (wild/*) have NO trace rows, and any NEW debug field (e.g. maskstats.borderFg) is absent until a full bake runs.",
+    "rule": "Before replaying a threshold against docs/test-debug.json: check its counterHash matches HEAD and that the field you grep for is actually present; otherwise run a full bake (node tools/bake-parallel.mjs, no --quick) first."
+  },
+  "mixed-sizes-and-edge-signals": {
+    "date": "2026-09-02",
+    "status": "SHIPPED (gated, identical: Node 258/266, browser 259/266, adv 51/56)",
+    "what": "(1) One-medication check in the confidence block: per-pill areas split at the largest consecutive ratio; both sides >=3 and upper mean >=1.8x lower -> confidence <=0.5 + confidenceParts.mixedSizes; app says 'two different sizes — one medication at a time'. (2) result.edgeTouch = placements within 0.6 radii of the frame. (3) maskStats.borderFg = fraction of the frame border that is mask foreground (cut-yellow 0.030, cut-wood 0.096, cc-d01 0.008, salmon 0.017). App shows 'N pills touch the edge' or 'something is cut off' from these.",
+    "honest": "The mixed-sizes check does NOT catch the sweep fixture c9-mixed-size-yellow (39@0.81): the 2x pills are split into units before the confidence block, so per-pill areas come out unimodal. It catches only mixtures whose large pills survive as single units. The fused mixed-meds board (59 for 28) is a raft problem, untouched. A lone-pill confidence floor was tried and REMOVED: the consensusEligible<=2 rule that refuses a lone blob is correct (a fused raft with invisible seams is indistinguishable from one big pill), and a smooth outline cannot refute it."
   }
 }

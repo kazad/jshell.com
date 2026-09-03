@@ -1,4 +1,4 @@
-const CACHE = 'valeye-v20260902-1633';
+const CACHE = 'valeye-v20260902-1711';
 const ASSETS = [
   './',
   'index.html',
@@ -7,6 +7,7 @@ const ASSETS = [
   'js/app.js',
   'js/counter.js',
   'js/sam.js',
+  'js/count-worker.js',
   'vendor/opencv.js',
   'manifest.webmanifest',
   'icons/icon.svg',

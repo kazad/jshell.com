@@ -2855,11 +2855,25 @@ export function countPills(cv, source, opts = {}) {
       for (let i = 0; i < nM; i++) {
         if (mdM[i] && grayM[i] >= 225 && satM[i] <= 45) glossN++;
       }
+      // borderFg = fraction of the frame's border pixels that are mask
+      // foreground. A pill sliced by the frame is counted or dropped depending
+      // on how much of it survives (measured 1/3, 2/2, 5/6, 0/8 across four
+      // boards) — nothing downstream can make that right, but the MASK can
+      // still say that something is cut off, whether or not it was counted
+      // (measured: 3.0% on a board with three sliced pills, ~0 on clean
+      // boards, which are inset 4% by both capture paths).
+      let borderFgN = 0, borderN = 0;
+      if (wM > 2 && hM > 2) {
+        for (let x = 0; x < wM; x++) { borderN += 2; if (mdM[x]) borderFgN++; if (mdM[(hM - 1) * wM + x]) borderFgN++; }
+        for (let y = 1; y < hM - 1; y++) { borderN += 2; if (mdM[y * wM]) borderFgN++; if (mdM[y * wM + wM - 1]) borderFgN++; }
+      }
       opts.__maskStats = { comps: compCountM((i) => mdM[i]), fg: onA,
-        gloss: onA ? +(glossN / onA).toFixed(4) : 0 };
+        gloss: onA ? +(glossN / onA).toFixed(4) : 0,
+        borderFg: borderN ? +(borderFgN / borderN).toFixed(4) : 0 };
       if (opts.debug) {
         opts.debug({ stage: 'maskstats', comps: opts.__maskStats.comps,
-          fg: opts.__maskStats.fg, gloss: opts.__maskStats.gloss });
+          fg: opts.__maskStats.fg, gloss: opts.__maskStats.gloss,
+          borderFg: opts.__maskStats.borderFg });
       }
       const fracB = onB / nM;
       if (fracB > 0.02 && fracB < 0.45 && onA > 0
@@ -11304,6 +11318,52 @@ export function countPills(cv, source, opts = {}) {
           if (out.confidence > 0.5) out.confidence = 0.5;
           out.confidenceParts.smoothSplit = excess;
         }
+      }
+      // ONE MEDICATION PER PHOTO is a scope rule the counter never checked:
+      // two pill sizes mixed together counted 39 for 36 at conf 0.81 and two
+      // medications 59 for 28 at 0.706 (input sweep 2026-09-01). The evidence
+      // is already in `areas` (one entry per placed pill, at the per-pill area
+      // the pipeline assigned): a single medication is unimodal, a mixture is
+      // bimodal with a clear gap. Split the sorted areas at the largest
+      // consecutive ratio; if both sides hold >= 3 pills and the upper mean
+      // is >= 1.8x the lower, refuse. Threshold reasoning: on-edge pills keep
+      // ~2/3 of their flat area and capsule end-on views ~1/2, so a genuine
+      // single population can span ~1.5x; 1.8x with >= 3 members on each side
+      // is a second population.
+      if (areas.length >= 6) {
+        let bestI = -1, bestR = 1;
+        for (let i = 3; i <= areas.length - 3; i++) {
+          const rr = areas[i] / Math.max(1, areas[i - 1]);
+          if (rr > bestR) { bestR = rr; bestI = i; }
+        }
+        if (bestI > 0 && bestR >= 1.35) {
+          const lo = areas.slice(0, bestI), hi = areas.slice(bestI);
+          const mlo = lo.reduce((a, b) => a + b, 0) / lo.length;
+          const mhi = hi.reduce((a, b) => a + b, 0) / hi.length;
+          if (mhi >= 1.8 * mlo) {
+            opts.debug?.({ stage: 'mixed-sizes', lo: lo.length, hi: hi.length,
+              ratio: +(mhi / mlo).toFixed(2), gap: +bestR.toFixed(2) });
+            out.lowConfidence = Math.max(1, out.lowConfidence || 0);
+            if (out.confidence > 0.5) out.confidence = 0.5;
+            out.confidenceParts.mixedSizes = +(mhi / mlo).toFixed(2);
+          }
+        }
+      }
+      // PILLS TOUCHING THE FRAME EDGE. A sliced pill is counted or not
+      // depending on how much of it survives the mask (measured 1/3, 2/2,
+      // 5/6, 0/8 across four boards) — no policy can make that right, only
+      // the user can, by pulling back. Report how many placements sit within
+      // 0.6 radii of the frame so the app can say so.
+      {
+        const m0 = 0.6 * Math.max(1, radiusEst);
+        let touch = 0;
+        for (const g of shaped) {
+          const pts = (g.pills && g.pills.length) ? g.pills : [g];
+          for (const pt of pts) {
+            if (pt.cx < m0 || pt.cy < m0 || pt.cx > w - m0 || pt.cy > h - m0) touch++;
+          }
+        }
+        out.edgeTouch = touch;
       }
     } else {
       out.confidence = 0;

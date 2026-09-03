@@ -225,6 +225,8 @@ body {
 }
 
 /* Full-width primary action at the top of the dock — never over the camera. */
+/* the [hidden] attribute loses to the display set below; this restores it */
+.use-count[hidden] { display: none !important; }
 .use-count {
   display: block;
   width: calc(100% - 52px);
